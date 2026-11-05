@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <title>Cicori Good Service</title>
+  <link rel="stylesheet" href="login.css">
+</head>
+<body data-screen="initial">
+  <div class="card">
+    <header class="titlebar">
+      <div class="titlebar-brand">
+        <svg class="mark-sm" viewBox="25 -35 875 875" aria-hidden="true"><use href="#cgs-mark"/></svg>
+        <span>Cicori Good Service</span>
+      </div>
+      <button class="icon-btn" id="btn-close" type="button" aria-label="关闭" title="关闭">
+        <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 1.5l9 9m0-9l-9 9" /></svg>
+      </button>
+    </header>
+
+    <svg class="defs" width="0" height="0" aria-hidden="true">
+      <defs>
+        <linearGradient id="cgs-ring" x1="230" y1="180" x2="660" y2="650" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#7c5cf0"/>
+          <stop offset="0.38" stop-color="#5129b8"/>
+          <stop offset="0.75" stop-color="#2f1470"/>
+          <stop offset="1" stop-color="#1e0d45"/>
+        </linearGradient>
+        <linearGradient id="cgs-ringShine" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#c4b5fd" stop-opacity="0.55"/>
+          <stop offset="0.5" stop-color="#c4b5fd" stop-opacity="0.18"/>
+          <stop offset="1" stop-color="#c4b5fd" stop-opacity="0"/>
+        </linearGradient>
+        <linearGradient id="cgs-bladeL" x1="300" y1="0" x2="470" y2="0" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#1e0d45"/>
+          <stop offset="0.6" stop-color="#4c22a8"/>
+          <stop offset="1" stop-color="#9478ff"/>
+        </linearGradient>
+        <linearGradient id="cgs-bladeR" x1="463" y1="0" x2="626" y2="0" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#6a3fe0"/>
+          <stop offset="0.5" stop-color="#3a1990"/>
+          <stop offset="1" stop-color="#1a0b3a"/>
+        </linearGradient>
+        <linearGradient id="cgs-spike" x1="35" y1="0" x2="185" y2="0" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#2a1263"/>
+          <stop offset="0.7" stop-color="#5129b8"/>
+          <stop offset="1" stop-color="#b394f0"/>
+        </linearGradient>
+        <linearGradient id="cgs-spikeDown" x1="0" y1="690" x2="0" y2="795" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#b394f0"/>
+          <stop offset="0.35" stop-color="#5129b8"/>
+          <stop offset="1" stop-color="#2a1263"/>
+        </linearGradient>
+        <linearGradient id="cgs-accent" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#6f8dff"/>
+          <stop offset="0.5" stop-color="#b08cf0"/>
+          <stop offset="1" stop-color="#f08cc0"/>
+        </linearGradient>
+        <linearGradient id="cgs-accentDark" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#5a4fd6"/>
+          <stop offset="0.6" stop-color="#8450c8"/>
+          <stop offset="1" stop-color="#9c3f80"/>
+        </linearGradient>
+        <mask id="cgs-ringCut" maskUnits="userSpaceOnUse" x="0" y="-50" width="924" height="900">
+          <rect x="0" y="-50" width="924" height="900" fill="#fff"/>
+          <g fill="#000" stroke="#000" stroke-width="30" stroke-linejoin="round">
+            <path d="M463 8 L300 692 L372 612 L463 175 L555 612 L626 692 Z"/>
+          </g>
+        </mask>
+        <g id="cgs-mark">
+          <g mask="url(#cgs-ringCut)" fill="none" stroke-width="44">
+            <path d="M640.5 300 A220 220 0 1 0 642.4 516.7" stroke="url(#cgs-ring)"/>
+            <path d="M640.5 300 A220 220 0 1 0 642.4 516.7" stroke="url(#cgs-ringShine)" stroke-width="8" transform="translate(-14 -6)"/>
+          </g>
+          <path d="M35 410 L184 384 L184 436 Z" fill="url(#cgs-spike)"/>
+          <path d="M700 368 L890 408 L700 452 L726 410 Z" fill="url(#cgs-accent)"/>
+          <path d="M700 368 L890 408 L726 410 Z" fill="#fff" fill-opacity="0.12"/>
+          <path d="M440 692 L488 692 L463 795 Z" fill="url(#cgs-spikeDown)"/>
+          <path d="M463 8 L300 692 L372 612 L463 175 Z" fill="url(#cgs-bladeL)"/>
+          <path d="M463 8 L463 175 L555 612 L626 692 Z" fill="url(#cgs-bladeR)"/>
+          <path d="M463 14 L463 172" stroke="#d8c9ff" stroke-opacity="0.45" stroke-width="2"/>
+          <path d="M465 422 L388 568 L465 505 Z" fill="url(#cgs-accent)"/>
+          <path d="M465 422 L465 505 L542 568 Z" fill="url(#cgs-accentDark)"/>
+        </g>
+      </defs>
+    </svg>
+
+    <main class="stage">
+      <!-- 1. initial -->
+      <section class="screen" data-for="initial">
+        <svg class="mark-lg" viewBox="25 -35 875 875" aria-hidden="true"><use href="#cgs-mark"/></svg>
+        <h1>Cicori Good Service</h1>
+        <p class="lead">登录后即可使用 Cicori Good Service<br>提供的全部模型</p>
+        <button class="primary" id="btn-login" type="button">使用 Cicori Good Service 登录</button>
+        <button class="subtle" id="btn-third" type="button">使用第三方登录</button>
+      </section>
+
+      <!-- 2. progress -->
+      <section class="screen" data-for="progress">
+        <div class="spinner" aria-hidden="true"></div>
+        <h2 id="progress-title">正在创建登录会话</h2>
+        <ol class="steps">
+          <li data-step="creating"><i></i><span>正在创建登录会话</span></li>
+          <li data-step="solving"><i></i><span>正在进行安全校验</span></li>
+          <li data-step="saving"><i></i><span>正在保存配置</span></li>
+        </ol>
+        <button class="ghost" id="btn-cancel-progress" type="button">取消</button>
+      </section>
+
+      <!-- 3. waiting -->
+      <section class="screen" data-for="waiting">
+        <h2>请在浏览器中完成授权</h2>
+        <p class="lead small">已打开登录页面。请使用你的 Cicori 账户登录，并确认关联此设备。</p>
+        <div class="linkbox">
+          <span class="linkbox-label">验证链接</span>
+          <code id="link-text"></code>
+        </div>
+        <div class="row">
+          <button class="primary compact" id="btn-open" type="button">打开浏览器</button>
+          <button class="secondary compact" id="btn-copy" type="button">复制链接</button>
+        </div>
+        <div class="wait">
+          <span class="pulse" aria-hidden="true"></span>
+          <span>等待授权中…</span>
+          <span class="sep">·</span>
+          <span>剩余 <b id="countdown">15:00</b></span>
+        </div>
+        <button class="ghost" id="btn-cancel-wait" type="button">取消</button>
+      </section>
+
+      <!-- 4. success -->
+      <section class="screen" data-for="success">
+        <div class="badge ok" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+        </div>
+        <h2>登录成功</h2>
+        <div class="account">
+          <span id="acc-name"></span>
+          <span class="tier" id="acc-tier"></span>
+        </div>
+        <p class="lead small">正在进入 CGS Desktop…</p>
+      </section>
+
+      <!-- 5. error -->
+      <section class="screen" data-for="error">
+        <div class="badge bad" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 7v6.5M12 17v.01"/></svg>
+        </div>
+        <h2>登录未完成</h2>
+        <p class="lead small" id="error-text" role="alert"></p>
+        <button class="primary" id="btn-retry" type="button">重试</button>
+        <button class="subtle" id="btn-third-2" type="button">使用第三方登录</button>
+      </section>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="login.js"></script>
+</body>
+</html>

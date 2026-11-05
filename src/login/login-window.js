@@ -1,0 +1,167 @@
+"use strict";
+// Startup login popup. openLoginWindow({ agentDir, baseUrl }) → Promise<"cgs" | "third-party">.
+// The renderer (login.html/js/css) is pure presentation; the whole device-login flow runs here in the
+// main process and is pushed to the renderer as `state` snapshots over IPC.
+
+const path = require("node:path");
+const { app, BrowserWindow, clipboard, ipcMain, nativeImage, nativeTheme, shell } = require("electron");
+const { runDeviceFlow, CgsError } = require("../cgs/device-flow");
+const { completeLogin } = require("../cgs/config-writer");
+
+const WIDTH = 440;
+const HEIGHT = 580;
+const SUCCESS_HOLD_MS = 1800;
+const CH = {
+  state: "cgs-login:state",
+  start: "cgs-login:start",
+  cancel: "cgs-login:cancel",
+  openLink: "cgs-login:open-link",
+  copyLink: "cgs-login:copy-link",
+  thirdParty: "cgs-login:third-party",
+  close: "cgs-login:close",
+  ready: "cgs-login:ready",
+};
+
+let active = null;
+
+function openLoginWindow({ agentDir, baseUrl }) {
+  if (active) {
+    if (!active.win.isDestroyed()) active.win.focus();
+    return active.promise;
+  }
+  let win;
+  const promise = new Promise(resolve => {
+    win = new BrowserWindow({
+      width: WIDTH,
+      height: HEIGHT,
+      useContentSize: true,
+      center: true,
+      show: false,
+      frame: false,
+      resizable: false,
+      maximizable: false,
+      minimizable: false,
+      fullscreenable: false,
+      backgroundColor: nativeTheme.shouldUseDarkColors ? "#1e1e1e" : "#ffffff",
+      title: "Cicori Good Service",
+      icon: nativeImage.createFromPath(
+        path.join(__dirname, "..", "..", "assets", process.platform === "win32" ? "cgs-icon.ico" : "cgs-icon.png"),
+      ),
+      webPreferences: {
+        preload: path.join(__dirname, "login-preload.js"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        spellcheck: false,
+      },
+    });
+    win.setMenuBarVisibility(false);
+
+    let state = { screen: "initial" };
+    let verificationUrl = null;
+    let flow = null; // AbortController of the running flow
+    let settled = false;
+    let closeTimer = null;
+
+    const push = next => {
+      state = next;
+      if (!win.isDestroyed()) win.webContents.send(CH.state, state);
+    };
+
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      flow?.abort();
+      clearTimeout(closeTimer);
+      active = null;
+      for (const ch of Object.values(CH)) ipcMain.removeHandler(ch);
+      if (!win.isDestroyed()) win.destroy();
+      resolve(result);
+    };
+
+    const fromWindow = handler => (event, ...args) => {
+      if (win.isDestroyed() || event.sender !== win.webContents) return undefined;
+      return handler(...args);
+    };
+
+    async function start() {
+      flow?.abort();
+      const controller = new AbortController();
+      flow = controller;
+      verificationUrl = null;
+      let opened = false;
+      push({ screen: "progress", step: "creating" });
+      try {
+        const result = await runDeviceFlow({
+          baseUrl,
+          appVersion: app.getVersion(),
+          signal: controller.signal,
+          onProgress: p => {
+            if (controller.signal.aborted) return;
+            if (p.phase === "creating") push({ screen: "progress", step: "creating" });
+            else if (p.phase === "solving") push({ screen: "progress", step: "solving" });
+            else if (p.phase === "waiting") {
+              verificationUrl = p.verificationUrl;
+              push({ screen: "waiting", verificationUrl: p.verificationUrl, expiresAt: p.expiresAt });
+              if (!opened) {
+                opened = true;
+                openExternalSafe(p.verificationUrl);
+              }
+            }
+          },
+        });
+        push({ screen: "progress", step: "saving" });
+        await completeLogin({ agentDir, baseUrl, ...result, signal: controller.signal });
+        if (controller.signal.aborted) return;
+        push({ screen: "success", tier: result.tier, username: result.username });
+        closeTimer = setTimeout(() => finish("cgs"), SUCCESS_HOLD_MS);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        push({ screen: "error", message: userMessage(err) });
+      }
+    }
+
+    function cancel() {
+      flow?.abort();
+      flow = null;
+      verificationUrl = null;
+      push({ screen: "initial" });
+    }
+
+    ipcMain.handle(CH.ready, fromWindow(() => state));
+    ipcMain.handle(CH.start, fromWindow(() => void start()));
+    ipcMain.handle(CH.cancel, fromWindow(cancel));
+    ipcMain.handle(CH.openLink, fromWindow(() => verificationUrl && openExternalSafe(verificationUrl)));
+    ipcMain.handle(CH.copyLink, fromWindow(() => verificationUrl && clipboard.writeText(verificationUrl)));
+    ipcMain.handle(CH.thirdParty, fromWindow(() => finish("third-party")));
+    ipcMain.handle(CH.close, fromWindow(() => finish("third-party")));
+
+    // Block any navigation / new windows from the page.
+    win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    win.webContents.on("will-navigate", e => e.preventDefault());
+    win.once("ready-to-show", () => win.show());
+    win.on("closed", () => finish("third-party"));
+    win.loadFile(path.join(__dirname, "login.html"));
+  });
+  active = { win, promise };
+  return promise;
+}
+
+function openExternalSafe(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol === "https:" || u.protocol === "http:") {
+      return Promise.resolve(shell.openExternal(u.href)).catch(() => {});
+    }
+  } catch {
+    // fall through
+  }
+  return undefined;
+}
+
+function userMessage(err) {
+  if (err instanceof CgsError) return err.userMessage;
+  return `登录失败：${err?.message || "未知错误"}`;
+}
+
+module.exports = { openLoginWindow };
