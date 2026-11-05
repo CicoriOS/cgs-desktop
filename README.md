@@ -51,6 +51,17 @@ and `git`/`npm`/`bun`.
 
 ## Architecture
 
+- `src/main/main.js`: single instance → `prepareAgentDir` (installs the CGS extension, config defaults) → starts services in
+  parallel with the login check → the CGS login popup **only when no credentials are saved** (neither CGS nor a
+  third-party provider login) → frameless main window (loading screen first) on `http://127.0.0.1:<port>/`. External links
+  open in the system browser. `nativeTheme.themeSource = "system"`, so Chromium's `prefers-color-scheme` follows the OS.
+- `src/main/services.js`: spawns `ompweb --no-open -H 127.0.0.1 -p <free port>`, waits for `Ready on`, then `ompweb host`.
+  Env for both: `PI_CODING_AGENT_DIR=<userData>/omp/agent`, `OMP_WEB_OMP_BIN=<bundled omp>`, bundled omp dir prefixed to `PATH`,
+  `PUPPETEER_EXECUTABLE_PATH=<resources>/chromium/chrome-win64/chrome.exe` (dev: `vendor/<target>/chromium/...`). That variable
+  outranks omp's system-Chrome/Edge lookup and its Chrome-for-Testing download, so omp's browser tool launches only the
+  bundled build, offline, and never a system browser. Its headless profile is omp's own throwaway `omp-chrome-profile-*`
+  temp dir (deleted on close), never the user's Chrome profile. No omp settings key is involved.
+  Logs go to `<userData>/logs/`; both processes are killed (process tree on Windows) on quit, and a crash shows an error dialog.
 - `src/main/main-preload.js`: injected into ompweb (no source patches; a `MutationObserver` re-attaches everything after
   React re-renders). It adds
   - minimize / maximize-restore / close buttons right of ompweb's right-panel toggle (floating at the top-right when it is
