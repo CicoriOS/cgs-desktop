@@ -126,6 +126,25 @@ Behind a proxy, `npm install` / the build also need `ELECTRON_GET_USE_PROXY=1 GL
     it, unless `/api/provider-usage` (fetched by the preload, decided from `reports[].provider`, not text) contains a
     non-`cgs*` provider (e.g. an Anthropic/Codex OAuth account): then the widget stays and only its `cgs*` rows are hidden.
     Signed out → the widget is untouched.
+  - **CGS section at the top of Settings → API Keys & Providers** (`#settings-panel-providers`, by id; below ompweb's heading).
+    Signed out: CGS logo, short description and 「登录 CGS」 (the same device-link popup; a successful login applies the preset
+    by the usual first-login rule). Signed in: logo, username, tier badge, balance + current plan (from the usage snapshot, no
+    second fetch), connection status (连接正常 / 数据可能已过期 / 密钥已失效), the registered providers
+    (`cgs-openai` / `cgs-anthropic` / `cgs-gemini`, with model counts) and the buttons 「打开 CGS 后台」 (system browser,
+    `<baseUrl>/dashboard`; the opened URL is logged as `[cgs] openExternal …`), 「管理预设」 (jumps to the CGS 预设 block),
+    「刷新」 and 「退出账户」. When the server rejects the key (401) the card shows 「密钥已失效」 with 「重新登录」 and 「退出账户」.
+    IPC: `cgs:refresh-account`, `cgs:open-console`, `cgs:logout` (`cgsDesktop.refreshAccount / openConsole / logout`).
+  - **退出账户** (after an in-page confirmation): `CgsController.logout()` stops the polling, waits for requests in flight,
+    calls `POST <baseUrl>/api/device/logout` with the device key (200 revoked, 401 already revoked; a network error or 5xx
+    only shows the toast 「已在本机退出，但服务器端密钥未能吊销，可在 CGS 后台删除」), then cleans up locally
+    (`signOutLocally` in `src/cgs/config-writer.js`): deletes `<agentDir>/cgs/credentials.json`, removes
+    `providers.cgs-*` from `models.yml`, removes from `config.yml` only the preset-managed keys that still point at `cgs-*`
+    models (`modelRoles.default/task/web/smol/scout`, the `cgs-*` entries of `retry.fallbackChains.web`; values the user
+    changed stay) and resets `state.json` (`appliedPreset`, `lastKnownTier`, `dismissedTier`) so the next login re-applies
+    the preset. models.yml's mtime is bumped, which makes ompweb drop its model cache and restart its utility omp (the same
+    path as after login; already running sessions keep their providers). The sidebar row, Usage card and tier bubble
+    disappear, ompweb's provider-usage widget and omp logo return and the presets are greyed out. The login popup on the
+    next launch follows the usual rule (only when no credentials of any kind are saved).
 - Branding assets (`assets/`, regenerate with `npm run icons`, which rasterizes via Electron): `omp-logo.svg` / `icon.png` /
   `icon.ico` are ompweb's default mark (`vendor/src/ompweb/public/icon.svg`) used for the exe/installer icon, the default
   window/taskbar icon and the loading screen; `cgs-logo.svg` / `cgs-icon.png` / `cgs-icon.ico` come from
