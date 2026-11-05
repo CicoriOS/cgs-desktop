@@ -17,35 +17,45 @@ const { normalizeTier, readState, updateState } = require("./state");
 const KEY_DEFAULT = ["modelRoles", "default"];
 const KEY_TASK = ["modelRoles", "task"];
 const KEY_WEB = ["modelRoles", "web"];
+const KEY_WEB_CHAIN = ["retry", "fallbackChains", "web"];
 const KEY_SMOL = ["modelRoles", "smol"];
 const KEY_SCOUT = ["task", "agentModelOverrides", "scout"];
 
 /** CGS-managed keys. Applying a preset sets its keys and removes the others. */
-const MANAGED_KEYS = [KEY_DEFAULT, KEY_TASK, KEY_WEB, KEY_SMOL, KEY_SCOUT];
+const MANAGED_KEYS = [KEY_DEFAULT, KEY_TASK, KEY_WEB, KEY_WEB_CHAIN, KEY_SMOL, KEY_SCOUT];
 
-/** Search provider: every preset (free included) sets it. */
+/**
+ * Search provider: every preset (free included) sets it, plus a one-entry `retry.fallbackChains.web` that replaces
+ * omp's default web chain (which ends in the session model's own hosted search, i.e. Anthropic). A Gemini failure
+ * then surfaces as a search error instead of silently switching providers.
+ */
 const WEB_MODEL = "cgs-gemini/gemini-3.1-flash-lite";
+const WEB_CHAIN = [WEB_MODEL];
 
 const PRESETS = {
   free: [
     [KEY_DEFAULT, "cgs-openai/deepseek-v4.1-flash:auto"],
     [KEY_WEB, WEB_MODEL],
+    [KEY_WEB_CHAIN, WEB_CHAIN],
   ],
   go: [
     [KEY_DEFAULT, "cgs-anthropic/claude-haiku-5-5:auto"],
     [KEY_TASK, "cgs-openai/deepseek-v4.1-flash:auto"],
     [KEY_WEB, WEB_MODEL],
+    [KEY_WEB_CHAIN, WEB_CHAIN],
   ],
   pro: [
     [KEY_DEFAULT, "cgs-anthropic/claude-sonnet-5-5:auto"],
     [KEY_TASK, "cgs-gemini/gemini-4-argon:auto"],
     [KEY_WEB, WEB_MODEL],
+    [KEY_WEB_CHAIN, WEB_CHAIN],
   ],
   dedicated: [
     [KEY_DEFAULT, "cgs-anthropic/claude-opus-5-5:auto"],
     [KEY_TASK, "cgs-anthropic/claude-sonnet-5-5:low"],
     [KEY_SMOL, "cgs-openai/deepseek-v4.1-flash:auto"],
     [KEY_WEB, WEB_MODEL],
+    [KEY_WEB_CHAIN, WEB_CHAIN],
     [KEY_SCOUT, "cgs-gemini/gemini-3.8-flash:auto"],
   ],
 };

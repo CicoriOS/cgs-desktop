@@ -31,6 +31,7 @@ test("index exports the contract interface", () => {
 });
 
 const WEB = "cgs-gemini/gemini-3.1-flash-lite";
+const WEB_CHAIN = { fallbackChains: { web: [WEB] } };
 
 const EXPECTED = {
   free: {
@@ -38,6 +39,7 @@ const EXPECTED = {
       default: "cgs-openai/deepseek-v4.1-flash:auto",
       web: WEB,
     },
+    retry: WEB_CHAIN,
   },
   go: {
     modelRoles: {
@@ -45,6 +47,7 @@ const EXPECTED = {
       task: "cgs-openai/deepseek-v4.1-flash:auto",
       web: WEB,
     },
+    retry: WEB_CHAIN,
   },
   pro: {
     modelRoles: {
@@ -52,6 +55,7 @@ const EXPECTED = {
       task: "cgs-gemini/gemini-4-argon:auto",
       web: WEB,
     },
+    retry: WEB_CHAIN,
   },
   dedicated: {
     modelRoles: {
@@ -60,6 +64,7 @@ const EXPECTED = {
       smol: "cgs-openai/deepseek-v4.1-flash:auto",
       web: WEB,
     },
+    retry: WEB_CHAIN,
     task: { agentModelOverrides: { scout: "cgs-gemini/gemini-3.8-flash:auto" } },
   },
 };
@@ -81,6 +86,19 @@ test("free preset has web role but no subagent roles or overrides", async () => 
   const cfg = parsed(dir);
   assert.equal(cfg.task, undefined);
   assert.deepEqual(Object.keys(cfg.modelRoles).sort(), ["default", "web"]);
+});
+
+test("web fallback chain replaces a stale web chain and keeps other retry settings and chains", async () => {
+  const dir = tmpDir();
+  fs.writeFileSync(
+    path.join(dir, "config.yml"),
+    ["retry:", "  maxRetries: 7", "  fallbackChains:", "    web: [anthropic/claude-haiku-4-5]", "    default: [a/b]", ""].join("\n"),
+  );
+  await cw.applyPreset(dir, "go");
+  const cfg = parsed(dir);
+  assert.deepEqual(cfg.retry.fallbackChains.web, [WEB]);
+  assert.deepEqual(cfg.retry.fallbackChains.default, ["a/b"]);
+  assert.equal(cfg.retry.maxRetries, 7);
 });
 
 test("preset switch removes stale CGS keys from the previous preset and prunes emptied maps", async () => {
