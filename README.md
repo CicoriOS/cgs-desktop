@@ -41,3 +41,13 @@ On Linux/WSL, if Electron aborts with a `chrome-sandbox` error, run `npm start -
 Set `GITHUB_TOKEN` to avoid API rate limits; `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` are honoured by both the API downloader
 and `git`/`npm`/`bun`.
 
+## Environment variables
+
+| Variable | Effect |
+|---|---|
+| `CGS_BASE_URL` | CGS server (default `https://api.cicori.com`), e.g. a local new-api for testing |
+| `GITHUB_TOKEN` | used by `scripts/fetch-upstream.mjs` / `scripts/build-ompweb.mjs` for GitHub API and `git` calls |
+| `HTTPS_PROXY` | proxy for the fetch / build scripts |
+
+- `src/cgs/`, `src/login/`, `plugin/omp-cgs/`: CGS device-link login (popup supports light and dark), config writer, tier
+  polling and the omp provider extension.
