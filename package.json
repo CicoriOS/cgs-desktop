@@ -10,6 +10,9 @@
     "node": ">=24"
   },
   "scripts": {
+    "fetch": "node scripts/fetch-upstream.mjs",
+    "fetch:win": "node scripts/fetch-upstream.mjs --target win-x64",
+    "fetch:linux": "node scripts/fetch-upstream.mjs --target linux-x64",
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
