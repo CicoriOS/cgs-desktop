@@ -49,5 +49,12 @@ and `git`/`npm`/`bun`.
 | `GITHUB_TOKEN` | used by `scripts/fetch-upstream.mjs` / `scripts/build-ompweb.mjs` for GitHub API and `git` calls |
 | `HTTPS_PROXY` | proxy for the fetch / build scripts |
 
+## Architecture
+
+- Branding assets (`assets/`, regenerate with `npm run icons`, which rasterizes via Electron): `omp-logo.svg` / `icon.png` /
+  `icon.ico` are ompweb's default mark (`vendor/src/ompweb/public/icon.svg`) used for the exe/installer icon, the default
+  window/taskbar icon and the loading screen; `cgs-logo.svg` / `cgs-icon.png` / `cgs-icon.ico` come from
+  `~/new-api/web/public/logo.svg` and are the window/taskbar icon while signed in (switched at runtime on tier
+  detection / 401), the in-app brand logo and the login popup logo (always CGS).
 - `src/cgs/`, `src/login/`, `plugin/omp-cgs/`: CGS device-link login (popup supports light and dark), config writer, tier
   polling and the omp provider extension.

@@ -13,6 +13,7 @@
     "fetch": "node scripts/fetch-upstream.mjs",
     "fetch:win": "node scripts/fetch-upstream.mjs --target win-x64",
     "fetch:linux": "node scripts/fetch-upstream.mjs --target linux-x64",
+    "icons": "electron scripts/build-icons.js --no-sandbox",
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
