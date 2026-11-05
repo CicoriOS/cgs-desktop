@@ -613,10 +613,28 @@ async function handleDismissBubble() {
   renderCgsUi();
 }
 
+/**
+ * ompweb loads its provider/model lists when Settings → API Keys & Providers mounts. After the CGS providers appeared or
+ * vanished, ask /api/models (which makes ompweb reload its models when models.yml changed) and then re-mount the panel by
+ * visiting another settings tab and coming back.
+ */
+function refreshOmpwebProviders() {
+  if (!document.querySelector(PROVIDERS_PANEL_SELECTOR)) return;
+  const remount = () => {
+    const other = document.getElementById("settings-tab-models");
+    if (!other || !document.querySelector(PROVIDERS_PANEL_SELECTOR)) return;
+    other.click();
+    setTimeout(() => document.getElementById("settings-tab-providers")?.click(), 50);
+  };
+  fetch("/api/models").catch(() => {}).finally(remount);
+}
+
 async function handleOpenLogin() {
+  const wasSignedIn = Boolean(cgsState && cgsState.signedIn);
   const next = await bridge.openLogin();
   if (next) cgsState = next;
   renderCgsUi();
+  if (next && Boolean(next.signedIn) !== wasSignedIn) refreshOmpwebProviders();
 }
 
 /** Opens ompweb Settings → AI模型默认值 (via ompweb's own sidebar row / tab buttons) and reveals the presets block. */
@@ -1184,6 +1202,7 @@ async function handleLogout() {
   if (!result.serverRevoked) problems.push("已在本机退出，但服务器端密钥未能吊销，可在 CGS 后台删除");
   if (result.cleanupErrors && result.cleanupErrors.length > 0) problems.push(`部分本地配置未能清理：${result.cleanupErrors.join("；")}`);
   showToast(problems.length > 0 ? problems.join("。") : "已退出 CGS 账户，设备密钥已吊销", problems.length > 0 ? 9000 : 4000);
+  refreshOmpwebProviders();
 }
 
 function pcButton(label, action, onClick, variant) {
