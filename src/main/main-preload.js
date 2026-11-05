@@ -8,6 +8,9 @@
 //   4. Branding: while signed in, ompweb's sidebar/brand logo is replaced by the CGS logo and an accent-colour
 //      stylesheet (the new-api console purple) overrides ompweb's accent variables; signed out → ompweb defaults.
 //   5. First-run default theme "system" (only when the user has not chosen one).
+//   6. ompweb's `omp-*` localStorage prefs (language, theme, font size, UI scale, usage-widget prefs, ...) are mirrored
+//      in <userData>/web-prefs.json: restored before ompweb's scripts run, deltas sent back, so they survive an origin
+//      (port) change on top of the stable port from services.choosePort.
 const { contextBridge, ipcRenderer } = require("electron");
 
 const ROOT_ID = "cgs-window-controls";
@@ -89,13 +92,75 @@ try {
   // contextIsolation disabled in a test harness: ignore
 }
 
+// ---- ompweb prefs mirror --------------------------------------------------------------------------------------------
+// ompweb keeps its preferences in localStorage `omp-*` keys, scoped to the page origin. The main process mirrors them in
+// a JSON file: the file is authoritative once it exists (restored here, before ompweb's scripts read localStorage);
+// before that, this origin's own keys seed it. Page scripts run in another world, so Storage cannot be wrapped from
+// here: changes are found by diffing every second (and on unload/hide) and sent as deltas.
+// Keep in sync with PREF_KEY_PATTERN in prefs.js (a test compares the two). Drafts are bulky and per session.
+const PREF_KEY_PATTERN = /^omp-(?!draft-|uploads-draft-)/;
+const PREFS_FLUSH_MS = 1000;
+let prefsMirror = {};
+
+function readLocalPrefs() {
+  const out = {};
+  const storage = window.localStorage;
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i);
+    const value = key !== null && PREF_KEY_PATTERN.test(key) ? storage.getItem(key) : null;
+    if (value !== null) out[key] = value;
+  }
+  return out;
+}
+
+function restorePrefs() {
+  const saved = ipcRenderer.sendSync("cgs:prefs-load");
+  if (!saved || typeof saved !== "object") return;
+  const storage = window.localStorage;
+  for (const key of Object.keys(readLocalPrefs())) if (!(key in saved)) storage.removeItem(key);
+  for (const [key, value] of Object.entries(saved)) {
+    if (PREF_KEY_PATTERN.test(key) && typeof value === "string" && storage.getItem(key) !== value) storage.setItem(key, value);
+  }
+  prefsMirror = { ...saved };
+}
+
+function flushPrefs() {
+  try {
+    const now = readLocalPrefs();
+    const set = {};
+    const remove = [];
+    for (const [key, value] of Object.entries(now)) if (prefsMirror[key] !== value) set[key] = value;
+    for (const key of Object.keys(prefsMirror)) if (!(key in now)) remove.push(key);
+    if (remove.length === 0 && Object.keys(set).length === 0) return;
+    prefsMirror = now;
+    ipcRenderer.send("cgs:prefs-save", { set, remove });
+  } catch {
+    // storage unavailable: nothing to mirror
+  }
+}
+
+const isAppPage = window.location.protocol.startsWith("http");
+try {
+  if (isAppPage) restorePrefs();
+} catch {
+  // storage unavailable: ompweb falls back to its own defaults
+}
+
 // Default to following the OS theme until the user picks one (ompweb stores the choice in localStorage "omp-theme").
 try {
-  if (window.location.protocol.startsWith("http") && window.localStorage.getItem("omp-theme") === null) {
+  if (isAppPage && window.localStorage.getItem("omp-theme") === null) {
     window.localStorage.setItem("omp-theme", "system");
   }
 } catch {
   // storage unavailable: ompweb falls back to its own default
+}
+
+if (isAppPage) {
+  flushPrefs();
+  setInterval(flushPrefs, PREFS_FLUSH_MS);
+  window.addEventListener("pagehide", flushPrefs);
+  window.addEventListener("beforeunload", flushPrefs);
+  document.addEventListener("visibilitychange", flushPrefs);
 }
 
 const ICONS = {

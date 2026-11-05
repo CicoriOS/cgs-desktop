@@ -3,10 +3,17 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, nativeImage, nativeTheme, scr
 const fs = require("node:fs");
 const path = require("node:path");
 const { resolveBinaries, startServices } = require("./services");
+const { PrefsStore } = require("./prefs");
 
 const APP_ROOT = path.resolve(__dirname, "..", "..");
 const MIN_WIDTH = 960;
 const MIN_HEIGHT = 600;
+
+let prefs = null;
+/** Mirror of ompweb's `omp-*` localStorage keys, see prefs.js. */
+function prefsStore() {
+  return (prefs ??= new PrefsStore(path.join(app.getPath("userData"), "web-prefs.json")));
+}
 
 /** @type {import("electron").BrowserWindow | null} */
 let mainWindow = null;
@@ -90,6 +97,7 @@ async function start() {
     binaries,
     agentDir,
     logDir: path.join(app.getPath("userData"), "logs"),
+    portFile: path.join(app.getPath("userData"), "ompweb-port.json"),
     onCrash: fatal,
   });
   servicesReady.then(
@@ -281,6 +289,11 @@ function registerIpc() {
     broadcastCgsState(snap);
     return { ...snap, windowIcon: currentIconKind };
   });
+  // ompweb's `omp-*` localStorage mirror (see prefs.js / main-preload.js): sync load before page scripts, async deltas.
+  ipcMain.on("cgs:prefs-load", (event) => {
+    event.returnValue = prefsStore().load();
+  });
+  ipcMain.on("cgs:prefs-save", (_event, delta) => prefsStore().apply(delta));
 }
 
 let cgsLogoDataUrl = null;

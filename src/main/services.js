@@ -46,6 +46,43 @@ function freeLoopbackPort() {
   });
 }
 
+const DEFAULT_PORT = 39177;
+
+function isPortFree(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.unref();
+    server.once("error", () => resolve(false));
+    server.listen(port, "127.0.0.1", () => server.close(() => resolve(true)));
+  });
+}
+
+function readStoredPort(file) {
+  try {
+    const { port } = JSON.parse(fs.readFileSync(file, "utf8"));
+    return Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The loopback port for ompweb. ompweb's localStorage/cookies are keyed by origin, so the port must not change between
+ * launches: the first launch takes `preferred` (or a random free port when that is taken) and stores it in `file`;
+ * later launches reuse it. When the stored port is busy this launch gets a random free port and the stored one is kept,
+ * so the next launch returns to the usual origin (UI prefs follow via the prefs mirror, see prefs.js).
+ */
+async function choosePort(file, preferred = DEFAULT_PORT) {
+  const stored = readStoredPort(file);
+  const wanted = stored ?? preferred;
+  const port = (await isPortFree(wanted)) ? wanted : await freeLoopbackPort();
+  if (stored === null) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `${JSON.stringify({ port })}\n`);
+  }
+  return port;
+}
+
 function buildEnv({ agentDir, ompBin, chromeBin }) {
   const env = { ...process.env };
   const pathKey = Object.keys(env).find((k) => k.toUpperCase() === "PATH") || "PATH";
@@ -73,16 +110,16 @@ function killTree(child) {
 }
 
 /**
- * Starts ompweb on a free loopback port, waits for its "Ready on" line, then starts `ompweb host`.
- * `onCrash(error)` is invoked once if either process dies while the services are meant to be running.
+ * Starts ompweb on `portFile`'s stable loopback port (see choosePort), waits for its "Ready on" line, then starts
+ * `ompweb host`. `onCrash(error)` is invoked once if either process dies while the services are meant to be running.
  * Returns { url, port, stop }.
  */
-async function startServices({ binaries, agentDir, logDir, onCrash }) {
+async function startServices({ binaries, agentDir, logDir, portFile, onCrash }) {
   fs.mkdirSync(logDir, { recursive: true });
   fs.mkdirSync(agentDir, { recursive: true });
   const env = buildEnv({ agentDir, ompBin: binaries.omp, chromeBin: binaries.chrome });
   const cwd = path.dirname(binaries.ompweb);
-  const port = await freeLoopbackPort();
+  const port = await choosePort(portFile);
   const children = [];
   let stopping = false;
   let crashReported = false;
@@ -165,4 +202,4 @@ async function startServices({ binaries, agentDir, logDir, onCrash }) {
   return { url: `http://127.0.0.1:${port}/`, port, stop };
 }
 
-module.exports = { resolveBinaries, startServices, killTree };
+module.exports = { resolveBinaries, startServices, killTree, choosePort, DEFAULT_PORT };
