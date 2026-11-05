@@ -1,0 +1,13 @@
+#!/bin/sh
+# `wine` stand-in so electron-builder can run Windows tools (rcedit, the NSIS uninstaller stage) on WSL through
+# Windows interop instead of Wine. Linux path arguments are converted with wslpath; NSIS embeds `Z:\...` paths, so
+# Windows needs `Z:` mapped to the distro first:  cmd.exe /c 'net use Z: \\wsl.localhost\<distro> /persistent:no'
+exe="$1"; shift
+for a in "$@"; do
+  case "$a" in
+    /*) if [ -e "$a" ]; then a="$(wslpath -w "$a")"; fi ;;
+  esac
+  set -- "$@" "$a"; shift
+done
+[ -f "$exe" ] && chmod +x "$exe"
+exec "$exe" "$@"

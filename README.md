@@ -41,6 +41,32 @@ On Linux/WSL, if Electron aborts with a `chrome-sandbox` error, run `npm start -
 Set `GITHUB_TOKEN` to avoid API rate limits; `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` are honoured by both the API downloader
 and `git`/`npm`/`bun`.
 
+## Packaging
+
+```sh
+npm run dist:win      # fetches win-x64 upstreams, then builds the NSIS installer into dist/
+```
+
+The installer bundles `vendor/win-x64/omp` → `resources/omp`, `vendor/win-x64/ompweb` → `resources/ompweb`,
+`vendor/win-x64/chromium` → `resources/chromium` and `plugin/omp-cgs` → `resources/plugin/omp-cgs` (all as
+`extraResources`, outside the asar so the executables can run;
+`scripts/after-pack.js` copies ompweb's `node_modules/` because electron-builder never copies those directories itself).
+Output: `dist/CGS Desktop-Setup-<version>.exe` (NSIS, per-user, x64) and `dist/win-unpacked/`. The bundled Chromium adds
+about 149 MB to the installer (279 MB → 428 MB) and ~420 MB unpacked.
+
+On Windows `npm run dist:win` just works. On Linux, electron-builder needs a way to run Windows tools (rcedit for the exe
+icon/version resources, and the NSIS uninstaller stage). On WSL use Windows interop instead of Wine:
+
+```sh
+cmd.exe /c 'net use Z: \\wsl.localhost\<distro> /persistent:no'   # NSIS embeds Z:\... paths
+PATH=$PWD/scripts/wsl-shim:$PATH USE_SYSTEM_WINE=true npm run dist:win
+cmd.exe /c 'net use Z: /delete /y'
+```
+
+Behind a proxy, `npm install` / the build also need `ELECTRON_GET_USE_PROXY=1 GLOBAL_AGENT_HTTPS_PROXY=$HTTPS_PROXY`
+(the Electron binary downloader ignores `HTTPS_PROXY` otherwise).
+
+
 ## Environment variables
 
 | Variable | Effect |

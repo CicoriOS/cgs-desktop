@@ -16,7 +16,8 @@
     "fetch:linux": "node scripts/fetch-upstream.mjs --target linux-x64",
     "icons": "electron scripts/build-icons.js --no-sandbox",
     "start": "electron .",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "dist:win": "node scripts/fetch-upstream.mjs --target win-x64 && electron-builder --win --x64"
   },
   "dependencies": {
     "yaml": "^2.8.1"
@@ -24,5 +25,59 @@
   "devDependencies": {
     "electron": "^45.2.3",
     "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.cicori.cgs-desktop",
+    "productName": "CGS Desktop",
+    "executableName": "CGS Desktop",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "package.json",
+      "src/**/*",
+      "assets/**/*"
+    ],
+    "afterPack": "scripts/after-pack.js",
+    "extraResources": [
+      {
+        "from": "vendor/win-x64/omp",
+        "to": "omp"
+      },
+      {
+        "from": "vendor/win-x64/ompweb",
+        "to": "ompweb"
+      },
+      {
+        "from": "vendor/win-x64/chromium",
+        "to": "chromium"
+      },
+      {
+        "from": "plugin/omp-cgs",
+        "to": "plugin/omp-cgs",
+        "filter": [
+          "**/*",
+          "!node_modules/.cache/**"
+        ]
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    }
   }
 }
