@@ -1,0 +1,13 @@
+{
+  "name": "omp-cgs",
+  "version": "0.1.0",
+  "description": "omp extension registering the CGS (Cicori Good Service) providers from <agentDir>/cgs/credentials.json",
+  "type": "module",
+  "private": true,
+  "license": "UNLICENSED",
+  "omp": {
+    "extensions": [
+      "./index.js"
+    ]
+  }
+}
