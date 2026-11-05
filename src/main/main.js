@@ -8,6 +8,7 @@ const { PrefsStore } = require("./prefs");
 const APP_ROOT = path.resolve(__dirname, "..", "..");
 const MIN_WIDTH = 960;
 const MIN_HEIGHT = 600;
+const USAGE_FOCUS_MIN_AGE_MS = 15_000;
 
 let prefs = null;
 /** Mirror of ompweb's `omp-*` localStorage keys, see prefs.js. */
@@ -119,6 +120,7 @@ async function start() {
     applyWindowIcon(Boolean(snap && snap.signedIn));
     broadcastCgsState(snap);
   });
+  cgsController.on("usage", broadcastUsage);
 
   const initialSnap = await cgsController.snapshot();
   createMainWindow(Boolean(initialSnap && initialSnap.signedIn));
@@ -136,6 +138,12 @@ function broadcastCgsState(snap) {
   const payload = snap ? { ...snap, windowIcon: currentIconKind } : snap;
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send("cgs:state", payload);
+  }
+}
+
+function broadcastUsage(usageSnap) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send("cgs:usage", usageSnap);
   }
 }
 
@@ -248,6 +256,8 @@ function createMainWindow(signedIn = false) {
     win.on(event, () => broadcastWindowState(win));
   }
   win.on("close", () => saveWindowState(win));
+  // The window regained focus: refresh the balance/subscription numbers unless they were fetched moments ago.
+  win.on("focus", () => void cgsController?.refreshUsage({ minAgeMs: USAGE_FOCUS_MIN_AGE_MS }));
   win.on("closed", () => {
     if (mainWindow === win) mainWindow = null;
   });
@@ -289,6 +299,8 @@ function registerIpc() {
     broadcastCgsState(snap);
     return { ...snap, windowIcon: currentIconKind };
   });
+  ipcMain.handle("cgs:get-usage", () => (cgsController ? cgsController.usageSnapshot() : null));
+  ipcMain.handle("cgs:refresh-usage", () => (cgsController ? cgsController.refreshUsage() : null));
   // ompweb's `omp-*` localStorage mirror (see prefs.js / main-preload.js): sync load before page scripts, async deltas.
   ipcMain.on("cgs:prefs-load", (event) => {
     event.returnValue = prefsStore().load();
