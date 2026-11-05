@@ -1,0 +1,22 @@
+{
+  "name": "cgs-desktop",
+  "productName": "CGS Desktop",
+  "version": "0.1.0",
+  "description": "CGS Desktop: omp coding agent + ompweb in a desktop window, with the CGS provider",
+  "private": true,
+  "license": "UNLICENSED",
+  "author": "Cicori",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0"
+  }
+}
