@@ -81,7 +81,11 @@ Behind a proxy, `npm install` / the build also need `ELECTRON_GET_USE_PROXY=1 GL
   parallel with the login check → the CGS login popup **only when no credentials are saved** (neither CGS nor a
   third-party provider login) → frameless main window (loading screen first) on `http://127.0.0.1:<port>/`. External links
   open in the system browser. `nativeTheme.themeSource = "system"`, so Chromium's `prefers-color-scheme` follows the OS.
-- `src/main/services.js`: spawns `ompweb --no-open -H 127.0.0.1 -p <free port>`, waits for `Ready on`, then `ompweb host`.
+- `src/main/services.js`: spawns `ompweb --no-open -H 127.0.0.1 -p <port>`, waits for `Ready on`, then `ompweb host`. The port is
+  **stable**: ompweb's localStorage/cookies are per origin, so a random port per launch would reset every UI preference.
+  The first launch takes 39177 (a random free port when that is taken) and stores it in `<userData>/ompweb-port.json`; later
+  launches reuse it. When the stored port is busy that launch uses a random free port and keeps the stored one (the prefs
+  mirror below makes the origin change harmless).
   Env for both: `PI_CODING_AGENT_DIR=<userData>/omp/agent`, `OMP_WEB_OMP_BIN=<bundled omp>`, bundled omp dir prefixed to `PATH`,
   `PUPPETEER_EXECUTABLE_PATH=<resources>/chromium/chrome-win64/chrome.exe` (dev: `vendor/<target>/chromium/...`). That variable
   outranks omp's system-Chrome/Edge lookup and its Chrome-for-Testing download, so omp's browser tool launches only the
@@ -102,7 +106,26 @@ Behind a proxy, `npm install` / the build also need `ELECTRON_GET_USE_PROXY=1 GL
     (lavender-dream, `web/src/styles/theme.css` + `theme-presets.css`) light/dark palettes onto ompweb's `--bg*`, `--text*`,
     `--accent*` … variables (primary light `oklch(0.5709 0.1808 306.89)` ≈ `#9453c9`, dark `oklch(0.6359 0.1699 307.95)`
     ≈ `#a76ad9`), independent of sign-in. A theme the user picked explicitly is never overridden or overwritten.
-    Injected UI, loading screen and login popup use the same palette (via ompweb's variables / `prefers-color-scheme`).
+    Injected UI, loading screen and login popup use the same palette (via ompweb's variables / `prefers-color-scheme`);
+  - **ompweb UI preferences survive restarts and origin changes**: every `omp-*` localStorage key (`omp-lang`, `omp-theme`,
+    `omp-font-size`, `omp-ui-scale`, `omp-web:provider-usage-*`, …; not `omp-draft-*`) is mirrored in
+    `<userData>/web-prefs.json` (`src/main/prefs.js`). The preload restores the file into localStorage synchronously
+    (`ipcRenderer.sendSync`) before ompweb's scripts run and sends deltas back (a 1 s diff plus `pagehide`/`beforeunload`/
+    `visibilitychange`; page scripts live in another world, so `Storage` cannot be wrapped). Once the file exists it is
+    authoritative; before that the origin's own keys seed it. The first-run `omp-theme=system` default runs after the restore;
+  - **CGS usage** (signed in only; data from `GET /api/device/usage`, `src/cgs/usage.js`, polled by `CgsController` every
+    5 minutes, on window focus (at most every 15 s) and via the refresh buttons; exposed as `cgsDesktop.getUsage /
+    refreshUsage / onUsage`): a compact row in the sidebar directly above ompweb's Settings footer (below its own provider-usage
+    widget, found via `button.sidebar-settings-row`) with plan title/tier, `余额 <display>`, the first subscription's
+    used/total bar with its reset time (`不限量` when `amount_total` is 0) and a daily-token-limit summary; and a card at the very
+    top of Settings → 用量与分析 (`#settings-panel-usage`, by id) with the account, tier, balance and, per active
+    subscription, used/total, reset period and next reset, end date and per-model daily token limits with bars. Without a
+    subscription only the balance shows. A network error keeps the last value and marks it stale (dot / 「数据可能已过期」);
+    a 401 is handled like signed-out (usage dropped, polling stops until the next login). While signed in, ompweb's own
+    provider-usage widget (the `<section>` above the Settings footer, found structurally) is hidden because the CGS row replaces
+    it, unless `/api/provider-usage` (fetched by the preload, decided from `reports[].provider`, not text) contains a
+    non-`cgs*` provider (e.g. an Anthropic/Codex OAuth account): then the widget stays and only its `cgs*` rows are hidden.
+    Signed out → the widget is untouched.
 - Branding assets (`assets/`, regenerate with `npm run icons`, which rasterizes via Electron): `omp-logo.svg` / `icon.png` /
   `icon.ico` are ompweb's default mark (`vendor/src/ompweb/public/icon.svg`) used for the exe/installer icon, the default
   window/taskbar icon and the loading screen; `cgs-logo.svg` / `cgs-icon.png` / `cgs-icon.ico` come from
