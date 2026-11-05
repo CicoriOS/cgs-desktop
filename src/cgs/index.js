@@ -1,6 +1,6 @@
 "use strict";
 
-const { prepareAgentDir, getLoginState } = require("./config-writer");
+const { prepareAgentDir, getLoginState, readCredentials, notifyModelsChanged } = require("./config-writer");
 const { detectThirdPartyCredentials, shouldShowStartupPopup } = require("./credential-detect");
 const { CgsController } = require("./controller");
 const { PRESET_IDS, PRESET_NAMES } = require("./state");
@@ -14,4 +14,14 @@ async function needsStartupLogin(agentDir) {
   return shouldShowStartupPopup({ cgsSignedIn: false, thirdParty: await detectThirdPartyCredentials(agentDir) });
 }
 
-module.exports = { CGS_BASE_URL, prepareAgentDir, getLoginState, needsStartupLogin, CgsController, PRESET_IDS, PRESET_NAMES };
+module.exports = {
+  CGS_BASE_URL,
+  prepareAgentDir,
+  getLoginState,
+  readCredentials,
+  notifyModelsChanged,
+  needsStartupLogin,
+  CgsController,
+  PRESET_IDS,
+  PRESET_NAMES,
+};

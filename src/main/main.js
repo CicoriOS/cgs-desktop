@@ -115,7 +115,7 @@ async function start() {
     await openLoginWindow({ agentDir, baseUrl: CGS_BASE_URL });
   }
 
-  cgsController = new CgsController({ agentDir });
+  cgsController = new CgsController({ agentDir, pluginDir: pluginSourceDir });
   cgsController.on("change", (snap) => {
     applyWindowIcon(Boolean(snap && snap.signedIn));
     broadcastCgsState(snap);
@@ -290,14 +290,43 @@ function registerIpc() {
   ipcMain.handle("cgs:dismiss-bubble", () => (cgsController ? cgsController.dismissBubble() : null));
   ipcMain.handle("cgs:open-login", async () => {
     if (!cgsController) return null;
-    const { CGS_BASE_URL } = require("../cgs");
+    const { CGS_BASE_URL, notifyModelsChanged } = require("../cgs");
     const { openLoginWindow } = require("../login/login-window");
     const outcome = await openLoginWindow({ agentDir: cgsController.agentDir, baseUrl: CGS_BASE_URL });
-    if (outcome === "cgs") await cgsController.onLogin();
+    if (outcome === "cgs") {
+      // ompweb only re-reads credentials.json (via its utility omp process) when models.yml changes.
+      await notifyModelsChanged(cgsController.agentDir).catch(() => {});
+      await cgsController.onLogin();
+    }
     const snap = await cgsController.snapshot();
     applyWindowIcon(Boolean(snap && snap.signedIn));
     broadcastCgsState(snap);
     return { ...snap, windowIcon: currentIconKind };
+  });
+  ipcMain.handle("cgs:refresh-account", async () => {
+    if (!cgsController) return null;
+    await Promise.all([cgsController.refresh(), cgsController.refreshUsage()]);
+    return { state: { ...(await cgsController.snapshot()), windowIcon: currentIconKind }, usage: cgsController.usageSnapshot() };
+  });
+  ipcMain.handle("cgs:open-console", async () => {
+    if (!cgsController) return false;
+    const { CGS_BASE_URL, readCredentials } = require("../cgs");
+    const { consoleUrl } = require("../cgs/account");
+    const creds = await readCredentials(cgsController.agentDir);
+    const url = consoleUrl(creds ? creds.baseUrl : CGS_BASE_URL);
+    console.info(`[cgs] openExternal ${url}`);
+    openExternally(url);
+    return true;
+  });
+  ipcMain.handle("cgs:logout", async () => {
+    if (!cgsController) return { ok: false, error: "CGS 尚未就绪" };
+    try {
+      const result = await cgsController.logout();
+      const snap = await cgsController.snapshot();
+      return { ok: true, serverRevoked: result.serverRevoked, cleanupErrors: result.cleanup.errors, state: { ...snap, windowIcon: currentIconKind } };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
   });
   ipcMain.handle("cgs:get-usage", () => (cgsController ? cgsController.usageSnapshot() : null));
   ipcMain.handle("cgs:refresh-usage", () => (cgsController ? cgsController.refreshUsage() : null));

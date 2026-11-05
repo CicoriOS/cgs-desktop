@@ -210,6 +210,121 @@ async function getLoginState(agentDir) {
   }
 }
 
+// ---- logout / local cleanup --------------------------------------------------------------------
+
+/** The providers the bundled extension registers (plugin/omp-cgs/index.js). */
+const CGS_PROVIDERS = ["cgs-openai", "cgs-anthropic", "cgs-gemini"];
+const CGS_MODEL_REF = /^cgs-(openai|anthropic|gemini)\//;
+const MODELS_FILES = ["models.yml", "models.yaml"];
+
+function isCgsModelRef(value) {
+  return typeof value === "string" && CGS_MODEL_REF.test(value.trim());
+}
+
+/**
+ * Pure: remove the CGS-managed keys (MANAGED_KEYS, i.e. everything applyPreset writes) from a parsed config Document
+ * (mutates it), but only where the value still references a cgs-* model. A role the user pointed elsewhere stays; in a
+ * list (`retry.fallbackChains.web`) only the cgs-* entries go. Returns the dotted paths that were removed or trimmed.
+ */
+function removeCgsKeysFromDocument(doc) {
+  const changed = [];
+  for (const keyPath of MANAGED_KEYS) {
+    const node = doc.getIn(keyPath, true);
+    if (YAML.isScalar(node)) {
+      if (!isCgsModelRef(node.value)) continue;
+      deleteAndPrune(doc, keyPath);
+    } else if (YAML.isSeq(node)) {
+      const keep = node.items.filter(item => !(YAML.isScalar(item) && isCgsModelRef(item.value)));
+      if (keep.length === node.items.length) continue;
+      if (keep.length === 0) deleteAndPrune(doc, keyPath);
+      else node.items = keep;
+    } else {
+      continue;
+    }
+    changed.push(keyPath.join("."));
+  }
+  return changed;
+}
+
+/** Remove the cgs-* model references from <agentDir>/config.yml. Resolves the removed key paths. */
+async function removeCgsFromConfig(agentDir) {
+  const file = configPath(agentDir);
+  const { doc, text } = await loadConfigDoc(file);
+  const changed = removeCgsKeysFromDocument(doc);
+  if (changed.length > 0) await saveConfigDoc(file, doc, text);
+  return changed;
+}
+
+/** Remove `providers.cgs-*` from <agentDir>/models.yml (or .yaml) when present. Resolves the removed provider names. */
+async function removeCgsFromModels(agentDir) {
+  const removed = [];
+  for (const name of MODELS_FILES) {
+    const file = path.join(agentDir, name);
+    let doc;
+    let text;
+    try {
+      ({ doc, text } = await loadConfigDoc(file));
+    } catch (err) {
+      if (err.code === "ENOENT") continue;
+      throw err;
+    }
+    if (text === "") continue;
+    for (const provider of CGS_PROVIDERS) {
+      if (doc.hasIn(["providers", provider])) {
+        doc.deleteIn(["providers", provider]);
+        removed.push(provider);
+      }
+    }
+    await saveConfigDoc(file, doc, text);
+  }
+  return removed;
+}
+
+/**
+ * Make ompweb drop its cached model list and restart its utility omp process (which loads the CGS extension, i.e.
+ * reads credentials.json, once at startup). ompweb's /api/models fingerprints models.yml (path, mtime, ctime, size)
+ * and does exactly that when the fingerprint changes, the same path its own models editor and external edits use.
+ * So: bump models.yml's mtime, or create an empty one when there is none. Sessions that are already running keep the
+ * providers they started with.
+ */
+async function notifyModelsChanged(agentDir) {
+  for (const name of MODELS_FILES) {
+    const file = path.join(agentDir, name);
+    try {
+      const now = new Date();
+      await fsp.utimes(file, now, now);
+      return;
+    } catch (err) {
+      if (err.code !== "ENOENT") throw err;
+    }
+  }
+  await writeFileAtomic(path.join(agentDir, "models.yml"), "providers: {}\n");
+}
+
+/**
+ * Everything a logout changes locally. credentials.json goes first and its failure is thrown (the account is only
+ * signed out once the key is gone); the rest is best effort and reported in `errors` (a broken config.yml must not keep
+ * the user signed in). state.json is reset so a later login applies the preset again like a first login.
+ * Resolves { removedRoles, removedProviders, errors }.
+ */
+async function signOutLocally(agentDir) {
+  await fsp.rm(credentialsPath(agentDir), { force: true });
+  const result = { removedRoles: [], removedProviders: [], errors: [] };
+  const step = async (name, run) => {
+    try {
+      return await run();
+    } catch (err) {
+      result.errors.push(`${name}: ${err?.message || err}`);
+      return null;
+    }
+  };
+  result.removedProviders = (await step("models.yml", () => removeCgsFromModels(agentDir))) ?? [];
+  result.removedRoles = (await step("config.yml", () => removeCgsFromConfig(agentDir))) ?? [];
+  await step("state.json", () => updateState(agentDir, { appliedPreset: null, lastKnownTier: null, dismissedTier: null }));
+  await step("models reload", () => notifyModelsChanged(agentDir));
+  return result;
+}
+
 // ---- plugin install --------------------------------------------------------------------------
 
 const INSTALL_MARKER = ".cgs-install.json";
@@ -275,6 +390,12 @@ module.exports = {
   writeCredentials,
   completeLogin,
   getLoginState,
+  CGS_PROVIDERS,
+  removeCgsKeysFromDocument,
+  removeCgsFromConfig,
+  removeCgsFromModels,
+  notifyModelsChanged,
+  signOutLocally,
   installPlugin,
   prepareAgentDir,
   credentialsPath,

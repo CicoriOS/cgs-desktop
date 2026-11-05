@@ -3,7 +3,10 @@
 // `snapshot()` to the renderer over IPC and calls the action methods from IPC handlers.
 
 const { EventEmitter } = require("node:events");
-const { getLoginState, applyPreset } = require("./config-writer");
+const path = require("node:path");
+const { pathToFileURL } = require("node:url");
+const { getLoginState, readCredentials, signOutLocally, applyPreset, CGS_PROVIDERS } = require("./config-writer");
+const { revokeDeviceKey } = require("./account");
 const { PRESET_IDS, PRESET_NAMES, readState, updateState, decideBubble } = require("./state");
 const { refreshTier } = require("./tier");
 const { refreshUsage } = require("./usage");
@@ -12,14 +15,19 @@ const POLL_INTERVAL_MS = 30 * 60 * 1000;
 const USAGE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 class CgsController extends EventEmitter {
-  /** @param {{ agentDir: string, intervalMs?: number, usageIntervalMs?: number, refresh?: typeof refreshTier, fetchUsage?: typeof refreshUsage }} options */
-  constructor({ agentDir, intervalMs = POLL_INTERVAL_MS, usageIntervalMs = USAGE_POLL_INTERVAL_MS, refresh = refreshTier, fetchUsage = refreshUsage }) {
+  /** @param {{ agentDir: string, intervalMs?: number, usageIntervalMs?: number, refresh?: typeof refreshTier, fetchUsage?: typeof refreshUsage, revoke?: typeof revokeDeviceKey, pluginDir?: string | null }} options `pluginDir`: the bundled extension, used to count the models per provider. */
+  constructor({ agentDir, intervalMs = POLL_INTERVAL_MS, usageIntervalMs = USAGE_POLL_INTERVAL_MS, refresh = refreshTier, fetchUsage = refreshUsage, revoke = revokeDeviceKey, pluginDir = null }) {
     super();
     this.agentDir = agentDir;
     this.intervalMs = intervalMs;
     this.usageIntervalMs = usageIntervalMs;
     this._refresh = refresh;
     this._fetchUsage = fetchUsage;
+    this._revoke = revoke;
+    this._pluginDir = pluginDir;
+    this._plugin = null;
+    this._loggingOut = false;
+    this._logoutInflight = null;
     this._timer = null;
     this._inflight = null;
     this._revoked = false; // the server rejected the key (401): behave as signed out until a new login
@@ -81,6 +89,7 @@ class CgsController extends EventEmitter {
   /** Check the tier now (coalesces concurrent calls). Never rejects; emits "change" afterwards. */
   refresh() {
     if (this._inflight) return this._inflight;
+    if (this._loggingOut) return Promise.resolve();
     this._abort = new AbortController();
     const run = async () => {
       try {
@@ -157,13 +166,32 @@ class CgsController extends EventEmitter {
     return this._usageInflight;
   }
 
+  /** The providers the bundled extension registers for these credentials, with their model counts ([] when unknown). */
+  async _providerCounts(creds) {
+    if (!creds || !this._pluginDir) return [];
+    try {
+      this._plugin ??= import(pathToFileURL(path.join(this._pluginDir, "index.js")).href);
+      const plugin = await this._plugin;
+      const providers = plugin.buildProviders({ baseUrl: creds.baseUrl, apiKey: creds.apiKey, models: Array.isArray(creds.models) ? creds.models : [] });
+      return CGS_PROVIDERS.filter(id => providers[id]).map(id => ({ id, models: providers[id].models.length }));
+    } catch {
+      this._plugin = null;
+      return [];
+    }
+  }
+
   async snapshot() {
-    const [login, state] = await Promise.all([getLoginState(this.agentDir), readState(this.agentDir)]);
+    const [login, state, creds] = await Promise.all([getLoginState(this.agentDir), readState(this.agentDir), readCredentials(this.agentDir)]);
     const signedIn = login.signedIn && !this._revoked;
+    // Credentials are still on disk but the server rejected the key: the Settings card offers 重新登录 / 退出账户.
+    const keyRejected = login.signedIn && this._revoked && !this._loggingOut;
     const tier = signedIn ? login.tier : null;
     return {
       signedIn,
-      username: signedIn ? login.username : null,
+      keyRejected,
+      username: signedIn || keyRejected ? login.username : null,
+      baseUrl: signedIn || keyRejected ? creds?.baseUrl ?? null : null,
+      providers: signedIn ? await this._providerCounts(creds) : [],
       tier,
       appliedPreset: state.appliedPreset,
       presets: PRESET_IDS.map(id => ({ id, name: PRESET_NAMES[id] })),
@@ -188,6 +216,46 @@ class CgsController extends EventEmitter {
     const snap = await this.snapshot();
     this.emit("change", snap);
     return snap;
+  }
+
+  /**
+   * 「退出账户」. Stops the polling and waits for requests in flight (a late tier refresh would otherwise write
+   * credentials.json back), asks the server to revoke the device key (best effort: 200 and 401 both mean it is gone;
+   * a network error or 5xx only sets `serverRevoked: false`), then removes everything local (see signOutLocally).
+   * Resolves { serverRevoked, server, cleanup } and emits "usage" and "change" (signed out). Rejects only when
+   * credentials.json could not be deleted; the account then stays signed in and polling resumes.
+   */
+  logout() {
+    this._logoutInflight ??= this._logout().finally(() => {
+      this._logoutInflight = null;
+    });
+    return this._logoutInflight;
+  }
+
+  async _logout() {
+    this._loggingOut = true;
+    this._markRevoked();
+    this._abort?.abort();
+    this._usageAbort?.abort();
+    await Promise.allSettled([this._inflight, this._usageInflight]);
+    try {
+      const creds = await readCredentials(this.agentDir);
+      const remote = creds ? await this._revoke({ baseUrl: creds.baseUrl, apiKey: creds.apiKey }) : { status: "no-credentials" };
+      const cleanup = await signOutLocally(this.agentDir);
+      this._usageFetchedAt = 0;
+      this._loggingOut = false;
+      this.emit("usage", this.usageSnapshot());
+      this.emit("change", await this.snapshot());
+      return { serverRevoked: remote.status !== "error", server: remote, cleanup };
+    } catch (err) {
+      // credentials.json is still there: carry on as signed in (a revoked key shows up as 401 on the next check)
+      this._loggingOut = false;
+      this._revoked = false;
+      this._scheduleUsage();
+      this._schedule();
+      void this.refresh();
+      throw err;
+    }
   }
 }
 

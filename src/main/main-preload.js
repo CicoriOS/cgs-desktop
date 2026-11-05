@@ -88,6 +88,9 @@ const bridge = {
   openLogin: () => ipcRenderer.invoke("cgs:open-login"),
   getUsage: () => ipcRenderer.invoke("cgs:get-usage"),
   refreshUsage: () => ipcRenderer.invoke("cgs:refresh-usage"),
+  refreshAccount: () => ipcRenderer.invoke("cgs:refresh-account"),
+  openConsole: () => ipcRenderer.invoke("cgs:open-console"),
+  logout: () => ipcRenderer.invoke("cgs:logout"),
   onUsage: (callback) => {
     const listener = (_event, snap) => callback(snap);
     ipcRenderer.on("cgs:usage", listener);
@@ -438,6 +441,87 @@ img.cgs-brand-logo { display: block; flex-shrink: 0; }
 .cgs-uc-limit .cgs-bar { grid-column: 1 / -1; }
 .cgs-uc-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono, ui-monospace, monospace); }
 .cgs-uc-num { color: var(--text-muted, GrayText); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* CGS integration card: top of Settings → API Keys & Providers */
+#cgs-providers-card {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+  border-radius: var(--radius-control, 10px);
+  background: var(--bg-subtle, transparent);
+  color: var(--text, CanvasText);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.cgs-pc-head { display: flex; align-items: center; gap: 10px; }
+.cgs-pc-logo { width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0; object-fit: contain; }
+.cgs-pc-heading { display: flex; flex-direction: column; min-width: 0; }
+.cgs-pc-title { font-size: 14px; font-weight: 600; }
+.cgs-pc-status { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted, GrayText); font-size: 12px; }
+.cgs-pc-status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--status-success, #2e9d57); }
+.cgs-pc-status[data-tone="warning"]::before { background: var(--status-warning, #c18401); }
+.cgs-pc-status[data-tone="error"]::before { background: var(--status-error, #d63a3a); }
+.cgs-pc-status[data-tone="error"] { color: var(--status-error, #d63a3a); }
+.cgs-pc-providers { display: flex; flex-wrap: wrap; gap: 6px; }
+.cgs-pc-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+  background: var(--bg, transparent);
+  color: var(--text-muted, GrayText);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+.cgs-pc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cgs-pc-btn {
+  all: unset;
+  box-sizing: border-box;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.4));
+  background: var(--bg, transparent);
+  color: var(--text, CanvasText);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+.cgs-pc-btn:hover:not([aria-disabled="true"]) { border-color: var(--accent, #9453c9); }
+.cgs-pc-btn:focus-visible { outline: 2px solid var(--accent, #9453c9); outline-offset: 2px; }
+.cgs-pc-btn[aria-disabled="true"] { opacity: 0.5; cursor: default; }
+.cgs-pc-btn[data-variant="primary"] { border-color: transparent; background: var(--accent-strong, var(--accent, #9453c9)); color: var(--on-accent, #fff); }
+.cgs-pc-btn[data-variant="danger"] { margin-left: auto; color: var(--status-error, #d63a3a); border-color: color-mix(in srgb, var(--status-error, #d63a3a) 45%, transparent); }
+.cgs-pc-btn[data-variant="danger"]:hover:not([aria-disabled="true"]) { background: color-mix(in srgb, var(--status-error, #d63a3a) 12%, transparent); border-color: var(--status-error, #d63a3a); }
+#cgs-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483645;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-app-region: no-drag;
+}
+.cgs-confirm-box {
+  box-sizing: border-box;
+  width: min(420px, calc(100vw - 32px));
+  padding: 18px 20px;
+  border-radius: 12px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+  background: var(--bg-panel, Canvas);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  color: var(--text, CanvasText);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.cgs-confirm-box h3 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
+.cgs-confirm-box p { margin: 0 0 6px; color: var(--text-muted, GrayText); }
+.cgs-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.cgs-confirm-actions .cgs-pc-btn[data-variant="danger"] { margin-left: 0; background: var(--status-error, #d63a3a); border-color: transparent; color: #fff; }
 `;
 
 let maximized = false;
@@ -446,6 +530,7 @@ let cgsState = null;
 let cgsLogoUrl = null;
 let usageState = null; // { usage, stale, fetchedAt } from the main process; usage is null until the first success
 let usageRefreshing = false;
+let accountBusy = null; // "refresh" | "logout" while an account action from the providers card is running
 let toastTimer = null;
 
 function isLoadingScreen() {
@@ -503,7 +588,7 @@ function renderIcons(root) {
   root.querySelector('[data-action="close"]').innerHTML = ICONS.close;
 }
 
-function showToast(text) {
+function showToast(text, ms = 3200) {
   const toast = document.getElementById("cgs-toast");
   if (!toast) return;
   toast.textContent = text;
@@ -511,7 +596,7 @@ function showToast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     toast.hidden = true;
-  }, 3200);
+  }, ms);
 }
 
 async function handleSelectPreset(presetId) {
@@ -1002,6 +1087,206 @@ function ensureUsageCard() {
   renderUsageCard(card);
 }
 
+// ---- Settings → API Keys & Providers: CGS integration card ----------------------------------------------------------
+const PROVIDERS_PANEL_SELECTOR = "#settings-panel-providers";
+const PROVIDERS_CARD_ID = "cgs-providers-card";
+const CONFIRM_ID = "cgs-confirm";
+
+/** In-page confirmation for 「退出账户」. Resolves true when confirmed. */
+function confirmLogout() {
+  return new Promise((resolve) => {
+    document.getElementById(CONFIRM_ID)?.remove();
+    const overlay = el("div");
+    overlay.id = CONFIRM_ID;
+    const box = el("div", "cgs-confirm-box");
+    box.setAttribute("role", "alertdialog");
+    box.setAttribute("aria-modal", "true");
+    box.setAttribute("aria-label", "退出 CGS 账户");
+    box.append(
+      el("h3", "", "退出 CGS 账户？"),
+      el("p", "", "此设备上的 CGS 密钥将在服务器端吊销，无法再使用。"),
+      el("p", "", "CGS 模型提供方（cgs-openai / cgs-anthropic / cgs-gemini）以及指向它们的默认模型设置将被移除；你自己修改过的其他设置不受影响。"),
+      el("p", "", "之后可以随时重新登录。"),
+    );
+    const actions = el("div", "cgs-confirm-actions");
+    const cancel = el("button", "cgs-pc-btn", "取消");
+    cancel.type = "button";
+    cancel.dataset.action = "cgs-logout-cancel";
+    const confirm = el("button", "cgs-pc-btn", "退出账户");
+    confirm.type = "button";
+    confirm.dataset.action = "cgs-logout-confirm";
+    confirm.dataset.variant = "danger";
+    actions.append(cancel, confirm);
+    box.append(actions);
+    overlay.append(box);
+    const done = (value) => {
+      document.removeEventListener("keydown", onKey, true);
+      overlay.remove();
+      resolve(value);
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        done(false);
+      }
+    };
+    cancel.addEventListener("click", () => done(false));
+    confirm.addEventListener("click", () => done(true));
+    overlay.addEventListener("mousedown", (event) => {
+      if (event.target === overlay) done(false);
+    });
+    document.addEventListener("keydown", onKey, true);
+    document.body.append(overlay);
+    cancel.focus();
+  });
+}
+
+async function handleRefreshAccount() {
+  if (accountBusy) return;
+  accountBusy = "refresh";
+  renderUsageUi();
+  try {
+    const next = await bridge.refreshAccount();
+    if (next) {
+      if (next.state) cgsState = next.state;
+      if (next.usage) usageState = next.usage;
+    }
+  } catch {
+    // the main process keeps the last values
+  } finally {
+    accountBusy = null;
+    renderCgsUi();
+  }
+}
+
+async function handleLogout() {
+  if (accountBusy) return;
+  if (!(await confirmLogout())) return;
+  accountBusy = "logout";
+  renderUsageUi();
+  let result;
+  try {
+    result = await bridge.logout();
+  } catch (err) {
+    result = { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+  accountBusy = null;
+  if (!result || !result.ok) {
+    renderCgsUi();
+    showToast(`退出失败：${(result && result.error) || "未知错误"}`, 6000);
+    return;
+  }
+  cgsState = result.state;
+  const usage = await bridge.getUsage().catch(() => null);
+  usageState = usage || null;
+  renderCgsUi();
+  const problems = [];
+  if (!result.serverRevoked) problems.push("已在本机退出，但服务器端密钥未能吊销，可在 CGS 后台删除");
+  if (result.cleanupErrors && result.cleanupErrors.length > 0) problems.push(`部分本地配置未能清理：${result.cleanupErrors.join("；")}`);
+  showToast(problems.length > 0 ? problems.join("。") : "已退出 CGS 账户，设备密钥已吊销", problems.length > 0 ? 9000 : 4000);
+}
+
+function pcButton(label, action, onClick, variant) {
+  const button = el("button", "cgs-pc-btn", label);
+  button.type = "button";
+  button.dataset.action = action;
+  if (variant) button.dataset.variant = variant;
+  if (accountBusy) button.setAttribute("aria-disabled", "true");
+  button.addEventListener("click", () => {
+    if (!accountBusy) onClick();
+  });
+  return button;
+}
+
+function buildProvidersHead(state) {
+  const head = el("div", "cgs-pc-head");
+  if (cgsLogoUrl) {
+    const img = el("img", "cgs-pc-logo");
+    img.alt = "CGS";
+    img.src = cgsLogoUrl;
+    head.append(img);
+  }
+  const heading = el("div", "cgs-pc-heading");
+  const title = el("div");
+  title.style.cssText = "display:flex;align-items:center;gap:8px";
+  title.append(el("span", "cgs-pc-title", "Cicori Good Service"));
+  if (state.signedIn && state.tier) title.append(el("span", "cgs-uc-pill", PRESET_NAMES[state.tier] || state.tier));
+  heading.append(title);
+  head.append(heading);
+  return { head, heading };
+}
+
+function renderProvidersCard(card) {
+  const state = cgsState;
+  const usage = usageState && usageState.usage;
+  const sig = JSON.stringify([state, usageState, accountBusy, Boolean(cgsLogoUrl), minuteBucket()]);
+  sync(card, sig, () => {
+    const { head, heading } = buildProvidersHead(state);
+    const children = [head];
+    const actions = el("div", "cgs-pc-actions");
+    if (state.signedIn) {
+      const stale = Boolean(usageState && usageState.stale);
+      const status = el("span", "cgs-pc-status", stale ? "数据可能已过期" : "连接正常");
+      status.dataset.tone = stale ? "warning" : "ok";
+      if (stale) status.title = staleHint();
+      heading.append(status);
+
+      const account = el("div", "cgs-uc-account");
+      account.append(el("strong", "", state.username || "CGS"));
+      const balance = el("span", "cgs-uc-balance");
+      balance.append(el("span", "cgs-uc-muted", "余额"), el("b", "", usage ? usage.balance.display || "—" : "—"));
+      account.append(balance);
+      account.append(el("span", "cgs-uc-muted", usage ? planText(usage) : "暂无用量数据"));
+      children.push(account);
+
+      if (Array.isArray(state.providers) && state.providers.length > 0) {
+        const list = el("div", "cgs-pc-providers");
+        for (const provider of state.providers) list.append(el("span", "cgs-pc-chip", `${provider.id} · ${provider.models} 个模型`));
+        children.push(list);
+      }
+      actions.append(
+        pcButton("打开 CGS 后台", "cgs-open-console", () => void bridge.openConsole()),
+        pcButton("管理预设", "cgs-manage-presets", handleViewPresets),
+        pcButton(accountBusy === "refresh" ? "刷新中…" : "刷新", "cgs-refresh-account", () => void handleRefreshAccount()),
+        pcButton(accountBusy === "logout" ? "正在退出…" : "退出账户", "cgs-logout", () => void handleLogout(), "danger"),
+      );
+    } else if (state.keyRejected) {
+      const status = el("span", "cgs-pc-status", "密钥已失效");
+      status.dataset.tone = "error";
+      heading.append(status);
+      children.push(el("div", "cgs-uc-muted", `${state.username ? `账户 ${state.username} 的` : ""}设备密钥已被服务器拒绝，请重新登录，或退出账户清理本机配置。`));
+      actions.append(
+        pcButton("重新登录", "cgs-login", () => void handleOpenLogin(), "primary"),
+        pcButton("打开 CGS 后台", "cgs-open-console", () => void bridge.openConsole()),
+        pcButton(accountBusy === "logout" ? "正在退出…" : "退出账户", "cgs-logout", () => void handleLogout(), "danger"),
+      );
+    } else {
+      heading.append(el("span", "cgs-pc-status", "未登录"));
+      children.push(el("div", "cgs-uc-muted", "登录后自动配置 CGS 模型（OpenAI / Anthropic / Gemini），并显示余额与订阅用量。"));
+      actions.append(pcButton("登录 CGS", "cgs-login", () => void handleOpenLogin(), "primary"));
+      heading.lastChild.dataset.tone = "warning";
+    }
+    children.push(actions);
+    card.replaceChildren(...children);
+  });
+}
+
+function ensureProvidersCard() {
+  const panel = !isLoadingScreen() && cgsState ? document.querySelector(PROVIDERS_PANEL_SELECTOR) : null;
+  const existing = document.getElementById(PROVIDERS_CARD_ID);
+  if (!panel) {
+    existing?.remove();
+    return;
+  }
+  const card = existing || el("section");
+  card.id = PROVIDERS_CARD_ID;
+  // Directly below ompweb's heading block (the panel's first child), above its own cards.
+  const first = panel.firstElementChild === card ? card.nextElementSibling : panel.firstElementChild;
+  if (first && card.previousElementSibling !== first) first.after(card);
+  else if (!first && card.parentElement !== panel) panel.append(card);
+  renderProvidersCard(card);
+}
+
 // Provider reports ompweb shows in its usage widget (same `/api/provider-usage` it polls), fetched to decide from data
 // (report.provider), not text, whether anything other than CGS is in there.
 let providerReports = null;
@@ -1063,6 +1348,7 @@ function renderUsageUi() {
   syncProviderUsageVisibility();
   ensureUsageRow();
   ensureUsageCard();
+  ensureProvidersCard();
 }
 
 function renderCgsUi() {
