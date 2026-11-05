@@ -124,3 +124,123 @@ test("extension factory registers nothing without credentials, three providers w
     else process.env.PI_CODING_AGENT_DIR = prev;
   }
 });
+
+const SUB = {
+  id: 1,
+  plan_id: 3,
+  plan_title: "Pro",
+  amount_total: 15000000,
+  amount_used: 3000000,
+  amount_total_display: "$30",
+  amount_used_display: "$6",
+  reset_period: "weekly",
+  next_reset_at: 1794153600,
+  start_time: 1793000000,
+  end_time: 1796000000,
+  daily_token_limits: [{ model: "deepseek-v4.1-flash", limit: 100, used: 1, reset_at: 1793894400 }],
+};
+
+test("usage report: weekly/monthly subscriptions with a total become 7d/monthly limits; the rest are omitted", async () => {
+  const { buildUsageReport } = await load();
+  const data = {
+    username: "alice",
+    subscriptions: [
+      SUB,
+      { ...SUB, id: 2, plan_title: "Max", reset_period: "monthly", amount_total: 100, amount_used: 150, next_reset_at: 0 },
+      { ...SUB, id: 3, reset_period: "daily" },
+      { ...SUB, id: 4, reset_period: "never" },
+      { ...SUB, id: 5, reset_period: "custom" },
+      { ...SUB, id: 6, amount_total: 0, amount_total_display: "" },
+    ],
+  };
+  const r = buildUsageReport(data, "cgs-openai", 1000);
+  assert.equal(r.provider, "cgs-openai");
+  assert.equal(r.fetchedAt, 1000);
+  assert.deepEqual(r.limits.map(l => [l.id, l.scope.windowId, l.window.id]), [["cgs:1:7d", "7d", "7d"], ["cgs:2:monthly", "monthly", "monthly"]]);
+  const [weekly, monthly] = r.limits;
+  assert.equal(weekly.amount.usedFraction, 0.2);
+  assert.equal(weekly.amount.unit, "percent");
+  assert.equal(weekly.status, "ok");
+  assert.equal(weekly.window.durationMs, 7 * 24 * 3600 * 1000);
+  assert.equal(weekly.window.resetsAt, 1794153600000);
+  assert.deepEqual(weekly.notes, ["$6 / $30"]);
+  assert.equal(monthly.amount.usedFraction, 1.5);
+  assert.equal(monthly.status, "exhausted");
+  assert.equal(monthly.window.resetsAt, undefined);
+  assert.deepEqual(r.metadata, { planType: "Pro + Max", email: "alice" });
+});
+
+test("usage report is null when no subscription has a displayable limit", async () => {
+  const { buildUsageReport } = await load();
+  assert.equal(buildUsageReport({ subscriptions: [] }, "p"), null);
+  assert.equal(buildUsageReport({}, "p"), null);
+  assert.equal(buildUsageReport({ subscriptions: [{ ...SUB, reset_period: "daily" }, { ...SUB, amount_total: 0 }] }, "p"), null);
+});
+
+test("usage provider calls <root>/api/device/usage with the bearer key", async () => {
+  const { createUsageProvider } = await load();
+  const calls = [];
+  const respond = (status, body) => async (url, init) => {
+    calls.push([url, init.headers.Authorization, init.signal instanceof AbortSignal]);
+    return { status, ok: status >= 200 && status < 300, json: async () => body };
+  };
+  const provider = createUsageProvider("https://api.example.com", "cgs-openai");
+  assert.equal(provider.id, "cgs-openai");
+  const params = { provider: "cgs-openai", credential: { type: "api_key", apiKey: "sk-abc" }, baseUrl: "https://api.example.com/v1" };
+
+  const ok = await provider.fetchUsage(params, { fetch: respond(200, { success: true, data: { username: "u", subscriptions: [SUB] } }) });
+  assert.deepEqual(calls[0], ["https://api.example.com/api/device/usage", "Bearer sk-abc", true]);
+  assert.equal(ok.limits.length, 1);
+
+  assert.equal(await provider.fetchUsage(params, { fetch: respond(401, { success: false }) }), null);
+  await assert.rejects(provider.fetchUsage(params, { fetch: respond(500, {}) }), /HTTP 500/);
+  await assert.rejects(provider.fetchUsage(params, { fetch: respond(200, { success: false, message: "nope" }) }), /nope/);
+  assert.equal(await provider.fetchUsage({ ...params, credential: { type: "api_key" } }, { fetch: respond(200, {}) }), null);
+});
+
+test("extension factory attaches the usage provider to cgs-openai only, rooted at the credentials baseUrl", async () => {
+  const { default: factory } = await load();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cgs-plugin-"));
+  fs.mkdirSync(path.join(dir, "cgs"));
+  fs.writeFileSync(path.join(dir, "cgs", "credentials.json"), JSON.stringify(CREDS));
+  const prev = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  try {
+    const calls = [];
+    const warnings = [];
+    await factory({ registerProvider: (name, config) => calls.push([name, config]), logger: { warn: (m, meta) => warnings.push([m, meta]) } });
+    const withUsage = calls.filter(([, c]) => c.usage).map(([n]) => n);
+    assert.deepEqual(withUsage, ["cgs-openai"]);
+    let url;
+    await calls.find(([n]) => n === "cgs-openai")[1].usage.fetchUsage(
+      { provider: "cgs-openai", credential: { type: "api_key", apiKey: "sk-test" } },
+      { fetch: async u => ((url = u), { status: 401, ok: false }) },
+    );
+    assert.equal(url, "https://api.example.com/api/device/usage");
+    // plain Node cannot import the catalog: the failure is logged, not swallowed
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0][0], /pi-catalog/);
+    assert.ok(warnings[0][1].error);
+  } finally {
+    if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = prev;
+  }
+});
+
+test("usage rides on the first provider when there are no openai models", async () => {
+  const { default: factory } = await load();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cgs-plugin-"));
+  fs.mkdirSync(path.join(dir, "cgs"));
+  fs.writeFileSync(path.join(dir, "cgs", "credentials.json"), JSON.stringify({ ...CREDS, models: ["claude-opus-5-5"] }));
+  const prev = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  try {
+    const calls = [];
+    await factory({ registerProvider: (name, config) => calls.push([name, config]) });
+    assert.deepEqual(calls.map(([n, c]) => [n, Boolean(c.usage)]), [["cgs-anthropic", true]]);
+    assert.equal(calls[0][1].usage.id, "cgs-anthropic");
+  } finally {
+    if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = prev;
+  }
+});
