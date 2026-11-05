@@ -51,6 +51,21 @@ and `git`/`npm`/`bun`.
 
 ## Architecture
 
+- `src/main/main-preload.js`: injected into ompweb (no source patches; a `MutationObserver` re-attaches everything after
+  React re-renders). It adds
+  - minimize / maximize-restore / close buttons right of ompweb's right-panel toggle (floating at the top-right when it is
+    absent) and makes `.shell-topbar` draggable;
+  - the **「CGS 预设」 block at the top of Settings → AI模型默认值** (`#settings-panel-models`, found by id so it works in every
+    locale): Free / Go / Pro / 独享 radio buttons (current one checked, the detected tier tagged 推荐, disabled with a hint
+    when signed out), the `<username> · <套餐>` account line, and a 「登录 CGS」 button when signed out. There is no topbar button;
+  - the top-right tier-change bubble (切换 / 保持当前 / 查看预设; 查看预设 opens Settings at the block) and the switch toast;
+  - logo: while signed in, ompweb's brand mark (sidebar, welcome header) is replaced by the CGS logo; signed out → omp's;
+  - theme: on first run (no `omp-theme` in localStorage) the preference is set to ompweb's `system`, which tracks the OS
+    light/dark setting live. While the stored preference is `system`, an injected stylesheet maps new-api's 「薰衣草梦」
+    (lavender-dream, `web/src/styles/theme.css` + `theme-presets.css`) light/dark palettes onto ompweb's `--bg*`, `--text*`,
+    `--accent*` … variables (primary light `oklch(0.5709 0.1808 306.89)` ≈ `#9453c9`, dark `oklch(0.6359 0.1699 307.95)`
+    ≈ `#a76ad9`), independent of sign-in. A theme the user picked explicitly is never overridden or overwritten.
+    Injected UI, loading screen and login popup use the same palette (via ompweb's variables / `prefers-color-scheme`).
 - Branding assets (`assets/`, regenerate with `npm run icons`, which rasterizes via Electron): `omp-logo.svg` / `icon.png` /
   `icon.ico` are ompweb's default mark (`vendor/src/ompweb/public/icon.svg`) used for the exe/installer icon, the default
   window/taskbar icon and the loading screen; `cgs-logo.svg` / `cgs-icon.png` / `cgs-icon.ico` come from
