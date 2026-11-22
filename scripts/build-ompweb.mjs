@@ -3,6 +3,7 @@
 //   2. `npm ci` (installs the Bun version ompweb pins) and ompweb's own client build (`scripts/build-client.ts`)
 //   3. scripts/ompweb-compile.ts (ours): compile server/binary.ts for the target and lay out the static root
 // Steps 2 and 3 are skipped when nothing changed (stamp files keyed by commit sha; outputs must still exist).
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -81,7 +82,10 @@ export async function buildOmpweb({ target, outDir, webBin, current }) {
   if (!bunTarget) throw new Error(`No ompweb build target for ${target}`);
   await mkdir(path.dirname(srcDir), { recursive: true });
   const commit = syncSource();
-  if (current?.commit === commit && existsSync(path.join(outDir, webBin))) {
+  // The layout/branding step is ours: a change to it rebuilds even when ompweb itself is unchanged.
+  const compileScript = path.join(root, "scripts", "ompweb-compile.ts");
+  const compile = createHash("sha256").update(await readFile(compileScript)).digest("hex").slice(0, 12);
+  if (current?.commit === commit && current.compile === compile && existsSync(path.join(outDir, webBin))) {
     console.log(`ompweb ${commit.slice(0, 10)}: up to date`);
     return current;
   }
@@ -89,9 +93,9 @@ export async function buildOmpweb({ target, outDir, webBin, current }) {
   await ensureClient(commit);
   const staging = `${outDir}.building`;
   await rm(staging, { recursive: true, force: true });
-  run(bunPath(), [path.join(root, "scripts", "ompweb-compile.ts"), srcDir, staging, bunTarget], { cwd: srcDir });
+  run(bunPath(), [compileScript, srcDir, staging, bunTarget], { cwd: srcDir });
   if (!existsSync(path.join(staging, webBin))) throw new Error(`ompweb build produced no ${webBin}`);
   await rm(outDir, { recursive: true, force: true });
   await rename(staging, outDir);
-  return { commit, builtAt: new Date().toISOString() };
+  return { commit, compile, builtAt: new Date().toISOString() };
 }

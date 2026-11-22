@@ -3,8 +3,8 @@
 //   1. Minimize / maximize-restore / close window controls, immediately right of `button.shell-panel-opener`
 //      inside `[data-topbar-right-group]` (or floating at top-right on narrow/loading layouts).
 //   2. Brand and tier display; the CGS account card and sign-in entry (below).
-//   3. Branding: while signed in, ompweb's sidebar/brand logo is replaced by the CGS logo and an accent-colour
-//      stylesheet (the new-api console purple) overrides ompweb's accent variables; signed out → ompweb defaults.
+//   3. Branding (always, signed in or not): ompweb's mark and name are replaced by the CGS logo and "CGS Desktop", and an
+//      accent-colour stylesheet (the new-api console purple) overrides ompweb's accent variables.
 //   4. First-run default theme "system" (only when the user has not chosen one).
 //   5. ompweb's `omp-*` localStorage prefs (language, theme, font size, UI scale, usage-widget prefs, ...) are mirrored
 //      in <userData>/web-prefs.json: restored before ompweb's scripts run, deltas sent back, so they survive an origin
@@ -25,6 +25,8 @@ const USAGE_ROW_ID = "cgs-usage-row";
 const USAGE_CARD_ID = "cgs-usage-card";
 // ompweb's brand mark (components/OmpWebLogo.tsx): <svg role="img" viewBox="0 0 64 64">.
 const OMP_LOGO_SELECTOR = 'svg[role="img"][viewBox="0 0 64 64"]';
+const BRAND_NAME = "CGS Desktop";
+const LOGO_SCALE = 1.25;
 
 const TIER_NAMES = { free: "Free", go: "Go", pro: "Pro", dedicated: "独享" };
 
@@ -367,7 +369,7 @@ img.cgs-brand-logo { display: block; flex-shrink: 0; }
   line-height: 1.45;
 }
 .cgs-pc-head { display: flex; align-items: center; gap: 10px; }
-.cgs-pc-logo { width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0; object-fit: contain; }
+.cgs-pc-logo { width: 35px; height: 35px; border-radius: 6px; flex-shrink: 0; object-fit: contain; }
 .cgs-pc-heading { display: flex; flex-direction: column; min-width: 0; }
 .cgs-pc-title { font-size: 14px; font-weight: 600; }
 .cgs-pc-status { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted, GrayText); font-size: 12px; }
@@ -541,8 +543,6 @@ function sync(node, sig, build) {
 }
 
 function renderBranding() {
-  const signedIn = Boolean(cgsState && cgsState.signedIn) && !isLoadingScreen();
-
   // Lavender palette only while ompweb's theme preference is "system" (an explicit user choice is never overridden).
   const wantTheme = !isLoadingScreen() && storedTheme() === "system";
   const themeStyle = document.getElementById(THEME_STYLE_ID);
@@ -555,29 +555,37 @@ function renderBranding() {
     themeStyle.remove();
   }
 
-  // Brand logo: hide ompweb's mark and put the CGS logo next to it while signed in; restore when signed out.
+  // Brand: ompweb's mark is hidden and the CGS logo put next to it, and ompweb's name becomes "CGS Desktop", always (the
+  // loading screen is ours already).
+  if (isLoadingScreen()) return;
   for (const logo of document.querySelectorAll(OMP_LOGO_SELECTOR)) {
     const next = logo.nextElementSibling;
-    const hasImg = next && next.classList.contains("cgs-brand-logo");
-    if (signedIn && cgsLogoUrl) {
-      if (!hasImg) {
-        const img = document.createElement("img");
-        img.className = "cgs-brand-logo";
-        img.alt = "CGS";
-        img.src = cgsLogoUrl;
-        const size = logo.getAttribute("width") || "20";
-        img.width = Number(size);
-        img.height = Number(size);
-        logo.after(img);
-      }
-      logo.dataset.cgsReplaced = "1";
-    } else {
-      if (hasImg) next.remove();
-      delete logo.dataset.cgsReplaced;
+    if (!cgsLogoUrl) continue;
+    if (!(next && next.classList.contains("cgs-brand-logo"))) {
+      const img = document.createElement("img");
+      img.className = "cgs-brand-logo";
+      img.alt = "CGS";
+      img.src = cgsLogoUrl;
+      // 25% larger than ompweb's own mark (20 px in the sidebar header, 26 px on the welcome screen).
+      const size = Number(logo.getAttribute("width") || "20") * LOGO_SCALE;
+      img.width = size;
+      img.height = size;
+      logo.after(img);
     }
+    logo.dataset.cgsReplaced = "1";
   }
-  if (!signedIn) {
-    for (const img of document.querySelectorAll("img.cgs-brand-logo")) img.remove();
+  for (const word of document.querySelectorAll(".omp-wordmark")) {
+    if (word.textContent !== BRAND_NAME) word.textContent = BRAND_NAME;
+  }
+  // Sidebar header: <button title="Show ompweb version"> holding <span><span>omp</span><span>web</span></span>.
+  for (const button of document.querySelectorAll('button[title$="ompweb version"], button[title$="ompweb name"]')) {
+    button.title = button.title.replace("ompweb", BRAND_NAME);
+    const parts = button.querySelectorAll(":scope > span > span");
+    if (parts.length === 2 && parts[0].textContent === "omp" && parts[1].textContent === "web") {
+      // The narrow sidebar header fits "CGS" on one line (the full name is the window title).
+      parts[0].textContent = "CGS";
+      parts[1].textContent = "";
+    }
   }
 }
 

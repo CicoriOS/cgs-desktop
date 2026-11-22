@@ -24,27 +24,11 @@ let quitting = false;
 let mainWindowCreated = false;
 /** @type {import("../cgs/controller").CgsController | null} */
 let cgsController = null;
-let currentIconKind = "omp";
 
 nativeTheme.themeSource = "system";
 
-function getWindowIconPath(signedIn) {
-  const ext = process.platform === "win32" ? "ico" : "png";
-  return path.join(APP_ROOT, "assets", signedIn ? `cgs-icon.${ext}` : `icon.${ext}`);
-}
-
-function getWindowIcon(signedIn) {
-  return nativeImage.createFromPath(getWindowIconPath(signedIn));
-}
-
-function applyWindowIcon(signedIn) {
-  currentIconKind = signedIn ? "cgs" : "omp";
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  try {
-    mainWindow.setIcon(getWindowIcon(signedIn));
-  } catch {
-    // ignore platform setIcon errors
-  }
+function getWindowIcon() {
+  return nativeImage.createFromPath(path.join(APP_ROOT, "assets", `icon.${process.platform === "win32" ? "ico" : "png"}`));
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -117,13 +101,11 @@ async function start() {
 
   cgsController = new CgsController({ agentDir, pluginDir: pluginSourceDir });
   cgsController.on("change", (snap) => {
-    applyWindowIcon(Boolean(snap && snap.signedIn));
     broadcastCgsState(snap);
   });
   cgsController.on("usage", broadcastUsage);
 
-  const initialSnap = await cgsController.snapshot();
-  createMainWindow(Boolean(initialSnap && initialSnap.signedIn));
+  createMainWindow();
   mainWindowCreated = true;
   await mainWindow.loadFile(path.join(__dirname, "loading.html"));
   const started = await servicesReady;
@@ -135,9 +117,8 @@ async function start() {
 }
 
 function broadcastCgsState(snap) {
-  const payload = snap ? { ...snap, windowIcon: currentIconKind } : snap;
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send("cgs:state", payload);
+    if (!win.isDestroyed()) win.webContents.send("cgs:state", snap);
   }
 }
 
@@ -210,7 +191,7 @@ function guardNavigation(contents) {
         overrideBrowserWindowOptions: {
           frame: false,
           backgroundColor: nativeTheme.shouldUseDarkColors ? "#1e1e1e" : "#ffffff",
-          icon: getWindowIcon(currentIconKind === "cgs"),
+          icon: getWindowIcon(),
           webPreferences: secureWebPreferences(),
         },
       };
@@ -231,8 +212,7 @@ function broadcastWindowState(win) {
   win.webContents.send("cgs:window-state", { maximized: win.isMaximized() || win.isFullScreen() });
 }
 
-function createMainWindow(signedIn = false) {
-  currentIconKind = signedIn ? "cgs" : "omp";
+function createMainWindow() {
   const { bounds, maximized } = loadWindowState();
   const win = new BrowserWindow({
     ...bounds,
@@ -242,7 +222,7 @@ function createMainWindow(signedIn = false) {
     show: false,
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#1e1e1e" : "#ffffff",
     title: "CGS Desktop",
-    icon: getWindowIcon(signedIn),
+    icon: getWindowIcon(),
     webPreferences: secureWebPreferences(),
   });
   mainWindow = win;
@@ -282,9 +262,7 @@ function registerIpc() {
   });
   ipcMain.handle("cgs:get-state", async () => {
     if (!cgsController) return null;
-    const snap = await cgsController.snapshot();
-    applyWindowIcon(Boolean(snap && snap.signedIn));
-    return { ...snap, windowIcon: currentIconKind };
+    return cgsController.snapshot();
   });
   ipcMain.handle("cgs:open-login", async () => {
     if (!cgsController) return null;
@@ -297,14 +275,13 @@ function registerIpc() {
       await cgsController.onLogin();
     }
     const snap = await cgsController.snapshot();
-    applyWindowIcon(Boolean(snap && snap.signedIn));
     broadcastCgsState(snap);
-    return { ...snap, windowIcon: currentIconKind };
+    return snap;
   });
   ipcMain.handle("cgs:refresh-account", async () => {
     if (!cgsController) return null;
     await Promise.all([cgsController.refresh(), cgsController.refreshUsage()]);
-    return { state: { ...(await cgsController.snapshot()), windowIcon: currentIconKind }, usage: cgsController.usageSnapshot() };
+    return { state: await cgsController.snapshot(), usage: cgsController.usageSnapshot() };
   });
   ipcMain.handle("cgs:open-console", async (_event, page) => {
     if (!cgsController) return false;
@@ -321,7 +298,7 @@ function registerIpc() {
     try {
       const result = await cgsController.logout();
       const snap = await cgsController.snapshot();
-      return { ok: true, serverRevoked: result.serverRevoked, cleanupErrors: result.cleanup.errors, state: { ...snap, windowIcon: currentIconKind } };
+      return { ok: true, serverRevoked: result.serverRevoked, cleanupErrors: result.cleanup.errors, state: snap };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }

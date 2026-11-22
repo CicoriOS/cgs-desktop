@@ -3,7 +3,7 @@
 // Compiles server/binary.ts into <outDir>/ompweb(.exe) and lays out the static root next to it (dist/, public/,
 // node_modules/katex, font licenses, licenses/), the same layout the ompweb release archives have minus the `ompweb-omp`
 // runner: the desktop points OMP_WEB_OMP_BIN at its own omp. Nothing is written inside the checkout.
-import { cpSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 const [checkout, outDir, target] = Bun.argv.slice(2) as [string, string, Bun.Build.CompileTarget];
 if (!checkout || !outDir || !target) throw new Error("usage: ompweb-compile.ts <checkout> <outDir> <bun-target>");
@@ -37,6 +37,15 @@ for (const file of ["dist", "public", "LICENSE"]) copy(path.join(checkout, file)
 for (const file of new Bun.Glob("app/fonts/*-{OFL.txt,LICENSE.*}").scanSync(checkout)) copy(path.join(checkout, file), file);
 const katex = path.dirname(Bun.resolveSync("katex/package.json", checkout));
 for (const file of ["package.json", "LICENSE", "dist/katex.min.css", "dist/fonts"]) copy(path.join(katex, file), `node_modules/katex/${file}`);
+// The desktop is CGS-branded: the page title (which ompweb also uses as its app name) and the PWA title in the copied
+// index.html; the checkout itself stays untouched.
+const indexHtml = path.join(outDir, "dist", "index.html");
+const branded = readFileSync(indexHtml, "utf8")
+  .replace("<title>omp web</title>", "<title>CGS Desktop</title>")
+  .replace('name="apple-mobile-web-app-title" content="omp web"', 'name="apple-mobile-web-app-title" content="CGS Desktop"')
+  .replace('aria-label="Loading omp web"', 'aria-label="Loading CGS Desktop"');
+if (!branded.includes("<title>CGS Desktop</title>")) throw new Error("ompweb's index.html no longer has <title>omp web</title>; update the branding patch");
+writeFileSync(indexHtml, branded);
 const clientPackages = (JSON.parse(readFileSync(clientPackagesFile, "utf8")) as string[]).map((dir) => path.resolve(checkout, dir));
 writeLicenses(outDir, [...new Set([...bundledPackageDirs(result.metafile!, process.cwd()), ...clientPackages])].sort(), bunLicense);
 console.log(`built ${outDir}`);

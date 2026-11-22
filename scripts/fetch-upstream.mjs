@@ -15,11 +15,12 @@ import { buildOmpweb } from "./build-ompweb.mjs";
 import { fetchChromium } from "./fetch-chromium.mjs";
 
 if (process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy) {
-  // Node >= 24.5: make the global fetch honour *_PROXY / NO_PROXY.
-  if (typeof http.setGlobalProxyFromEnv !== "function") {
-    throw new Error("A proxy is configured but this Node has no http.setGlobalProxyFromEnv (need Node >= 24.5)");
+  // Node >= 24.5: make the global fetch honour *_PROXY / NO_PROXY. Older Node 24 does the same when started with
+  // NODE_USE_ENV_PROXY=1.
+  if (typeof http.setGlobalProxyFromEnv === "function") http.setGlobalProxyFromEnv();
+  else if (process.env.NODE_USE_ENV_PROXY !== "1") {
+    throw new Error("A proxy is configured: use Node >= 24.5, or start this Node with NODE_USE_ENV_PROXY=1");
   }
-  http.setGlobalProxyFromEnv();
 }
 
 const OMP_REPO = "can1357/oh-my-pi";

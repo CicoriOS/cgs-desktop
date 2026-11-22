@@ -1,7 +1,6 @@
 "use strict";
-// Rasterizes the default omp logo (vendor/src/ompweb/public/icon.svg) and the CGS logo
-// (~/new-api/web/public/logo.svg, cached as assets/cgs-logo.svg) into 512x512 PNGs and
-// multi-size Windows ICO files (16, 24, 32, 48, 64, 128, 256) under assets/.
+// Rasterizes the CGS logo (~/new-api/web/public/logo.svg, cached as assets/cgs-logo.svg) into a 512x512 PNG and a
+// multi-size Windows ICO (16, 24, 32, 48, 64, 128, 256): assets/icon.png and assets/icon.ico, the only app icon.
 //
 // Run via: npx electron scripts/build-icons.js --no-sandbox
 
@@ -12,7 +11,6 @@ const { app, BrowserWindow } = require("electron");
 
 const ROOT = path.resolve(__dirname, "..");
 const ASSETS_DIR = path.join(ROOT, "assets");
-const OMP_SVG_SRC = path.join(ROOT, "vendor", "src", "ompweb", "public", "icon.svg");
 const CGS_SVG_SRC = path.join(os.homedir(), "new-api", "web", "public", "logo.svg");
 
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
@@ -88,14 +86,10 @@ app.disableHardwareAcceleration();
 app.whenReady().then(async () => {
   try {
     fs.mkdirSync(ASSETS_DIR, { recursive: true });
-    if (fs.existsSync(OMP_SVG_SRC)) {
-      fs.copyFileSync(OMP_SVG_SRC, path.join(ASSETS_DIR, "omp-logo.svg"));
-    }
     if (fs.existsSync(CGS_SVG_SRC)) {
       fs.copyFileSync(CGS_SVG_SRC, path.join(ASSETS_DIR, "cgs-logo.svg"));
     }
 
-    const ompSvg = fs.readFileSync(path.join(ASSETS_DIR, "omp-logo.svg"), "utf8");
     const cgsSvg = fs.readFileSync(path.join(ASSETS_DIR, "cgs-logo.svg"), "utf8");
 
     const win = new BrowserWindow({
@@ -105,14 +99,10 @@ app.whenReady().then(async () => {
     });
     await win.loadURL("data:text/html,<!doctype html><html><body></body></html>");
 
-    const allSizes = [...ICO_SIZES, 512];
-    const ompPngs = await rasterizeSvg(win, ompSvg, allSizes);
-    const cgsPngs = await rasterizeSvg(win, cgsSvg, allSizes);
+    const cgsPngs = await rasterizeSvg(win, cgsSvg, [...ICO_SIZES, 512]);
 
-    fs.writeFileSync(path.join(ASSETS_DIR, "icon.png"), ompPngs.get(512));
-    fs.writeFileSync(path.join(ASSETS_DIR, "icon.ico"), buildIco(ompPngs));
-    fs.writeFileSync(path.join(ASSETS_DIR, "cgs-icon.png"), cgsPngs.get(512));
-    fs.writeFileSync(path.join(ASSETS_DIR, "cgs-icon.ico"), buildIco(cgsPngs));
+    fs.writeFileSync(path.join(ASSETS_DIR, "icon.png"), cgsPngs.get(512));
+    fs.writeFileSync(path.join(ASSETS_DIR, "icon.ico"), buildIco(cgsPngs));
 
     win.destroy();
     app.exit(0);

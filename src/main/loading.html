@@ -22,23 +22,57 @@
   }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px "Segoe UI", system-ui, sans-serif; -webkit-app-region: drag; user-select: none; }
   main { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
-  .brand-logo { width: 48px; height: 48px; display: block; }
+  .brand-logo { width: 60px; height: 60px; display: block; }
   .spinner { width: 24px; height: 24px; border: 2.5px solid var(--ring); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
 <main>
-  <svg class="brand-logo" viewBox="0 0 64 64" role="img" aria-label="omp logo">
+  <svg class="brand-logo" viewBox="25 -35 875 875" role="img" aria-label="CGS">
     <defs>
-      <linearGradient id="ompweb-g" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0" stop-color="#ed4abf" />
-        <stop offset="0.5" stop-color="#9b4dff" />
-        <stop offset="1" stop-color="#5ad8e6" />
+      <linearGradient id="ring" x1="230" y1="180" x2="660" y2="650" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#7c5cf0"/><stop offset="0.38" stop-color="#5129b8"/><stop offset="0.75" stop-color="#2f1470"/><stop offset="1" stop-color="#1e0d45"/>
       </linearGradient>
+      <linearGradient id="ringShine" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#c4b5fd" stop-opacity="0.55"/><stop offset="0.5" stop-color="#c4b5fd" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="bladeL" x1="300" y1="0" x2="470" y2="0" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#1e0d45"/><stop offset="0.6" stop-color="#4c22a8"/><stop offset="1" stop-color="#9478ff"/>
+      </linearGradient>
+      <linearGradient id="bladeR" x1="463" y1="0" x2="626" y2="0" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#6a3fe0"/><stop offset="0.5" stop-color="#3a1990"/><stop offset="1" stop-color="#1a0b3a"/>
+      </linearGradient>
+      <linearGradient id="spike" x1="35" y1="0" x2="185" y2="0" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#2a1263"/><stop offset="0.7" stop-color="#5129b8"/><stop offset="1" stop-color="#b394f0"/>
+      </linearGradient>
+      <linearGradient id="spikeDown" x1="0" y1="690" x2="0" y2="795" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#b394f0"/><stop offset="0.35" stop-color="#5129b8"/><stop offset="1" stop-color="#2a1263"/>
+      </linearGradient>
+      <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#6f8dff"/><stop offset="0.5" stop-color="#b08cf0"/><stop offset="1" stop-color="#f08cc0"/>
+      </linearGradient>
+      <linearGradient id="accentDark" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#5a4fd6"/><stop offset="0.6" stop-color="#8450c8"/><stop offset="1" stop-color="#9c3f80"/>
+      </linearGradient>
+      <mask id="ringCut" maskUnits="userSpaceOnUse" x="0" y="-50" width="924" height="900">
+        <rect x="0" y="-50" width="924" height="900" fill="#fff"/>
+        <g fill="#000" stroke="#000" stroke-width="30" stroke-linejoin="round"><path d="M463 8 L300 692 L372 612 L463 175 L555 612 L626 692 Z"/></g>
+      </mask>
     </defs>
-    <rect width="64" height="64" rx="12" fill="#0f0a14" />
-    <path fill="url(#ompweb-g)" d="M14 16h36v8H40v32h-8V24h-6v22h-8V24h-4z" />
+    <g mask="url(#ringCut)" fill="none" stroke-width="44">
+      <path d="M640.5 300 A220 220 0 1 0 642.4 516.7" stroke="url(#ring)"/>
+      <path d="M640.5 300 A220 220 0 1 0 642.4 516.7" stroke="url(#ringShine)" stroke-width="8" transform="translate(-14 -6)"/>
+    </g>
+    <path d="M35 410 L184 384 L184 436 Z" fill="url(#spike)"/>
+    <path d="M700 368 L890 408 L700 452 L726 410 Z" fill="url(#accent)"/>
+    <path d="M700 368 L890 408 L726 410 Z" fill="#fff" fill-opacity="0.12"/>
+    <path d="M440 692 L488 692 L463 795 Z" fill="url(#spikeDown)"/>
+    <path d="M463 8 L300 692 L372 612 L463 175 Z" fill="url(#bladeL)"/>
+    <path d="M463 8 L463 175 L555 612 L626 692 Z" fill="url(#bladeR)"/>
+    <path d="M463 14 L463 172" stroke="#d8c9ff" stroke-opacity="0.45" stroke-width="2"/>
+    <path d="M465 422 L388 568 L465 505 Z" fill="url(#accent)"/>
+    <path d="M465 422 L465 505 L542 568 Z" fill="url(#accentDark)"/>
   </svg>
   <div class="spinner"></div>
   <div>正在启动 CGS Desktop…</div>

@@ -45,7 +45,7 @@ function openLoginWindow({ agentDir, baseUrl }) {
       backgroundColor: nativeTheme.shouldUseDarkColors ? "#1e1e1e" : "#ffffff",
       title: "Cicori Good Service",
       icon: nativeImage.createFromPath(
-        path.join(__dirname, "..", "..", "assets", process.platform === "win32" ? "cgs-icon.ico" : "cgs-icon.png"),
+        path.join(__dirname, "..", "..", "assets", process.platform === "win32" ? "icon.ico" : "icon.png"),
       ),
       webPreferences: {
         preload: path.join(__dirname, "login-preload.js"),

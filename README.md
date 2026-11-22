@@ -39,7 +39,8 @@ On Linux/WSL, if Electron aborts with a `chrome-sandbox` error, run `npm start -
   `chromium.{buildId,platform,url}`; an up-to-date install is skipped. `scripts/fetch-chromium.mjs --target <t>` runs it alone.
 
 Set `GITHUB_TOKEN` to avoid API rate limits; `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` are honoured by both the API downloader
-and `git`/`npm`/`bun`.
+and `git`/`npm`/`bun`. The downloader uses Node's built-in proxy support: Node >= 24.5, or an older Node 24 started with
+`NODE_USE_ENV_PROXY=1` (`NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:10808 npm run fetch:linux`).
 
 ## Packaging
 
@@ -65,6 +66,19 @@ cmd.exe /c 'net use Z: /delete /y'
 
 Behind a proxy, `npm install` / the build also need `ELECTRON_GET_USE_PROXY=1 GLOBAL_AGENT_HTTPS_PROXY=$HTTPS_PROXY`
 (the Electron binary downloader ignores `HTTPS_PROXY` otherwise).
+
+### Linux AppImage
+
+```sh
+npm run dist:linux    # fetches linux-x64 upstreams, then builds dist/CGS-Desktop-<version>-x86_64.AppImage
+```
+
+Same layout as Windows (`vendor/linux-x64/*` → `resources/*`, per-platform `extraResources` in package.json). The app runs
+omp in an environment of its own, never the user's: it starts the bundled `resources/omp/omp` (put first on PATH and passed
+as `OMP_WEB_OMP_BIN`), keeps the agent directory under userData (`~/.config/CGS Desktop/omp/agent`), drops every inherited
+`PI_*` / `OMP_*` variable and the AppImage launcher's own, and points `XDG_DATA_HOME` at an empty directory next to it so a
+locally installed omp's XDG data is never picked up (`buildEnv` in `src/main/services.js`). On a system without FUSE run
+the AppImage with `--appimage-extract-and-run`; add `--no-sandbox` where Electron's sandbox is unavailable.
 
 
 ## Environment variables
@@ -97,7 +111,7 @@ Behind a proxy, `npm install` / the build also need `ELECTRON_GET_USE_PROXY=1 GL
   - minimize / maximize-restore / close buttons right of ompweb's right-panel toggle (floating at the top-right when it is
     absent) and makes `.shell-topbar` draggable;
   - the sign-in entry and account card (see below); there is no topbar button, no preset picker and no tier-change bubble;
-  - logo: while signed in, ompweb's brand mark (sidebar, welcome header) is replaced by the CGS logo; signed out → omp's;
+  - branding: ompweb's brand mark and name are replaced by the CGS logo and name, always (see Branding below);
   - theme: on first run (no `omp-theme` in localStorage) the preference is set to ompweb's `system`, which tracks the OS
     light/dark setting live. While the stored preference is `system`, an injected stylesheet maps new-api's 「薰衣草梦」
     (lavender-dream, `web/src/styles/theme.css` + `theme-presets.css`) light/dark palettes onto ompweb's `--bg*`, `--text*`,
@@ -142,11 +156,13 @@ Behind a proxy, `npm install` / the build also need `ELECTRON_GET_USE_PROXY=1 GL
     path as after login; already running sessions keep their providers). The sidebar row and Usage card
     disappear, and ompweb's provider-usage widget and omp logo return. The login popup on the
     next launch follows the usual rule (only when no credentials of any kind are saved).
-- Branding assets (`assets/`, regenerate with `npm run icons`, which rasterizes via Electron): `omp-logo.svg` / `icon.png` /
-  `icon.ico` are ompweb's default mark (`vendor/src/ompweb/public/icon.svg`) used for the exe/installer icon, the default
-  window/taskbar icon and the loading screen; `cgs-logo.svg` / `cgs-icon.png` / `cgs-icon.ico` come from
-  `~/new-api/web/public/logo.svg` and are the window/taskbar icon while signed in (switched at runtime on tier
-  detection / 401), the in-app brand logo and the login popup logo (always CGS).
+- Branding is CGS everywhere, signed in or not (`assets/`, regenerate with `npm run icons`, which rasterizes via Electron):
+  `cgs-logo.svg` (from `~/new-api/web/public/logo.svg`) is the in-app brand logo, the login popup logo and the source of
+  `icon.png` / `icon.ico` (exe, installer, AppImage, window and taskbar icon). The loading screen inlines the same logo.
+  Title: `scripts/ompweb-compile.ts` rewrites the page title (which ompweb also uses as its app name) in the *built copy* of
+  ompweb's `index.html` to "CGS Desktop" (the build fails if ompweb's title changes; the checkout stays untouched), and the
+  preload swaps ompweb's mark and wordmark for the CGS logo, "CGS" in the sidebar header and "CGS Desktop" on the welcome
+  screen. `buildOmpweb` records a hash of that script in `manifest.json`, so editing it rebuilds ompweb.
 - `src/cgs/`, `src/login/`, `plugin/omp-cgs/`: CGS device-link login (popup supports light and dark), config writer, tier
   polling and the omp provider extension.
 
