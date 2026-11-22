@@ -6,14 +6,12 @@ const fs = require("node:fs");
 const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
-const { DatabaseSync } = require("node:sqlite");
 const YAML = require("yaml");
 const cw = require("../src/cgs/config-writer");
 const cgs = require("../src/cgs");
 const { readState } = require("../src/cgs/state");
 const { refreshTier } = require("../src/cgs/tier");
 const { CgsController } = require("../src/cgs/controller");
-const { detectThirdPartyCredentials, shouldShowStartupPopup } = require("../src/cgs/credential-detect");
 
 const PLUGIN_SRC = path.join(__dirname, "..", "plugin", "omp-cgs");
 
@@ -259,83 +257,25 @@ test("first login applies the default roles; later logins and tier polls never r
   }
 });
 
-function createAgentDb(dir, rows) {
-  const db = new DatabaseSync(path.join(dir, "agent.db"));
-  db.exec(`
-    CREATE TABLE auth_credentials (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      provider TEXT NOT NULL,
-      credential_type TEXT NOT NULL,
-      data TEXT NOT NULL,
-      disabled_cause TEXT DEFAULT NULL,
-      identity_key TEXT DEFAULT NULL
-    );
-  `);
-  const ins = db.prepare(
-    "INSERT INTO auth_credentials (provider, credential_type, data, disabled_cause) VALUES (?, ?, ?, ?)",
-  );
-  for (const r of rows) ins.run(r.provider, r.type ?? "api_key", JSON.stringify(r.data ?? { key: "k" }), r.disabled ?? null);
-  db.close();
-}
-
-test("startup popup decision: shows only when neither CGS nor any third-party credential is saved", async () => {
-  // (a) Empty agentDir → popup shows.
+test("startup login is needed until CGS is signed in; other credentials in the agent directory do not count", async () => {
   const emptyDir = tmpDir();
-  assert.deepEqual(await detectThirdPartyCredentials(emptyDir), { found: false, source: null, provider: null });
   assert.equal(await cgs.needsStartupLogin(emptyDir), true);
 
-  // (b) Signed in to CGS → no popup.
-  const cgsDir = tmpDir();
-  await cw.writeCredentials(cgsDir, {
-    baseUrl: "https://api.cicori.com",
+  // A third-party provider key (models.yml) or a stray agent.db is not a login.
+  const otherDir = tmpDir();
+  fs.writeFileSync(
+    path.join(otherDir, "models.yml"),
+    "providers:\n  openrouter:\n    baseUrl: https://openrouter.ai/api/v1\n    apiKey: sk-or-123\n",
+  );
+  fs.writeFileSync(path.join(otherDir, "agent.db"), "");
+  assert.equal(await cgs.needsStartupLogin(otherDir), true);
+
+  await cw.writeCredentials(otherDir, {
+    baseUrl: "https://ai.tmp.cnklp.cn",
     clientSecret: "cgc_cgs",
     tier: "free",
     username: "u",
     models: ["deepseek-v4.1-flash"],
   });
-  assert.equal(await cgs.needsStartupLogin(cgsDir), false);
-
-  // (c) agent.db with only disabled / CGS / MCP OAuth rows → still needs popup.
-  const ignoredDbDir = tmpDir();
-  createAgentDb(ignoredDbDir, [
-    { provider: "anthropic", disabled: "deleted by user" },
-    { provider: "cgs-openai", disabled: null },
-    { provider: "mcp_oauth:profile:default:https://mcp.cloudflare.com/mcp", type: "oauth", disabled: null },
-  ]);
-  assert.equal((await detectThirdPartyCredentials(ignoredDbDir)).found, false);
-  assert.equal(await cgs.needsStartupLogin(ignoredDbDir), true);
-
-  // (d) agent.db with an active third-party credential (/login OAuth or API key) → no popup.
-  const dbDir = tmpDir();
-  createAgentDb(dbDir, [{ provider: "openai-codex", type: "oauth", data: { access: "tok" }, disabled: null }]);
-  assert.deepEqual(await detectThirdPartyCredentials(dbDir), {
-    found: true,
-    source: "agent.db",
-    provider: "openai-codex",
-  });
-  assert.equal(await cgs.needsStartupLogin(dbDir), false);
-
-  // (e) models.yml with only cgs-* or keyless provider → still needs popup; with third-party apiKey → no popup.
-  const modelsDir = tmpDir();
-  fs.writeFileSync(
-    path.join(modelsDir, "models.yml"),
-    "providers:\n  cgs-openai:\n    apiKey: sk-cgs\n  ollama:\n    baseUrl: http://127.0.0.1:11434\n",
-  );
-  assert.equal(await cgs.needsStartupLogin(modelsDir), true);
-
-  fs.writeFileSync(
-    path.join(modelsDir, "models.yml"),
-    "providers:\n  openrouter:\n    baseUrl: https://openrouter.ai/api/v1\n    apiKey: sk-or-123\n",
-  );
-  assert.deepEqual(await detectThirdPartyCredentials(modelsDir), {
-    found: true,
-    source: "models.yml",
-    provider: "openrouter",
-  });
-  assert.equal(await cgs.needsStartupLogin(modelsDir), false);
-
-  // Pure helper combinations
-  assert.equal(shouldShowStartupPopup({ cgsSignedIn: false, thirdParty: { found: false } }), true);
-  assert.equal(shouldShowStartupPopup({ cgsSignedIn: true, thirdParty: { found: false } }), false);
-  assert.equal(shouldShowStartupPopup({ cgsSignedIn: false, thirdParty: { found: true } }), false);
+  assert.equal(await cgs.needsStartupLogin(otherDir), false);
 });

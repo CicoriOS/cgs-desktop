@@ -72,6 +72,7 @@ async function callApi(baseUrl, method, path, body, signal) {
   if (!env.success) {
     const err = new CgsError("rejected", env.message ? `服务器拒绝了请求：${env.message}` : "服务器拒绝了请求");
     err.serverMessage = env.message || "";
+    err.serverCode = typeof env.code === "string" ? env.code : "";
     throw err;
   }
   return env.data ?? {};
@@ -211,4 +212,4 @@ async function runDeviceFlow({
   }
 }
 
-module.exports = { runDeviceFlow, createSession, exchangeChallenge, pollOnce, CgsError, POLL_INTERVAL_MS };
+module.exports = { runDeviceFlow, createSession, exchangeChallenge, pollOnce, CgsError, POLL_INTERVAL_MS, callApi, sleep, throwIfAborted, abortedError };

@@ -92,7 +92,7 @@
         <h1>Cicori Good Service</h1>
         <p class="lead">登录后即可使用 Cicori Good Service<br>提供的全部模型</p>
         <button class="primary" id="btn-login" type="button">使用 Cicori Good Service 登录</button>
-        <button class="subtle" id="btn-third" type="button">使用第三方登录</button>
+        <button class="secondary" id="btn-register" type="button">使用邮箱注册</button>
       </section>
 
       <!-- 2. progress -->
@@ -100,8 +100,10 @@
         <div class="spinner" aria-hidden="true"></div>
         <h2 id="progress-title">正在创建登录会话</h2>
         <ol class="steps">
-          <li data-step="creating"><i></i><span>正在创建登录会话</span></li>
+          <li data-step="creating"><i></i><span>正在创建会话</span></li>
           <li data-step="solving"><i></i><span>正在进行安全校验</span></li>
+          <li data-step="sending"><i></i><span>正在发送验证码</span></li>
+          <li data-step="registering"><i></i><span>正在创建账号</span></li>
           <li data-step="saving"><i></i><span>正在保存配置</span></li>
         </ol>
         <button class="ghost" id="btn-cancel-progress" type="button">取消</button>
@@ -141,6 +143,35 @@
         <p class="lead small">正在进入 CGS Desktop…</p>
       </section>
 
+      <!-- 4a. register: email + password (kept in the main process) -->
+      <section class="screen" data-for="register">
+        <h2>邮箱注册</h2>
+        <p class="lead small">填写邮箱和密码，我们会发送 6 位验证码到该邮箱。</p>
+        <form class="form" id="register-form" novalidate>
+          <label>邮箱<input id="reg-email" type="email" autocomplete="email" maxlength="50" spellcheck="false"></label>
+          <label>密码（8 位以上）<input id="reg-password" type="password" autocomplete="new-password" maxlength="128"></label>
+          <label>确认密码<input id="reg-password2" type="password" autocomplete="new-password" maxlength="128"></label>
+          <p class="form-error" id="reg-error" role="alert" hidden></p>
+          <button class="primary" id="btn-send-code" type="submit">发送验证码</button>
+        </form>
+        <button class="subtle" id="btn-register-close" type="button">返回登录</button>
+      </section>
+
+      <!-- 4b. verify: the mailed code -->
+      <section class="screen" data-for="verify">
+        <h2>输入验证码</h2>
+        <p class="lead small">验证码已发送至 <b id="verify-email"></b>，<span id="verify-left"></span>内有效。</p>
+        <form class="form" id="verify-form" novalidate>
+          <input class="code-input" id="verify-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" aria-label="验证码" spellcheck="false">
+          <p class="form-error" id="verify-error" role="alert" hidden></p>
+          <button class="primary" id="btn-verify" type="submit">完成注册</button>
+        </form>
+        <div class="row">
+          <button class="secondary compact" id="btn-resend" type="button">重新发送</button>
+          <button class="secondary compact" id="btn-verify-back" type="button">修改邮箱</button>
+        </div>
+      </section>
+
       <!-- 5. error -->
       <section class="screen" data-for="error">
         <div class="badge bad" aria-hidden="true">
@@ -149,7 +180,6 @@
         <h2>登录未完成</h2>
         <p class="lead small" id="error-text" role="alert"></p>
         <button class="primary" id="btn-retry" type="button">重试</button>
-        <button class="subtle" id="btn-third-2" type="button">使用第三方登录</button>
       </section>
     </main>
   </div>

@@ -129,6 +129,8 @@ body[data-screen="initial"] .screen[data-for="initial"],
 body[data-screen="progress"] .screen[data-for="progress"],
 body[data-screen="waiting"] .screen[data-for="waiting"],
 body[data-screen="success"] .screen[data-for="success"],
+body[data-screen="register"] .screen[data-for="register"],
+body[data-screen="verify"] .screen[data-for="verify"],
 body[data-screen="error"] .screen[data-for="error"] {
   display: flex;
   animation: enter 0.28s ease both;
@@ -270,3 +272,23 @@ button { font-family: inherit; -webkit-app-region: no-drag; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.form { width: 100%; display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.form input {
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+  color: var(--text);
+  font: 14px var(--font);
+  outline: none;
+}
+.form input:focus { border-color: var(--accent); }
+.form .primary { margin-top: 4px; }
+.form-error { color: var(--bad); font-size: 12.5px; line-height: 1.5; }
+.code-input { text-align: center; font-size: 24px !important; letter-spacing: 0.4em; font-variant-numeric: tabular-nums; padding-left: 0.4em !important; }
+#verify-email { color: var(--text); font-weight: 600; word-break: break-all; }
+body[data-screen="register"] .screen[data-for="register"],
+body[data-screen="verify"] .screen[data-for="verify"] { gap: 10px; }

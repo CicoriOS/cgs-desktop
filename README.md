@@ -96,8 +96,9 @@ the AppImage with `--appimage-extract-and-run`; add `--no-sandbox` where Electro
 ## Architecture
 
 - `src/main/main.js`: single instance → `prepareAgentDir` (installs the CGS extension, config defaults) → starts services in
-  parallel with the login check → the CGS login popup **only when no credentials are saved** (neither CGS nor a
-  third-party provider login) → frameless main window (loading screen first) on `http://127.0.0.1:<port>/`. External links
+  parallel with the login check → the CGS login popup **whenever CGS is not signed in** (every build signs in through CGS;
+  closing the popup unsigned quits the app; it offers the browser-approved login and email registration, see "Email
+  registration" below) → frameless main window (loading screen first) on `http://127.0.0.1:<port>/`. External links
   open in the system browser. `nativeTheme.themeSource = "system"`, so Chromium's `prefers-color-scheme` follows the OS.
 - `src/main/services.js`: spawns `ompweb --no-open -H 127.0.0.1 -p <port>`, waits for `Ready on`, then `ompweb host`. The port is
   **stable**: ompweb's localStorage/cookies are per origin, so a random port per launch would reset every UI preference.
@@ -206,3 +207,10 @@ the AppImage with `--appimage-extract-and-run`; add `--no-sandbox` where Electro
   the group ratio, `per_call` for per-request models). The plugin fetches it once at start (8 s timeout, best effort) and fills
   each model's `cost` with it; models the site does not price keep the catalog cost. omp prints its own `$` glyph before cost
   numbers, but the numbers are yuan.
+- **Email registration** (the login popup's 「使用邮箱注册」): the app registers with email + password without a browser, through
+  its own endpoints (`src/cgs/register-flow.js`, server `/api/device/register/*`, not the console's registration). Every code
+  mail costs a proof of work like the login does (a resend solves a new one); the server mails a 6-digit code (60 s between
+  mails per address, 5 wrong codes per registration), and entering it creates the account and returns the client credential,
+  so the app is signed in at once. The password stays in the main process between the form and the code screen. A server
+  without a mail provider writes the code to its log instead (`[desktop-register] … verification code for <email>: <code>`).
+  Every build signs in through CGS: there is no third-party login, and closing the login popup unsigned quits the app.

@@ -96,7 +96,12 @@ async function start() {
 
   if (await needsStartupLogin(agentDir)) {
     const { openLoginWindow } = require("../login/login-window");
-    await openLoginWindow({ agentDir, baseUrl: CGS_BASE_URL });
+    const outcome = await openLoginWindow({ agentDir, baseUrl: CGS_BASE_URL });
+    if (outcome !== "cgs") {
+      // Every build signs in through CGS; without it there is nothing to run.
+      app.quit();
+      return;
+    }
   }
 
   cgsController = new CgsController({ agentDir, pluginDir: pluginSourceDir });
