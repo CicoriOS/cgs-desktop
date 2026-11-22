@@ -75,11 +75,13 @@ npm run dist:linux    # fetches linux-x64 upstreams, then builds dist/CGS-Deskto
 
 Same layout as Windows (`vendor/linux-x64/*` → `resources/*`, per-platform `extraResources` in package.json). The app runs
 omp in an environment of its own, never the user's: it starts the bundled `resources/omp/omp` (put first on PATH and passed
-as `OMP_WEB_OMP_BIN`), uses its own config root `~/.cgs-desktop` (`PI_CONFIG_DIR`; a local omp or pi keeps `~/.omp`) with the
+as `OMP_WEB_OMP_BIN`), uses its own config root `~/.cgs` (`PI_CONFIG_DIR`; a local omp or pi keeps `~/.omp`) with the
 agent directory under userData (`~/.config/CGS Desktop/omp/agent`), drops every inherited `PI_*` / `OMP_*` variable and the
 AppImage launcher's own, and points `XDG_DATA_HOME` at an empty directory next to it so a locally installed omp's XDG data is
-never picked up (`buildEnv` in `src/main/services.js`). One thing stays shared: omp keeps a per-version native-addon cache in
-`~/.omp/natives/<version>` regardless of `PI_CONFIG_DIR`. On a system without FUSE run
+never picked up (`buildEnv` in `src/main/services.js`). omp hard-codes its native-addon cache to `~/.omp/natives`, which
+`PI_CONFIG_DIR` does not move, so `PI_NATIVES_DIR=~/.cgs/natives` is set too. (Patching `".omp"` in the release binary does not
+work: the shipped executable runs embedded bytecode, so changing the bundled source text has no effect.) The one hard-coded
+directory left is `~/.omp/browser-state`, used by omp's browser tool for saved page state. On a system without FUSE run
 the AppImage with `--appimage-extract-and-run`; add `--no-sandbox` where Electron's sandbox is unavailable.
 
 
@@ -87,7 +89,7 @@ the AppImage with `--appimage-extract-and-run`; add `--no-sandbox` where Electro
 
 | Variable | Effect |
 |---|---|
-| `CGS_BASE_URL` | CGS server (default `https://api.cicori.com`), e.g. a local new-api for testing |
+| `CGS_BASE_URL` | CGS server (default `https://ai.tmp.cnklp.cn`), e.g. a local new-api for testing |
 | `GITHUB_TOKEN` | used by `scripts/fetch-upstream.mjs` / `scripts/build-ompweb.mjs` for GitHub API and `git` calls |
 | `HTTPS_PROXY` | proxy for the fetch / build scripts |
 

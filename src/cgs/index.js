@@ -5,7 +5,8 @@ const { detectThirdPartyCredentials, shouldShowStartupPopup } = require("./crede
 const { CgsController } = require("./controller");
 const { TIER_IDS, TIER_NAMES } = require("./state");
 
-const CGS_BASE_URL = process.env.CGS_BASE_URL || "https://api.cicori.com";
+// The server the build points at; CGS_BASE_URL overrides it (e.g. a local new-api for testing).
+const CGS_BASE_URL = process.env.CGS_BASE_URL || "https://ai.tmp.cnklp.cn";
 
 /** Startup popup rule: only when neither CGS nor any third-party credentials are saved in the agentDir. */
 async function needsStartupLogin(agentDir) {

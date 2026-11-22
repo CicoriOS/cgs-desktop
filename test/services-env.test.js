@@ -32,8 +32,8 @@ test("buildEnv points omp at the bundled binary and agent dir and drops inherite
 });
 
 test("buildEnv gives omp its own config root whatever the shell configured", () => {
-  assert.equal(buildEnv(input).PI_CONFIG_DIR, ".cgs-desktop");
-  assert.equal(buildEnv({ ...input, baseEnv: { ...BASE, PI_CONFIG_DIR: ".pi" } }).PI_CONFIG_DIR, ".cgs-desktop");
+  assert.equal(buildEnv(input).PI_CONFIG_DIR, ".cgs");
+  assert.equal(buildEnv({ ...input, baseEnv: { ...BASE, PI_CONFIG_DIR: ".pi" } }).PI_CONFIG_DIR, ".cgs");
 });
 
 test("buildEnv puts the bundled omp first on PATH once and keeps the user's other entries", () => {
@@ -44,4 +44,8 @@ test("buildEnv puts the bundled omp first on PATH once and keeps the user's othe
 test("buildEnv keeps a locally installed omp's XDG data layout out of reach on Linux only", () => {
   assert.equal(buildEnv(input).XDG_DATA_HOME, path.join("/home/u/.config/CGS Desktop/omp", "xdg-data"));
   assert.equal("XDG_DATA_HOME" in buildEnv({ ...input, platform: "win32" }), false);
+});
+
+test("buildEnv moves omp's hard-coded native-addon cache into the config root", () => {
+  assert.equal(buildEnv({ ...input, home: "/home/u" }).PI_NATIVES_DIR, path.join("/home/u", ".cgs", "natives"));
 });

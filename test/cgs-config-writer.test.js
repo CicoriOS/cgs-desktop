@@ -27,7 +27,7 @@ test("index exports the contract interface", () => {
   for (const key of ["CGS_BASE_URL", "prepareAgentDir", "getLoginState", "needsStartupLogin", "CgsController", "TIER_IDS", "TIER_NAMES"]) {
     assert.ok(key in cgs, `missing export ${key}`);
   }
-  assert.equal(cgs.CGS_BASE_URL, process.env.CGS_BASE_URL || "https://api.cicori.com");
+  assert.equal(cgs.CGS_BASE_URL, process.env.CGS_BASE_URL || "https://ai.tmp.cnklp.cn");
 });
 
 const WEB = "cgs-antigravity/gemini-3.8-flash";

@@ -2,6 +2,7 @@
 // Spawns and supervises the two upstream processes: `ompweb` (the web server) and `ompweb host` (the session daemon).
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const net = require("node:net");
 const path = require("node:path");
 
@@ -86,17 +87,18 @@ async function choosePort(file, preferred = DEFAULT_PORT) {
 // Variables of an omp / ompweb the user may have configured for their own installation, and the AppImage launcher's.
 const FOREIGN_ENV = /^(PI_|OMP_|APPDIR$|APPIMAGE$|ARGV0$|OWD$)/i;
 
-// omp's config root is `~/<PI_CONFIG_DIR>` (default `.omp`, shared with a locally installed omp or pi). The desktop has its own.
-const CONFIG_DIR_NAME = ".cgs-desktop";
+// omp's config root is `~/<PI_CONFIG_DIR>` (default `.omp`, shared with a locally installed omp or pi). The desktop has its
+// own.
+const CONFIG_DIR_NAME = ".cgs";
 
 /**
  * The environment of ompweb and every omp it starts. They run in an environment of their own: the bundled omp comes
- * first on PATH (and ompweb is told its path), the config root is `~/.cgs-desktop` instead of `~/.omp`, the agent
+ * first on PATH (and ompweb is told its path), the config root is `~/.cgs` instead of `~/.omp`, the agent
  * directory is under userData, and no omp / ompweb settings are inherited from the shell. On Linux XDG_DATA_HOME points
  * to an empty directory, so omp never opts into the XDG layout of a locally installed omp. Other PATH entries stay: the
  * agent needs the user's git, compilers and so on.
  */
-function buildEnv({ agentDir, ompBin, chromeBin, baseEnv = process.env, platform = process.platform }) {
+function buildEnv({ agentDir, ompBin, chromeBin, baseEnv = process.env, platform = process.platform, home = os.homedir() }) {
   const env = {};
   for (const [key, value] of Object.entries(baseEnv)) if (!FOREIGN_ENV.test(key)) env[key] = value;
   const pathKey = Object.keys(env).find((k) => k.toUpperCase() === "PATH") || "PATH";
@@ -104,10 +106,12 @@ function buildEnv({ agentDir, ompBin, chromeBin, baseEnv = process.env, platform
   env[pathKey] = [ompDir, ...(env[pathKey] || "").split(path.delimiter).filter((dir) => dir && dir !== ompDir)].join(path.delimiter);
   if (platform === "linux") env.XDG_DATA_HOME = path.join(path.dirname(agentDir), "xdg-data");
   env.PI_CONFIG_DIR = CONFIG_DIR_NAME;
+  // The native-addon cache is hard-coded to ~/.omp/natives in omp unless PI_NATIVES_DIR says otherwise.
+  env.PI_NATIVES_DIR = path.join(home, CONFIG_DIR_NAME, "natives");
   env.PI_CODING_AGENT_DIR = agentDir;
   env.OMP_WEB_OMP_BIN = ompBin;
   // omp's browser tool drives Chromium via puppeteer-core. PUPPETEER_EXECUTABLE_PATH takes precedence over everything
-  // (system Chrome/Edge lookup, the ~/.cgs-desktop/puppeteer Chrome-for-Testing download), so the bundled build is the only
+  // (system Chrome/Edge lookup, the ~/.cgs/puppeteer Chrome-for-Testing download), so the bundled build is the only
   // browser omp launches. Its headless profile is an omp-owned temp dir, never a system browser profile.
   env.PUPPETEER_EXECUTABLE_PATH = chromeBin;
   return env;
