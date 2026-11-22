@@ -1,9 +1,9 @@
 # CGS Desktop
 
-Windows Electron app that bundles the latest [omp](https://github.com/can1357/oh-my-pi) coding agent and the
-[ompweb](https://github.com/kahme247/ompweb) web UI, plus the CGS (Cicori Good Service) provider plugin. At build time,
-`omp` is downloaded from its latest release and `ompweb` is cloned and compiled from its newest `main` commit (no fork, no
-patches to its source).
+Windows Electron app that bundles the [omp](https://github.com/can1357/oh-my-pi) coding agent (as ompweb's own build,
+`ompweb-omp`) and the [ompweb](https://github.com/kahme247/ompweb) web UI, plus the CGS (Cicori Good Service) provider
+plugin. At build time, `ompweb` is cloned and compiled from its newest `main` commit (no patches to its source) and its
+omp runner is downloaded from the fork release that commit pins.
 
 ## Development
 
@@ -21,8 +21,10 @@ On Linux/WSL, if Electron aborts with a `chrome-sandbox` error, run `npm start -
 
 `npm run fetch*` (`scripts/fetch-upstream.mjs` + `scripts/build-ompweb.mjs`):
 
-- `omp`: asks GitHub for the latest `can1357/oh-my-pi` release, verifies the binary against `SHA256SUMS.txt` and skips the
-  download when the tag in `vendor/<target>/manifest.json` matches.
+- `omp`: ompweb talks to its own omp build (`ompweb-omp`, `--headless`), not to a stock omp release, which lacks that
+  channel (models never load). After `ompweb` is built, the fork release pinned in its `omp-runner.json` is looked up,
+  the runner for the target is verified against that release's `ompweb-omp.sha256` and saved as `vendor/<target>/omp/omp`;
+  skipped when the tag in `vendor/<target>/manifest.json` matches.
 - `ompweb`: clones (or fast-forwards) `https://github.com/kahme247/ompweb` into `vendor/src/ompweb`, runs `npm ci` + the
   SPA build (`scripts/build-client.ts`) and compiles `server/binary.ts` + the static root (`dist/`, `public/`,
   `lib/omp/session-edit-extension.mjs`, `node_modules/katex`, `licenses/`) into `vendor/<target>/ompweb/` via our own

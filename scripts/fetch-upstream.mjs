@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Prepares vendor/<target>/:
-//   omp/omp(.exe)   latest can1357/oh-my-pi release, verified against SHA256SUMS.txt
+//   omp/omp(.exe)   ompweb's own omp (`ompweb-omp`), the runner that the ompweb checkout pins in omp-runner.json (a release of
+//                   the ompweb-dev/oh-my-pi fork), verified against that release's ompweb-omp.sha256. Stock omp releases lack
+//                   the `--headless` channel ompweb talks to, so they cannot be used.
 //   chromium/...    Chrome for Testing build pinned by that omp release (scripts/fetch-chromium.mjs), so omp's browser tool needs no first-use download
 //   ompweb/...      built from source: newest kahme247/ompweb default-branch commit (scripts/build-ompweb.mjs)
 //   manifest.json   { omp: { tag, ... }, chromium: { buildId, ... }, ompweb: { commit, builtAt } }
@@ -23,10 +25,9 @@ if (process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY
   }
 }
 
-const OMP_REPO = "can1357/oh-my-pi";
 const TARGETS = {
-  "win-x64": { omp: "omp-windows-x64.exe", ompBin: "omp.exe", webBin: "ompweb.exe" },
-  "linux-x64": { omp: "omp-linux-x64", ompBin: "omp", webBin: "ompweb" },
+  "win-x64": { omp: "ompweb-omp-windows-x64.exe", ompBin: "omp.exe", webBin: "ompweb.exe" },
+  "linux-x64": { omp: "ompweb-omp-linux-x64", ompBin: "omp", webBin: "ompweb" },
 };
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -105,19 +106,21 @@ async function readManifest(file) {
   }
 }
 
-async function latestOmp(spec) {
-  const release = await getJson(`https://api.github.com/repos/${OMP_REPO}/releases/latest`);
+/** The fork release the checked-out ompweb pins for its runner (omp-runner.json: { repo, tag }). */
+async function pinnedRunner(spec) {
+  const pin = JSON.parse(await readFile(path.join(root, "vendor", "src", "ompweb", "omp-runner.json"), "utf8"));
+  const release = await getJson(`https://api.github.com/repos/${pin.repo}/releases/tags/${encodeURIComponent(pin.tag)}`);
   const asset = release.assets.find((a) => a.name === spec.omp);
-  const sums = release.assets.find((a) => a.name === "SHA256SUMS.txt");
-  if (!asset) throw new Error(`${OMP_REPO} ${release.tag_name} has no asset ${spec.omp}`);
-  if (!sums) throw new Error(`${OMP_REPO} ${release.tag_name} has no SHA256SUMS.txt`);
-  return { tag: release.tag_name, asset, sums };
+  const sums = release.assets.find((a) => a.name === "ompweb-omp.sha256");
+  if (!asset) throw new Error(`${pin.repo} ${pin.tag} has no asset ${spec.omp}`);
+  if (!sums) throw new Error(`${pin.repo} ${pin.tag} has no ompweb-omp.sha256`);
+  return { tag: pin.tag, asset, sums };
 }
 
 async function fetchOmp(spec, outDir, info) {
   const sums = (await download(info.sums.browser_download_url)).toString("utf8");
   const line = sums.split(/\r?\n/).map((l) => l.trim().split(/\s+/)).find((p) => p.length >= 2 && p[1].replace(/^\*/, "") === spec.omp);
-  if (!line) throw new Error(`SHA256SUMS.txt has no entry for ${spec.omp}`);
+  if (!line) throw new Error(`ompweb-omp.sha256 has no entry for ${spec.omp}`);
   const expected = line[0].toLowerCase();
   const body = await download(info.asset.browser_download_url);
   const actual = sha256(body);
@@ -140,12 +143,18 @@ async function main() {
   await mkdir(vendor, { recursive: true });
 
   const manifest = await readManifest(manifestFile);
-  const omp = await latestOmp(spec);
+  const built = await buildOmpweb({ target, outDir: webDir, webBin: spec.webBin, current: manifest.ompweb });
+  if (built !== manifest.ompweb) {
+    manifest.ompweb = built;
+    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+  }
 
-  if (manifest.omp?.tag === omp.tag && existsSync(path.join(ompDir, spec.ompBin))) {
-    console.log(`omp ${omp.tag}: up to date`);
+
+  const omp = await pinnedRunner(spec);
+  if (manifest.omp?.tag === omp.tag && manifest.omp?.asset === spec.omp && existsSync(path.join(ompDir, spec.ompBin))) {
+    console.log(`omp runner ${omp.tag}: up to date`);
   } else {
-    console.log(`omp ${omp.tag}: downloading ${spec.omp}`);
+    console.log(`omp runner ${omp.tag}: downloading ${spec.omp}`);
     manifest.omp = await fetchOmp(spec, ompDir, omp);
     await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
   }
@@ -153,12 +162,6 @@ async function main() {
   const chromium = await fetchChromium({ target, vendorDir: vendor, current: manifest.chromium });
   if (chromium !== manifest.chromium) {
     manifest.chromium = chromium;
-    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
-  }
-
-  const built = await buildOmpweb({ target, outDir: webDir, webBin: spec.webBin, current: manifest.ompweb });
-  if (built !== manifest.ompweb) {
-    manifest.ompweb = built;
     await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
   }
 

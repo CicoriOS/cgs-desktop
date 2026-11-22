@@ -577,14 +577,30 @@ function renderBranding() {
   for (const word of document.querySelectorAll(".omp-wordmark")) {
     if (word.textContent !== BRAND_NAME) word.textContent = BRAND_NAME;
   }
-  // Sidebar header: <button title="Show ompweb version"> holding <span><span>omp</span><span>web</span></span>.
-  for (const button of document.querySelectorAll('button[title$="ompweb version"], button[title$="ompweb name"]')) {
-    button.title = button.title.replace("ompweb", BRAND_NAME);
+  brandHeaderLabel();
+}
+
+/**
+ * Sidebar header: <button title="Show ompweb version"> holding the mark and <span><span>omp</span><span>web</span></span>.
+ * Clicking it swaps that span for the version text and back, and the way back scrambles the name into view one frame at a
+ * time, so React recreates the "omp"/"web" spans while it keeps the title we already rewrote. The button is found by the
+ * logo we put in it, never by its title, and this also runs synchronously from its own MutationObserver: a rewrite
+ * deferred to the next animation frame would flash "omp web". Idempotent: it writes only what differs.
+ */
+function brandHeaderLabel() {
+  for (const logo of document.querySelectorAll("img.cgs-brand-logo")) {
+    const button = logo.closest("button");
+    if (!button) continue;
+    if (button.title.includes("ompweb")) button.title = button.title.replace("ompweb", BRAND_NAME);
+    const label = button.querySelector(":scope > span");
     const parts = button.querySelectorAll(":scope > span > span");
-    if (parts.length === 2 && parts[0].textContent === "omp" && parts[1].textContent === "web") {
+    if (parts.length === 2) {
       // The narrow sidebar header fits "CGS" on one line (the full name is the window title).
-      parts[0].textContent = "CGS";
-      parts[1].textContent = "";
+      if (parts[0].textContent !== "CGS") parts[0].textContent = "CGS";
+      if (parts[1].textContent !== "") parts[1].textContent = "";
+    } else if (label && label.children.length === 0 && !/^v\d/.test(label.textContent) && label.textContent !== "CGS") {
+      // The scrambling name is one plain text node: everything that is not the version string stays "CGS".
+      label.textContent = "CGS";
     }
   }
 }
@@ -1184,8 +1200,13 @@ bridge.onUsage((snap) => {
 
 window.addEventListener("DOMContentLoaded", () => {
   ensure();
-  const observer = new MutationObserver(schedule);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  // characterData: ompweb animates the header label by rewriting a text node in place. The header label is branded right
+  // away (before the next paint); everything else is re-rendered on the next animation frame.
+  const observer = new MutationObserver(() => {
+    if (!isLoadingScreen()) brandHeaderLabel();
+    schedule();
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
   // ompweb flips data-theme / class on OS changes and on user picks: re-evaluate whether to override.
   new MutationObserver(schedule).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class"] });
   ipcRenderer.invoke("cgs:window-get-state").then((state) => setMaximized(Boolean(state && state.maximized)));

@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { resolveBinaries, startServices } = require("./services");
 const { PrefsStore } = require("./prefs");
+const { windowTitle } = require("./window-title");
 
 const APP_ROOT = path.resolve(__dirname, "..", "..");
 const MIN_WIDTH = 960;
@@ -232,6 +233,10 @@ function createMainWindow() {
   });
   mainWindow = win;
   guardNavigation(win.webContents);
+  win.on("page-title-updated", (event, title) => {
+    event.preventDefault();
+    win.setTitle(windowTitle(title));
+  });
   win.webContents.on("did-create-window", (child) => guardNavigation(child.webContents));
   win.once("ready-to-show", () => {
     if (maximized) win.maximize();

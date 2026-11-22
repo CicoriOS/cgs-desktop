@@ -79,7 +79,8 @@ test("pending → approved: key delivered once, then the session reads as expire
     assert.equal(srv.log.polls, 3);
     assert.ok(srv.log.pollTokens.every(t => t === "p".repeat(43)));
     assert.deepEqual(phases.map(p => p.phase), ["creating", "solving", "waiting"]);
-    assert.equal(phases[2].verificationUrl, "https://api.example.com/login?uuid=11111111-2222-4333-8444-555555555555");
+    // The server names its own public address (api.example.com); the link opens on the host the desktop is configured for.
+    assert.equal(phases[2].verificationUrl, `${srv.baseUrl}/login?uuid=11111111-2222-4333-8444-555555555555`);
     assert.ok(phases[2].expiresAt > Date.now());
     assert.deepEqual(srv.log.create, { device_name: os.hostname().slice(0, 64), platform: osVersion(), app_version: "9.9.9" });
     assert.match(srv.log.nonce, /^\d+$/);

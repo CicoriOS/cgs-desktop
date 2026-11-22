@@ -104,6 +104,20 @@ async function createSession({ baseUrl, deviceName, platform, appVersion, signal
   return { sessionId: data.session_id, challenge: { prefix: ch.prefix, difficulty: ch.difficulty }, expiresIn: data.expires_in };
 }
 
+/**
+ * The server builds the login link from its own configured address, which may differ from the host the desktop talks
+ * to (the site's public name vs. the tunnel this build points at). The login page must open on the configured host, so
+ * only the path and query of the link are kept.
+ */
+function rebaseUrl(link, baseUrl) {
+  try {
+    const target = new URL(link);
+    return `${trimBase(baseUrl)}${target.pathname}${target.search}${target.hash}`;
+  } catch {
+    return link;
+  }
+}
+
 async function exchangeChallenge({ baseUrl, sessionId, nonce, signal }) {
   let data;
   try {
@@ -121,7 +135,7 @@ async function exchangeChallenge({ baseUrl, sessionId, nonce, signal }) {
     uuid: data.uuid,
     pollToken: data.poll_token,
     expiresAt: Number(data.expires_at) * 1000,
-    verificationUrl: data.verification_url,
+    verificationUrl: rebaseUrl(data.verification_url, baseUrl),
   };
 }
 
