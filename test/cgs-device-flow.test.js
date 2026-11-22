@@ -13,7 +13,8 @@ const { completeLogin } = require("../src/cgs/config-writer");
 const { requestJson, proxyFor } = require("../src/cgs/http");
 
 const ok = data => ({ success: true, message: "", data });
-const KEY = `sk-${"k".repeat(48)}`;
+const { osVersion } = require("../src/cgs/client-info");
+const KEY = `cgc_${"k".repeat(48)}`;
 
 /** Fake new-api device endpoints. `script.poll` is a list of poll results consumed in order. */
 async function fakeServer(script = {}) {
@@ -70,17 +71,17 @@ async function fakeServer(script = {}) {
 const flow = (srv, extra = {}) => runDeviceFlow({ baseUrl: srv.baseUrl, appVersion: "9.9.9", pollIntervalMs: 15, ...extra });
 
 test("pending → approved: key delivered once, then the session reads as expired", async () => {
-  const srv = await fakeServer({ poll: [{ status: "pending" }, { status: "pending" }, { status: "approved", api_key: KEY, tier: "pro", username: "alice" }] });
+  const srv = await fakeServer({ poll: [{ status: "pending" }, { status: "pending" }, { status: "approved", client_secret: KEY, tier: "pro", username: "alice" }] });
   try {
     const phases = [];
     const result = await flow(srv, { onProgress: p => phases.push(p) });
-    assert.deepEqual(result, { apiKey: KEY, tier: "pro", username: "alice" });
+    assert.deepEqual(result, { clientSecret: KEY, tier: "pro", username: "alice" });
     assert.equal(srv.log.polls, 3);
     assert.ok(srv.log.pollTokens.every(t => t === "p".repeat(43)));
     assert.deepEqual(phases.map(p => p.phase), ["creating", "solving", "waiting"]);
     assert.equal(phases[2].verificationUrl, "https://api.example.com/login?uuid=11111111-2222-4333-8444-555555555555");
     assert.ok(phases[2].expiresAt > Date.now());
-    assert.deepEqual(srv.log.create, { device_name: os.hostname().slice(0, 64), platform: process.platform, app_version: "9.9.9" });
+    assert.deepEqual(srv.log.create, { device_name: os.hostname().slice(0, 64), platform: osVersion(), app_version: "9.9.9" });
     assert.match(srv.log.nonce, /^\d+$/);
 
     const again = await pollOnce({ baseUrl: srv.baseUrl, uuid: "11111111-2222-4333-8444-555555555555", pollToken: "p".repeat(43) });
@@ -185,17 +186,19 @@ test("completeLogin fetches /v1/models with the key and writes credentials + tie
   const srv = await fakeServer();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cgs-login-"));
   try {
-    const rec = await completeLogin({ agentDir: dir, baseUrl: srv.baseUrl, apiKey: KEY, tier: "go", username: "bob" });
+    const rec = await completeLogin({ agentDir: dir, baseUrl: srv.baseUrl, clientSecret: KEY, tier: "go", username: "bob" });
     assert.equal(srv.log.auth, `Bearer ${KEY}`);
     assert.deepEqual(rec.models, ["claude-sonnet-5-5", "deepseek-v4.1-flash", "gemini-3.8-flash"]);
     const saved = JSON.parse(fs.readFileSync(path.join(dir, "cgs", "credentials.json"), "utf8"));
-    assert.equal(saved.apiKey, KEY);
+    assert.equal(saved.clientSecret, KEY);
     assert.equal(saved.baseUrl, srv.baseUrl);
-    assert.equal(YAML.parse(fs.readFileSync(path.join(dir, "config.yml"), "utf8")).modelRoles.web, "cgs-gemini/gemini-3.1-flash-lite");
+    const config = YAML.parse(fs.readFileSync(path.join(dir, "config.yml"), "utf8"));
+    assert.equal(config.modelRoles.web, "cgs-antigravity/gemini-3.8-flash");
+    assert.equal(config.modelRoles.default, "cgs-claude/claude-haiku-5-5:auto");
 
     // a bad key changes nothing and reports a typed error
     const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "cgs-login-"));
-    await assert.rejects(completeLogin({ agentDir: dir2, baseUrl: srv.baseUrl, apiKey: "sk-bad", tier: "free", username: "x" }), err => err.code === "models");
+    await assert.rejects(completeLogin({ agentDir: dir2, baseUrl: srv.baseUrl, clientSecret: "cgc_bad", tier: "free", username: "x" }), err => err.code === "models");
     assert.deepEqual(fs.readdirSync(dir2), []);
   } finally {
     await srv.close();

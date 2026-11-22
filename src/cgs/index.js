@@ -3,7 +3,7 @@
 const { prepareAgentDir, getLoginState, readCredentials, notifyModelsChanged } = require("./config-writer");
 const { detectThirdPartyCredentials, shouldShowStartupPopup } = require("./credential-detect");
 const { CgsController } = require("./controller");
-const { PRESET_IDS, PRESET_NAMES } = require("./state");
+const { TIER_IDS, TIER_NAMES } = require("./state");
 
 const CGS_BASE_URL = process.env.CGS_BASE_URL || "https://api.cicori.com";
 
@@ -22,6 +22,6 @@ module.exports = {
   notifyModelsChanged,
   needsStartupLogin,
   CgsController,
-  PRESET_IDS,
-  PRESET_NAMES,
+  TIER_IDS,
+  TIER_NAMES,
 };

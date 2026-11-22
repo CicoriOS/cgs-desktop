@@ -96,10 +96,7 @@ Behind a proxy, `npm install` / the build also need `ELECTRON_GET_USE_PROXY=1 GL
   React re-renders). It adds
   - minimize / maximize-restore / close buttons right of ompweb's right-panel toggle (floating at the top-right when it is
     absent) and makes `.shell-topbar` draggable;
-  - the **「CGS 预设」 block at the top of Settings → AI模型默认值** (`#settings-panel-models`, found by id so it works in every
-    locale): Free / Go / Pro / 独享 radio buttons (current one checked, the detected tier tagged 推荐, disabled with a hint
-    when signed out), the `<username> · <套餐>` account line, and a 「登录 CGS」 button when signed out. There is no topbar button;
-  - the top-right tier-change bubble (切换 / 保持当前 / 查看预设; 查看预设 opens Settings at the block) and the switch toast;
+  - the sign-in entry and account card (see below); there is no topbar button, no preset picker and no tier-change bubble;
   - logo: while signed in, ompweb's brand mark (sidebar, welcome header) is replaced by the CGS logo; signed out → omp's;
   - theme: on first run (no `omp-theme` in localStorage) the preference is set to ompweb's `system`, which tracks the OS
     light/dark setting live. While the stored preference is `system`, an injected stylesheet maps new-api's 「薰衣草梦」
@@ -127,23 +124,23 @@ Behind a proxy, `npm install` / the build also need `ELECTRON_GET_USE_PROXY=1 GL
     non-`cgs*` provider (e.g. an Anthropic/Codex OAuth account): then the widget stays and only its `cgs*` rows are hidden.
     Signed out → the widget is untouched.
   - **CGS section at the top of Settings → API Keys & Providers** (`#settings-panel-providers`, by id; below ompweb's heading).
-    Signed out: CGS logo, short description and 「登录 CGS」 (the same device-link popup; a successful login applies the preset
-    by the usual first-login rule). Signed in: logo, username, tier badge, balance + current plan (from the usage snapshot, no
+    Signed out: CGS logo, short description and 「登录 CGS」 (the same device-link popup; the first login writes the default
+    roles). Signed in: logo, username, tier badge, balance + current plan (from the usage snapshot, no
     second fetch), connection status (连接正常 / 数据可能已过期 / 密钥已失效), the registered providers
-    (`cgs-openai` / `cgs-anthropic` / `cgs-gemini`, with model counts) and the buttons 「打开 CGS 后台」 (system browser,
-    `<baseUrl>/dashboard`; the opened URL is logged as `[cgs] openExternal …`), 「管理预设」 (jumps to the CGS 预设 block),
-    「刷新」 and 「退出账户」. When the server rejects the key (401) the card shows 「密钥已失效」 with 「重新登录」 and 「退出账户」.
-    IPC: `cgs:refresh-account`, `cgs:open-console`, `cgs:logout` (`cgsDesktop.refreshAccount / openConsole / logout`).
+    (`cgs-claude` / `cgs-antigravity` / `cgs-codex` / `cgs-openai`, with model counts) and the buttons 「打开 CGS 后台」 (system browser,
+    `<baseUrl>/dashboard`; the opened URL is logged as `[cgs] openExternal …`), 「客户端管理」 (`<baseUrl>/clients`),
+    「刷新」 and 「退出账户」. When the server rejects the credential (401) the card shows 「密钥已失效」 with 「重新登录」 and 「退出账户」.
+    IPC: `cgs:refresh-account`, `cgs:open-console` (page `dashboard` | `clients`), `cgs:logout` (`cgsDesktop.refreshAccount / openConsole / logout`).
   - **退出账户** (after an in-page confirmation): `CgsController.logout()` stops the polling, waits for requests in flight,
-    calls `POST <baseUrl>/api/device/logout` with the device key (200 revoked, 401 already revoked; a network error or 5xx
+    calls `POST <baseUrl>/api/device/logout` with the client credential (200 revoked, 401 already revoked; a network error or 5xx
     only shows the toast 「已在本机退出，但服务器端密钥未能吊销，可在 CGS 后台删除」), then cleans up locally
     (`signOutLocally` in `src/cgs/config-writer.js`): deletes `<agentDir>/cgs/credentials.json`, removes
-    `providers.cgs-*` from `models.yml`, removes from `config.yml` only the preset-managed keys that still point at `cgs-*`
-    models (`modelRoles.default/task/web/smol/scout`, the `cgs-*` entries of `retry.fallbackChains.web`; values the user
-    changed stay) and resets `state.json` (`appliedPreset`, `lastKnownTier`, `dismissedTier`) so the next login re-applies
-    the preset. models.yml's mtime is bumped, which makes ompweb drop its model cache and restart its utility omp (the same
-    path as after login; already running sessions keep their providers). The sidebar row, Usage card and tier bubble
-    disappear, ompweb's provider-usage widget and omp logo return and the presets are greyed out. The login popup on the
+    `providers.cgs-*` from `models.yml`, removes from `config.yml` only the default-role keys that still point at `cgs-*`
+    models (`modelRoles.default/task/web/smol`, `task.agentModelOverrides.reviewer/scout`, the `cgs-*` entries of
+    `retry.fallbackChains.web`; values the user changed stay) and resets `state.json` (`defaultsApplied`, `lastKnownTier`) so the
+    next login writes the default roles again. models.yml's mtime is bumped, which makes ompweb drop its model cache and restart its utility omp (the same
+    path as after login; already running sessions keep their providers). The sidebar row and Usage card
+    disappear, and ompweb's provider-usage widget and omp logo return. The login popup on the
     next launch follows the usual rule (only when no credentials of any kind are saved).
 - Branding assets (`assets/`, regenerate with `npm run icons`, which rasterizes via Electron): `omp-logo.svg` / `icon.png` /
   `icon.ico` are ompweb's default mark (`vendor/src/ompweb/public/icon.svg`) used for the exe/installer icon, the default
@@ -152,3 +149,40 @@ Behind a proxy, `npm install` / the build also need `ELECTRON_GET_USE_PROXY=1 GL
   detection / 401), the in-app brand logo and the login popup logo (always CGS).
 - `src/cgs/`, `src/login/`, `plugin/omp-cgs/`: CGS device-link login (popup supports light and dark), config writer, tier
   polling and the omp provider extension.
+
+## Client credential and channels
+
+- **A signed-in desktop is a *client*, not an API key.** Approving the device link registers a client on the server (dashboard
+  → 「客户端」), and the poll returns its credential (`cgc_…`, `client_secret`) exactly once. It is stored as `clientSecret` in
+  `<agentDir>/cgs/credentials.json` (0600; a record from earlier versions holding an `apiKey` counts as signed out). The
+  client carries no quota of its own (requests bill the owning user), does not count against the API-key limit and has its own
+  dashboard page showing device name, GeoIP location (from the connection address), OS version and client version. The OS and
+  app version are sent at login (`platform`, `app_version`) and refreshed on every tier/usage request via `X-Client-OS` /
+  `X-Client-Version` (`src/cgs/client-info.js`).
+- **Four channels, only URL and credential differ.** `plugin/omp-cgs/index.js` registers one provider per omp transport, so
+  each vendor's models keep that vendor's own client behaviour (wire format, fingerprint headers, tool-call style):
+
+  | provider | omp `api` | URL the transport posts to | models |
+  |---|---|---|---|
+  | `cgs-claude` (Claude Code) | `anthropic-messages` | `<base>/v1/messages` | `claude-*` |
+  | `cgs-antigravity` | `google-gemini-cli` | `<base>/v1internal:streamGenerateContent` | `gemini-*` |
+  | `cgs-codex` | `openai-codex-responses` | `<base>/v1/codex/responses` | `gpt-*`, `o*`, `codex*`, `*astra*` |
+  | `cgs-openai` (OpenAI-compatible) | `openai-completions` | `<base>/v1/chat/completions` | everything else |
+
+  All four send the client credential as `Authorization: Bearer`; the Antigravity channel's `apiKey` is omp's JSON form
+  `{"token": <credential>, "projectId": "cgs"}`.
+- **Default roles** (written once at the first login, `DEFAULT_ROLES` in `src/cgs/config-writer.js`; edit freely afterwards in
+  ompweb's AI model defaults or `config.yml`, later logins never overwrite them): search `cgs-antigravity/gemini-3.8-flash`
+  (also the only entry of `retry.fallbackChains.web`), main agent `cgs-claude/claude-haiku-5-5`, task
+  `cgs-openai/deepseek-v4.1-flash`, reviewer `cgs-codex/gpt-6-astra`, scout `cgs-claude/claude-haiku-5-5`. The old per-tier
+  presets and the tier-change bubble are gone; the tier is only displayed.
+- **Tool style per vendor** comes from omp's own `edit.modelVariants` (model-selector substring → edit mode), seeded on first
+  run when absent: `claude → replace` (exact string replacement, Claude Code style), `gpt → apply_patch` (Codex style);
+  other models keep omp's default. It is per model, so a user can set it per channel or per model in `config.yml`.
+- **Balance and real prices in yuan.** `GET /api/device/usage` returns `balance.cny` / `cny_display` (wallet in ¥ at the site's
+  `USDExchangeRate`, whatever the site's display type), shown by omp's usage view as a 「余额 (CNY)」 entry (omp's usage units
+  have no CNY, so it is carried in `remaining` and the notes; a pay-as-you-go account with no subscription still gets a report).
+  `GET /api/device/pricing` returns the user's real per-model prices (¥ per million tokens: input, output, cache read/write after
+  the group ratio, `per_call` for per-request models). The plugin fetches it once at start (8 s timeout, best effort) and fills
+  each model's `cost` with it; models the site does not price keep the catalog cost. omp prints its own `$` glyph before cost
+  numbers, but the numbers are yuan.

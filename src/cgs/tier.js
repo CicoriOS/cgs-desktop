@@ -1,6 +1,7 @@
 "use strict";
-// Tier detection: GET <baseUrl>/api/device/tier (Bearer apiKey) → { success, data: { tier, username } }.
+// Tier detection: GET <baseUrl>/api/device/tier (Bearer client credential) → { success, data: { tier, username } }.
 
+const { clientHeaders } = require("./client-info");
 const { requestJson, HttpError } = require("./http");
 const { fetchModelIds, readCredentials, writeCredentials } = require("./config-writer");
 const { normalizeTier, updateState } = require("./state");
@@ -9,12 +10,12 @@ const { normalizeTier, updateState } = require("./state");
  * One tier request. Resolves { status: "ok", tier, username } | { status: "unauthorized" } | { status: "error" }.
  * Never rejects (network failures, bad bodies and 5xx are all "error": silent, retried next tick).
  */
-async function fetchTier({ baseUrl, apiKey, signal }) {
+async function fetchTier({ baseUrl, clientSecret, signal }) {
   let res;
   try {
     res = await requestJson({
       url: `${String(baseUrl).replace(/\/+$/, "")}/api/device/tier`,
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: clientHeaders(clientSecret),
       signal,
       timeoutMs: 15000,
     });
@@ -37,18 +38,18 @@ async function fetchTier({ baseUrl, apiKey, signal }) {
 async function refreshTier(agentDir, { signal } = {}) {
   const creds = await readCredentials(agentDir);
   if (!creds) return { status: "signed-out" };
-  const result = await fetchTier({ baseUrl: creds.baseUrl, apiKey: creds.apiKey, signal });
+  const result = await fetchTier({ baseUrl: creds.baseUrl, clientSecret: creds.clientSecret, signal });
   if (result.status !== "ok") return { status: result.status };
 
   let models = creds.models;
   try {
-    models = await fetchModelIds(creds.baseUrl, creds.apiKey, signal);
+    models = await fetchModelIds(creds.baseUrl, creds.clientSecret, signal);
   } catch {
     // keep the cached list; it is refreshed again next tick
   }
   await writeCredentials(agentDir, {
     baseUrl: creds.baseUrl,
-    apiKey: creds.apiKey,
+    clientSecret: creds.clientSecret,
     tier: result.tier,
     username: result.username ?? creds.username,
     models,

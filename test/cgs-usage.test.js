@@ -10,7 +10,7 @@ const { fetchUsage, refreshUsage, normalizeUsage } = require("../src/cgs/usage")
 const { CgsController } = require("../src/cgs/controller");
 const { writeCredentials } = require("../src/cgs/config-writer");
 
-const KEY = `sk-${"k".repeat(48)}`;
+const KEY = `cgc_${"k".repeat(48)}`;
 
 const SERVER_PAYLOAD = {
   tier: "pro",
@@ -80,10 +80,10 @@ test("normalizeUsage tolerates missing and malformed fields", () => {
   assert.deepEqual(normalizeUsage({}).subscriptions, []);
 });
 
-test("fetchUsage sends the Bearer key to /api/device/usage and normalizes the reply", async () => {
+test("fetchUsage sends the Bearer client credential to /api/device/usage and normalizes the reply", async () => {
   const server = await usageServer(() => ({ body: { success: true, message: "", data: SERVER_PAYLOAD } }));
   try {
-    const result = await fetchUsage({ baseUrl: `${server.baseUrl}/`, apiKey: KEY });
+    const result = await fetchUsage({ baseUrl: `${server.baseUrl}/`, clientSecret: KEY });
     assert.equal(result.status, "ok");
     assert.equal(result.usage.balance.display, "$199.99");
     assert.equal(server.seen.url, "/api/device/usage");
@@ -104,7 +104,7 @@ test("fetchUsage: 401 is unauthorized; 5xx, bad bodies and success:false are err
   for (const [reply, expected] of cases) {
     const server = await usageServer(() => reply);
     try {
-      assert.equal((await fetchUsage({ baseUrl: server.baseUrl, apiKey: KEY })).status, expected, JSON.stringify(reply));
+      assert.equal((await fetchUsage({ baseUrl: server.baseUrl, clientSecret: KEY })).status, expected, JSON.stringify(reply));
     } finally {
       await server.close();
     }
@@ -115,7 +115,7 @@ test("fetchUsage: a refused connection is an error, not a rejection", async () =
   const server = await usageServer(() => ({ body: {} }));
   const { baseUrl } = server;
   await server.close();
-  assert.deepEqual(await fetchUsage({ baseUrl, apiKey: KEY }), { status: "error" });
+  assert.deepEqual(await fetchUsage({ baseUrl, clientSecret: KEY }), { status: "error" });
 });
 
 test("refreshUsage: signed-out without credentials, otherwise uses the saved key and base URL", async () => {
@@ -123,7 +123,7 @@ test("refreshUsage: signed-out without credentials, otherwise uses the saved key
   const server = await usageServer(() => ({ body: { success: true, data: SERVER_PAYLOAD } }));
   try {
     assert.deepEqual(await refreshUsage(agentDir), { status: "signed-out" });
-    await writeCredentials(agentDir, { baseUrl: server.baseUrl, apiKey: KEY, tier: "pro", username: "alice", models: [], linkedAt: new Date().toISOString() });
+    await writeCredentials(agentDir, { baseUrl: server.baseUrl, clientSecret: KEY, tier: "pro", username: "alice", models: [], linkedAt: new Date().toISOString() });
     const result = await refreshUsage(agentDir);
     assert.equal(result.status, "ok");
     assert.equal(server.seen.auth, `Bearer ${KEY}`);
@@ -228,4 +228,9 @@ test("controller polls usage on its own interval until stopped", async () => {
   assert.ok(seen >= 3, `expected several polls, got ${seen}`);
   await new Promise((resolve) => setTimeout(resolve, 60));
   assert.equal(calls.length, seen, "no polls after stop()");
+});
+
+test("normalizeUsage shows the yuan balance when the server provides it", () => {
+  const usage = normalizeUsage({ balance: { quota: 3500000, used_quota: 0, display: "$7.00", cny: 49, cny_display: "¥49.00" } });
+  assert.equal(usage.balance.display, "¥49.00");
 });

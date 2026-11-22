@@ -2,16 +2,14 @@
 // Injects into ompweb's DOM:
 //   1. Minimize / maximize-restore / close window controls, immediately right of `button.shell-panel-opener`
 //      inside `[data-topbar-right-group]` (or floating at top-right on narrow/loading layouts).
-//   2. A 「CGS 预设」 block at the top of Settings → AI模型默认值 (`#settings-panel-models`): preset radio buttons,
-//      account line, login button. Re-attached by a MutationObserver after React re-renders / navigation.
-//   3. The top-right tier-change bubble (切换 / 保持当前 / 查看预设) and the preset-switch toast.
-//   4. Branding: while signed in, ompweb's sidebar/brand logo is replaced by the CGS logo and an accent-colour
+//   2. Brand and tier display; the CGS account card and sign-in entry (below).
+//   3. Branding: while signed in, ompweb's sidebar/brand logo is replaced by the CGS logo and an accent-colour
 //      stylesheet (the new-api console purple) overrides ompweb's accent variables; signed out → ompweb defaults.
-//   5. First-run default theme "system" (only when the user has not chosen one).
-//   6. ompweb's `omp-*` localStorage prefs (language, theme, font size, UI scale, usage-widget prefs, ...) are mirrored
+//   4. First-run default theme "system" (only when the user has not chosen one).
+//   5. ompweb's `omp-*` localStorage prefs (language, theme, font size, UI scale, usage-widget prefs, ...) are mirrored
 //      in <userData>/web-prefs.json: restored before ompweb's scripts run, deltas sent back, so they survive an origin
 //      (port) change on top of the stable port from services.choosePort.
-//   7. While signed in: a compact CGS balance/subscription row above the Settings footer in ompweb's sidebar and a CGS
+//   6. While signed in: a compact CGS balance/subscription row above the Settings footer in ompweb's sidebar and a CGS
 //      account card at the top of Settings → 用量与分析 (`#settings-panel-usage`), fed by the main process
 //      (`/api/device/usage`: every 5 min, on window focus, manual refresh).
 const { contextBridge, ipcRenderer } = require("electron");
@@ -20,9 +18,7 @@ const ROOT_ID = "cgs-window-controls";
 const OVERLAY_ID = "cgs-overlay-root";
 const STYLE_ID = "cgs-window-controls-style";
 const THEME_STYLE_ID = "cgs-theme-style";
-const BLOCK_ID = "cgs-presets-block";
 const OPENER_SELECTOR = "[data-topbar-right-group] button.shell-panel-opener";
-const MODELS_PANEL_SELECTOR = "#settings-panel-models";
 const USAGE_PANEL_SELECTOR = "#settings-panel-usage";
 const SETTINGS_ROW_SELECTOR = "button.sidebar-settings-row";
 const USAGE_ROW_ID = "cgs-usage-row";
@@ -30,7 +26,7 @@ const USAGE_CARD_ID = "cgs-usage-card";
 // ompweb's brand mark (components/OmpWebLogo.tsx): <svg role="img" viewBox="0 0 64 64">.
 const OMP_LOGO_SELECTOR = 'svg[role="img"][viewBox="0 0 64 64"]';
 
-const PRESET_NAMES = { free: "Free", go: "Go", pro: "Pro", dedicated: "独享" };
+const TIER_NAMES = { free: "Free", go: "Go", pro: "Pro", dedicated: "独享" };
 
 // new-api web console default preset "lavender-dream" (web/src/styles/theme.css base + theme-presets.css):
 //   light --primary oklch(0.5709 0.1808 306.89) ≈ #9453c9; dark --primary oklch(0.6359 0.1699 307.95) ≈ #a76ad9
@@ -83,13 +79,11 @@ function storedTheme() {
 
 const bridge = {
   getState: () => ipcRenderer.invoke("cgs:get-state"),
-  applyPreset: (id) => ipcRenderer.invoke("cgs:apply-preset", id),
-  dismissBubble: () => ipcRenderer.invoke("cgs:dismiss-bubble"),
   openLogin: () => ipcRenderer.invoke("cgs:open-login"),
   getUsage: () => ipcRenderer.invoke("cgs:get-usage"),
   refreshUsage: () => ipcRenderer.invoke("cgs:refresh-usage"),
   refreshAccount: () => ipcRenderer.invoke("cgs:refresh-account"),
-  openConsole: () => ipcRenderer.invoke("cgs:open-console"),
+  openConsole: (page) => ipcRenderer.invoke("cgs:open-console", page),
   logout: () => ipcRenderer.invoke("cgs:logout"),
   onUsage: (callback) => {
     const listener = (_event, snap) => callback(snap);
@@ -186,7 +180,6 @@ const ICONS = {
   restore:
     '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 2.5V0.5h7v7h-2" stroke="currentColor" stroke-width="1" fill="none"/><rect x="0.5" y="2.5" width="7" height="7" stroke="currentColor" stroke-width="1" fill="none"/></svg>',
   close: '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 0.5l9 9M9.5 0.5l-9 9" stroke="currentColor" stroke-width="1" fill="none"/></svg>',
-  check: '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6.3L4.8 8.9L9.8 3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>',
   refresh:
     '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>',
 };
@@ -218,41 +211,7 @@ img.cgs-brand-logo { display: block; flex-shrink: 0; }
   -webkit-app-region: no-drag;
 }
 
-/* Settings → AI模型默认值 block (reuses ompweb's .settings-card rows) */
-#${BLOCK_ID} { flex-wrap: wrap; }
-#${BLOCK_ID} .cgs-block-account { color: var(--text-muted, GrayText); font-size: 12px; }
-#${BLOCK_ID} .cgs-block-account strong { color: var(--text, CanvasText); font-weight: 600; }
-#${BLOCK_ID} .settings-card-control { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; justify-content: flex-end; }
-.cgs-preset-btn {
-  all: unset;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
-  background: var(--bg-subtle, transparent);
-  color: var(--text, CanvasText);
-  font-size: 13px;
-  line-height: 1.3;
-  cursor: pointer;
-  user-select: none;
-}
-.cgs-preset-btn:hover:not(:disabled) { border-color: var(--accent, #9453c9); }
-.cgs-preset-btn:focus-visible { outline: 2px solid var(--accent, #9453c9); outline-offset: 1px; }
-.cgs-preset-btn:disabled { opacity: 0.5; cursor: default; }
-.cgs-preset-btn[aria-checked="true"] { border-color: var(--accent, #9453c9); color: var(--accent, #9453c9); font-weight: 600; }
-.cgs-preset-btn .cgs-check { display: inline-flex; width: 12px; height: 12px; }
-.cgs-tag-recommend {
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent, #9453c9) 16%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent, #9453c9) 42%, transparent);
-  color: var(--accent, #9453c9);
-  font-size: 11px;
-  font-weight: 500;
-}
+/* CGS sign-in button (reuses ompweb's settings rows) */
 .cgs-login-btn {
   all: unset;
   box-sizing: border-box;
@@ -268,57 +227,6 @@ img.cgs-brand-logo { display: block; flex-shrink: 0; }
 .cgs-login-btn:hover { filter: brightness(1.08); }
 .cgs-login-btn:focus-visible { outline: 2px solid var(--accent, #9453c9); outline-offset: 2px; }
 
-#cgs-tier-bubble {
-  position: fixed;
-  top: 50px;
-  right: 16px;
-  z-index: 2147483645;
-  width: 320px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: var(--bg-panel, Canvas);
-  border: 1px solid var(--border, rgba(127, 127, 127, 0.4));
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
-  color: var(--text, CanvasText);
-  font-size: 13px;
-  line-height: 1.45;
-}
-#cgs-tier-bubble[hidden] { display: none !important; }
-.cgs-bubble-msg { margin: 0 0 10px; }
-.cgs-bubble-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.cgs-bubble-link {
-  all: unset;
-  margin-right: auto;
-  font-size: 12px;
-  color: var(--accent, #9453c9);
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.cgs-bubble-link:focus-visible { outline: 2px solid var(--accent, #9453c9); outline-offset: 2px; }
-.cgs-bubble-btn {
-  all: unset;
-  box-sizing: border-box;
-  padding: 5px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  user-select: none;
-}
-.cgs-bubble-btn:focus-visible { outline: 2px solid var(--accent, #9453c9); outline-offset: 2px; }
-.cgs-bubble-btn-secondary {
-  background: var(--bg-subtle, rgba(127, 127, 127, 0.12));
-  border: 1px solid var(--border, rgba(127, 127, 127, 0.4));
-  color: var(--text, CanvasText);
-}
-.cgs-bubble-btn-secondary:hover { background: rgba(127, 127, 127, 0.22); }
-.cgs-bubble-btn-primary {
-  background: var(--accent-strong, var(--accent, #9453c9));
-  border: 1px solid var(--accent, #9453c9);
-  color: var(--on-accent, #fff);
-}
-.cgs-bubble-btn-primary:hover { background: var(--accent-hover, var(--accent, #7e3fb3)); }
 
 #cgs-toast {
   position: fixed;
@@ -564,17 +472,12 @@ function buildOverlay() {
   const overlay = document.createElement("div");
   overlay.id = OVERLAY_ID;
 
-  const bubble = document.createElement("div");
-  bubble.id = "cgs-tier-bubble";
-  bubble.setAttribute("role", "status");
-  bubble.hidden = true;
-
   const toast = document.createElement("div");
   toast.id = "cgs-toast";
   toast.setAttribute("role", "status");
   toast.hidden = true;
 
-  overlay.append(bubble, toast);
+  overlay.append(toast);
   return overlay;
 }
 
@@ -597,20 +500,6 @@ function showToast(text, ms = 3200) {
   toastTimer = setTimeout(() => {
     toast.hidden = true;
   }, ms);
-}
-
-async function handleSelectPreset(presetId) {
-  const next = await bridge.applyPreset(presetId);
-  if (next) cgsState = next;
-  renderCgsUi();
-  const name = PRESET_NAMES[presetId] || presetId;
-  showToast(`已切换到 ${name} 预设（新会话生效）`);
-}
-
-async function handleDismissBubble() {
-  const next = await bridge.dismissBubble();
-  if (next) cgsState = next;
-  renderCgsUi();
 }
 
 /**
@@ -637,30 +526,6 @@ async function handleOpenLogin() {
   if (next && Boolean(next.signedIn) !== wasSignedIn) refreshOmpwebProviders();
 }
 
-/** Opens ompweb Settings → AI模型默认值 (via ompweb's own sidebar row / tab buttons) and reveals the presets block. */
-function handleViewPresets() {
-  const reveal = () => {
-    const block = document.getElementById(BLOCK_ID);
-    if (block) block.scrollIntoView({ block: "center", behavior: "smooth" });
-    return Boolean(block);
-  };
-  const selectTab = () => {
-    const tab = document.getElementById("settings-tab-models");
-    if (!tab) return false;
-    if (tab.getAttribute("aria-selected") !== "true") tab.click();
-    return true;
-  };
-  if (!document.getElementById("settings-tab-models")) {
-    const row = document.querySelector(".sidebar-settings-row");
-    if (row) row.click();
-  }
-  let tries = 0;
-  const timer = setInterval(() => {
-    tries += 1;
-    if ((selectTab() && (ensure(), reveal())) || tries > 40) clearInterval(timer);
-  }, 100);
-}
-
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -668,128 +533,11 @@ function el(tag, className, text) {
   return node;
 }
 
-function presetsOf(state) {
-  return Array.isArray(state.presets) ? state.presets : Object.entries(PRESET_NAMES).map(([id, name]) => ({ id, name }));
-}
-
 /** Re-render `node` only when `sig` changed (keeps the MutationObserver from looping on our own mutations). */
 function sync(node, sig, build) {
   if (node.dataset.cgsSig === sig) return;
   node.dataset.cgsSig = sig;
   build(node);
-}
-
-function buildPresetsBlock() {
-  const block = el("div", "settings-card");
-  block.id = BLOCK_ID;
-  block.dataset.cgsPresets = "1";
-  return block;
-}
-
-function renderPresetsBlock(block) {
-  const state = cgsState;
-  const sig = JSON.stringify(state ? [state.signedIn, state.username, state.tier, state.appliedPreset, state.presets] : null);
-  sync(block, sig, () => {
-    const text = el("div", "settings-card-text");
-    const title = el("div");
-    title.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:4px";
-    title.append(el("span", "settings-card-title", "CGS 预设"));
-    const desc = el("span", "settings-card-desc cgs-block-account");
-    if (state && state.signedIn) {
-      const tierLabel = PRESET_NAMES[state.tier] || state.tier || "Free";
-      const strong = el("strong", "", state.username || "CGS");
-      desc.append(strong, document.createTextNode(` · ${tierLabel}`));
-      desc.dataset.tier = state.tier || "";
-    } else {
-      desc.textContent = "登录 CGS 后可切换预设";
-    }
-    text.append(title, desc);
-
-    const control = el("span", "settings-card-control");
-    control.setAttribute("role", "radiogroup");
-    control.setAttribute("aria-label", "CGS 预设");
-    if (state) {
-      for (const preset of presetsOf(state)) {
-        const btn = el("button", "cgs-preset-btn");
-        btn.type = "button";
-        btn.setAttribute("role", "radio");
-        btn.dataset.preset = preset.id;
-        const checked = state.appliedPreset === preset.id;
-        btn.setAttribute("aria-checked", checked ? "true" : "false");
-        if (checked) {
-          const check = el("span", "cgs-check");
-          check.innerHTML = ICONS.check;
-          btn.append(check);
-        }
-        btn.append(el("span", "", preset.name));
-        if (state.signedIn && state.tier === preset.id) btn.append(el("span", "cgs-tag-recommend", "推荐"));
-        if (state.signedIn) {
-          btn.addEventListener("click", () => void handleSelectPreset(preset.id));
-        } else {
-          btn.disabled = true;
-          btn.title = "登录 CGS 后可用";
-        }
-        control.append(btn);
-      }
-    }
-    if (!state || !state.signedIn) {
-      const loginBtn = el("button", "cgs-login-btn", "登录 CGS");
-      loginBtn.type = "button";
-      loginBtn.dataset.action = "cgs-login";
-      loginBtn.addEventListener("click", () => void handleOpenLogin());
-      control.append(loginBtn);
-    }
-    block.replaceChildren(text, control);
-  });
-}
-
-function ensurePresetsBlock() {
-  const panel = isLoadingScreen() ? null : document.querySelector(MODELS_PANEL_SELECTOR);
-  const existing = document.getElementById(BLOCK_ID);
-  if (!panel) {
-    existing?.remove();
-    return;
-  }
-  const list = panel.children.length > 1 && panel.children[1].id !== BLOCK_ID ? panel.children[1] : panel;
-  const block = existing || buildPresetsBlock();
-  if (block.parentElement !== list || list.firstElementChild !== block) list.prepend(block);
-  renderPresetsBlock(block);
-}
-
-function renderBubble() {
-  const bubble = document.getElementById("cgs-tier-bubble");
-  if (!bubble) return;
-  const info = !isLoadingScreen() && cgsState && cgsState.bubble ? cgsState.bubble : null;
-  if (!info) {
-    bubble.hidden = true;
-    if (bubble.firstChild) bubble.replaceChildren();
-    delete bubble.dataset.cgsSig;
-    return;
-  }
-  sync(bubble, JSON.stringify(info), () => {
-    bubble.dataset.tier = info.tier;
-    const msg = el("p", "cgs-bubble-msg", `检测到你的 CGS 套餐已变更为 ${info.name}，推荐切换到 ${info.name} 预设`);
-
-    const actions = el("div", "cgs-bubble-actions");
-    const viewBtn = el("button", "cgs-bubble-link", "查看预设");
-    viewBtn.type = "button";
-    viewBtn.dataset.action = "cgs-bubble-view";
-    viewBtn.addEventListener("click", () => handleViewPresets());
-
-    const keepBtn = el("button", "cgs-bubble-btn cgs-bubble-btn-secondary", "保持当前");
-    keepBtn.type = "button";
-    keepBtn.dataset.action = "cgs-bubble-dismiss";
-    keepBtn.addEventListener("click", () => void handleDismissBubble());
-
-    const switchBtn = el("button", "cgs-bubble-btn cgs-bubble-btn-primary", "切换");
-    switchBtn.type = "button";
-    switchBtn.dataset.action = "cgs-bubble-switch";
-    switchBtn.addEventListener("click", () => void handleSelectPreset(info.tier));
-
-    actions.append(viewBtn, keepBtn, switchBtn);
-    bubble.replaceChildren(msg, actions);
-  });
-  bubble.hidden = false;
 }
 
 function renderBranding() {
@@ -931,7 +679,7 @@ async function handleRefreshUsage() {
 
 /** The plan title (+ tier) of the primary subscription, or the tier alone when there is none. */
 function planText(usage) {
-  const tier = PRESET_NAMES[usage.tier] || "";
+  const tier = TIER_NAMES[usage.tier] || "";
   const sub = usage.subscriptions[0];
   if (!sub) return `${tier || "CGS"} · 无订阅`;
   const title = sub.planTitle || "订阅";
@@ -1069,7 +817,7 @@ function renderUsageCard(card) {
     head.append(buildRefreshButton());
 
     const account = el("div", "cgs-uc-account");
-    const tierName = PRESET_NAMES[(usage && usage.tier) || cgsState.tier] || "";
+    const tierName = TIER_NAMES[(usage && usage.tier) || cgsState.tier] || "";
     const nameWrap = el("span");
     nameWrap.append(el("strong", "", (usage && usage.username) || cgsState.username || "CGS"));
     account.append(nameWrap);
@@ -1229,7 +977,7 @@ function buildProvidersHead(state) {
   const title = el("div");
   title.style.cssText = "display:flex;align-items:center;gap:8px";
   title.append(el("span", "cgs-pc-title", "Cicori Good Service"));
-  if (state.signedIn && state.tier) title.append(el("span", "cgs-uc-pill", PRESET_NAMES[state.tier] || state.tier));
+  if (state.signedIn && state.tier) title.append(el("span", "cgs-uc-pill", TIER_NAMES[state.tier] || state.tier));
   heading.append(title);
   head.append(heading);
   return { head, heading };
@@ -1265,7 +1013,7 @@ function renderProvidersCard(card) {
       }
       actions.append(
         pcButton("打开 CGS 后台", "cgs-open-console", () => void bridge.openConsole()),
-        pcButton("管理预设", "cgs-manage-presets", handleViewPresets),
+        pcButton("客户端管理", "cgs-manage-clients", () => void bridge.openConsole("clients")),
         pcButton(accountBusy === "refresh" ? "刷新中…" : "刷新", "cgs-refresh-account", () => void handleRefreshAccount()),
         pcButton(accountBusy === "logout" ? "正在退出…" : "退出账户", "cgs-logout", () => void handleLogout(), "danger"),
       );
@@ -1371,8 +1119,6 @@ function renderUsageUi() {
 }
 
 function renderCgsUi() {
-  ensurePresetsBlock();
-  renderBubble();
   renderBranding();
   renderUsageUi();
 }

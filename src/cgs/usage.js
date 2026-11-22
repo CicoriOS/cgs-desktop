@@ -1,7 +1,8 @@
 "use strict";
-// Account usage: GET <baseUrl>/api/device/usage (Bearer apiKey) → { success, data: { tier, username, balance,
+// Account usage: GET <baseUrl>/api/device/usage (Bearer client credential) → { success, data: { tier, username, balance,
 // subscriptions[], generated_at } }. Display strings ("$199.99") are formatted by the server like the web console.
 
+const { clientHeaders } = require("./client-info");
 const { requestJson, HttpError } = require("./http");
 const { readCredentials } = require("./config-writer");
 const { normalizeTier } = require("./state");
@@ -41,7 +42,7 @@ function normalizeUsage(data) {
   return {
     tier: normalizeTier(data.tier),
     username: str(data.username) || null,
-    balance: { quota: num(balance.quota), usedQuota: num(balance.used_quota), display: str(balance.display) },
+    balance: { quota: num(balance.quota), usedQuota: num(balance.used_quota), display: str(balance.cny_display) || str(balance.display) },
     subscriptions: list(data.subscriptions).map(normalizeSubscription),
     generatedAt: num(data.generated_at),
   };
@@ -51,12 +52,12 @@ function normalizeUsage(data) {
  * One usage request. Resolves { status: "ok", usage } | { status: "unauthorized" } | { status: "error" }.
  * Network failures, timeouts, 5xx and malformed bodies are all "error" (the caller keeps its last value).
  */
-async function fetchUsage({ baseUrl, apiKey, signal }) {
+async function fetchUsage({ baseUrl, clientSecret, signal }) {
   let res;
   try {
     res = await requestJson({
       url: `${String(baseUrl).replace(/\/+$/, "")}/api/device/usage`,
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: clientHeaders(clientSecret),
       signal,
       timeoutMs: 15000,
     });
@@ -73,7 +74,7 @@ async function fetchUsage({ baseUrl, apiKey, signal }) {
 async function refreshUsage(agentDir, { signal } = {}) {
   const creds = await readCredentials(agentDir);
   if (!creds) return { status: "signed-out" };
-  return fetchUsage({ baseUrl: creds.baseUrl, apiKey: creds.apiKey, signal });
+  return fetchUsage({ baseUrl: creds.baseUrl, clientSecret: creds.clientSecret, signal });
 }
 
 module.exports = { fetchUsage, refreshUsage, normalizeUsage };

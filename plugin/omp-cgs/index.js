@@ -1,11 +1,15 @@
 // omp extension: registers the CGS (Cicori Good Service) providers.
 //
 // Reads <agentDir>/cgs/credentials.json (written by CGS Desktop after the
-// device-link login) and registers three providers, partitioned by model id,
-// exposing only the ids the server returned from GET <baseUrl>/v1/models:
-//   cgs-anthropic  api anthropic-messages     baseUrl <baseUrl>          ids claude-*
-//   cgs-gemini     api google-generative-ai   baseUrl <baseUrl>/v1beta   ids gemini-*
-//   cgs-openai     api openai-completions     baseUrl <baseUrl>/v1       every other chat id
+// device-link login) and registers four providers, one per omp channel,
+// partitioned by model id and exposing only the ids the server returned from
+// GET <baseUrl>/v1/models. Every channel is omp's own transport for that vendor
+// (client fingerprint, wire format, tool-call style); only the URL and the
+// credential (the client credential, never an API key) differ:
+//   cgs-claude       api anthropic-messages       <baseUrl>      ids claude-*   (Claude Code channel)
+//   cgs-antigravity  api google-gemini-cli        <baseUrl>      ids gemini-*   (Antigravity channel)
+//   cgs-codex        api openai-codex-responses   <baseUrl>/v1   ids gpt-*, o*, codex*, *astra*
+//   cgs-openai       api openai-completions       <baseUrl>/v1   every other chat id
 // Without valid credentials nothing is registered.
 //
 // Model metadata: omp's model registry fills every field a registered model
@@ -27,9 +31,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export const PROVIDER_ANTHROPIC = "cgs-anthropic";
-export const PROVIDER_GEMINI = "cgs-gemini";
+export const PROVIDER_CLAUDE = "cgs-claude";
+export const PROVIDER_ANTIGRAVITY = "cgs-antigravity";
+export const PROVIDER_CODEX = "cgs-codex";
 export const PROVIDER_OPENAI = "cgs-openai";
+const ANTIGRAVITY_PROJECT = "cgs";
+
+// OpenAI's own families (GPT, o-series, Codex, Astra) go through the Codex channel.
+const CODEX_ID = /^(gpt|o\d|codex|chatgpt)|astra/i;
 
 // Non-chat model ids (image/audio/embedding/moderation/rerank/video) are never registered.
 const NON_CHAT_ID =
@@ -75,22 +84,23 @@ export function readCredentials(agentDir) {
 		return null;
 	}
 	if (!data || typeof data !== "object") return null;
-	const { baseUrl, apiKey, models } = data;
+	const { baseUrl, clientSecret, models } = data;
 	if (typeof baseUrl !== "string" || !baseUrl.trim()) return null;
-	if (typeof apiKey !== "string" || !apiKey.trim()) return null;
+	if (typeof clientSecret !== "string" || !clientSecret.trim()) return null;
 	if (!Array.isArray(models)) return null;
 	return {
 		baseUrl: baseUrl.trim().replace(/\/+$/, ""),
-		apiKey: apiKey.trim(),
+		clientSecret: clientSecret.trim(),
 		models: [...new Set(models.filter(id => typeof id === "string" && id.trim()).map(id => id.trim()))],
 	};
 }
 
-/** Which provider serves a model id, or null for non-chat ids. */
+/** Which provider (channel) serves a model id, or null for non-chat ids. */
 export function providerForModel(id) {
 	if (NON_CHAT_ID.test(id)) return null;
-	if (/^claude/i.test(id)) return PROVIDER_ANTHROPIC;
-	if (/^gemini/i.test(id)) return PROVIDER_GEMINI;
+	if (/^claude/i.test(id)) return PROVIDER_CLAUDE;
+	if (/^gemini/i.test(id)) return PROVIDER_ANTIGRAVITY;
+	if (CODEX_ID.test(id)) return PROVIDER_CODEX;
 	return PROVIDER_OPENAI;
 }
 
@@ -98,11 +108,26 @@ export function familyFallback(id) {
 	return FAMILY_FALLBACKS.find(f => f.test.test(id)) ?? FALLBACK_DEFAULT;
 }
 
-/** Model definition for registerProvider. `reference` is the catalog entry for the id, when known. */
-export function buildModel(id, reference) {
+/**
+ * Site price (CNY per million tokens) -> omp `cost`. Per-call models have no per-token price and stay unpriced.
+ * The numbers are the site's real prices; omp's own cost displays still print its `$` glyph in front.
+ */
+export function costFromPrice(price) {
+	if (!price || typeof price.input !== "number" || typeof price.output !== "number") return null;
+	return {
+		input: price.input,
+		output: price.output,
+		cacheRead: Number(price.cache_read) || 0,
+		cacheWrite: Number(price.cache_write) || 0,
+	};
+}
+
+/** Model definition for registerProvider. `reference` is the catalog entry for the id, when known; `price` the site's. */
+export function buildModel(id, reference, price) {
+	const cost = costFromPrice(price);
 	if (reference) {
 		// Everything else is inherited from the catalog by the model registry.
-		return { id, name: id, ...(reference.thinking ? { thinking: reference.thinking } : {}) };
+		return { id, name: id, ...(reference.thinking ? { thinking: reference.thinking } : {}), ...(cost ? { cost } : {}) };
 	}
 	const f = familyFallback(id);
 	return {
@@ -110,7 +135,7 @@ export function buildModel(id, reference) {
 		name: id,
 		reasoning: f.reasoning,
 		input: [...f.input],
-		cost: { ...ZERO_COST },
+		cost: cost ?? { ...ZERO_COST },
 		contextWindow: f.contextWindow,
 		maxTokens: f.maxTokens,
 	};
@@ -120,21 +145,33 @@ export function buildModel(id, reference) {
  * Pure: credentials → { providerName: ProviderConfig } (providers without models are omitted).
  * `lookup(id)` returns the catalog reference model or undefined.
  */
-export function buildProviders(credentials, lookup = () => undefined) {
-	const { baseUrl, apiKey, models } = credentials;
+export function buildProviders(credentials, lookup = () => undefined, pricing = {}) {
+	const { baseUrl, clientSecret, models } = credentials;
+	// One omp transport per channel; only the credential and the URL differ from the upstream vendor's own.
 	const defs = {
-		[PROVIDER_ANTHROPIC]: { api: "anthropic-messages", baseUrl, models: [] },
-		[PROVIDER_GEMINI]: { api: "google-generative-ai", baseUrl: `${baseUrl}/v1beta`, models: [] },
-		[PROVIDER_OPENAI]: { api: "openai-completions", baseUrl: `${baseUrl}/v1`, models: [] },
+		// Claude Code channel: POST <root>/v1/messages, Bearer credential, Claude Code client fingerprint.
+		[PROVIDER_CLAUDE]: { api: "anthropic-messages", baseUrl, apiKey: clientSecret, models: [] },
+		// Antigravity channel (Cloud Code Assist wire): POST <root>/v1internal:streamGenerateContent. omp expects a
+		// JSON credential {token, projectId}; the gateway ignores the project.
+		[PROVIDER_ANTIGRAVITY]: {
+			api: "google-gemini-cli",
+			baseUrl,
+			apiKey: JSON.stringify({ token: clientSecret, projectId: ANTIGRAVITY_PROJECT }),
+			models: [],
+		},
+		// Codex channel: POST <root>/v1/codex/responses.
+		[PROVIDER_CODEX]: { api: "openai-codex-responses", baseUrl: `${baseUrl}/v1`, apiKey: clientSecret, models: [] },
+		// OpenAI-compatible channel: POST <root>/v1/chat/completions.
+		[PROVIDER_OPENAI]: { api: "openai-completions", baseUrl: `${baseUrl}/v1`, apiKey: clientSecret, models: [] },
 	};
 	for (const id of models) {
 		const provider = providerForModel(id);
-		if (provider) defs[provider].models.push(buildModel(id, lookup(id)));
+		if (provider) defs[provider].models.push(buildModel(id, lookup(id), pricing[id]));
 	}
 	const result = {};
 	for (const [name, def] of Object.entries(defs)) {
 		if (def.models.length === 0) continue;
-		result[name] = { baseUrl: def.baseUrl, apiKey, api: def.api, models: def.models };
+		result[name] = { baseUrl: def.baseUrl, apiKey: def.apiKey, api: def.api, models: def.models };
 	}
 	return result;
 }
@@ -181,25 +218,40 @@ export function buildUsageReport(data, provider, now = Date.now()) {
 			...(notes.length ? { notes } : {}),
 		});
 	}
+	const balance = data?.balance;
+	if (balance && Number.isFinite(Number(balance.cny))) {
+		// omp's usage units have no CNY ('usd' would print dollars), so the yuan amount rides in `remaining` and the notes.
+		limits.unshift({
+			id: "cgs:balance",
+			label: "\u4f59\u989d (CNY)",
+			scope: { provider },
+			amount: { remaining: Number(balance.cny), unit: "unknown" },
+			status: Number(balance.quota) <= 0 ? "exhausted" : "ok",
+			notes: [balance.cny_display || `\u00a5${Number(balance.cny).toFixed(2)}`],
+		});
+	}
 	if (limits.length === 0) return null;
-	const metadata = { planType: titles.join(" + ") };
+	const metadata = { planType: titles.length ? titles.join(" + ") : "Pay as you go" };
+	if (balance && Number.isFinite(Number(balance.cny))) metadata.balanceCny = Number(balance.cny);
 	if (typeof data.username === "string" && data.username) metadata.email = data.username;
 	return { provider, fetchedAt: now, limits, metadata };
 }
 
-/** UsageProvider for `provider` that queries `<root>/api/device/usage` (root = credentials baseUrl, not a provider baseUrl). */
-export function createUsageProvider(root, provider) {
+/**
+ * UsageProvider for `provider` that queries `<root>/api/device/usage` with the client credential
+ * (root = credentials baseUrl, not a provider baseUrl; the credential comes from credentials.json, since the
+ * Antigravity channel's own apiKey is a JSON envelope).
+ */
+export function createUsageProvider({ baseUrl: root, clientSecret }, provider) {
 	return {
 		id: provider,
-		cacheVersion: 1,
+		cacheVersion: 3,
 		validatesCredentials: false,
 		async fetchUsage(params, ctx) {
-			const key = params.credential?.apiKey;
-			if (!key) return null;
 			const timeout = AbortSignal.timeout(USAGE_TIMEOUT_MS);
 			const signal = params.signal ? AbortSignal.any([params.signal, timeout]) : timeout;
 			const res = await ctx.fetch(`${root}/api/device/usage`, {
-				headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+				headers: { Authorization: `Bearer ${clientSecret}`, Accept: "application/json" },
 				signal,
 			});
 			if (res.status === 401) return null;
@@ -224,11 +276,32 @@ async function loadCatalogLookup(logger) {
 	}
 }
 
+/**
+ * GET <root>/api/device/pricing -> { model: { input, output, cache_read?, cache_write? } } in CNY per million tokens
+ * (the site's real prices after the group ratio), or null on any failure: pricing is best effort and must not
+ * keep the providers from registering.
+ */
+export async function fetchPricing({ baseUrl: root, clientSecret }, doFetch = fetch) {
+	try {
+		const res = await doFetch(`${root}/api/device/pricing`, {
+			headers: { Authorization: `Bearer ${clientSecret}`, Accept: "application/json" },
+			signal: AbortSignal.timeout(USAGE_TIMEOUT_MS),
+		});
+		if (!res.ok) return null;
+		const body = await res.json();
+		if (!body?.success || body.data?.currency !== "CNY" || !body.data.models || typeof body.data.models !== "object") return null;
+		return body.data.models;
+	} catch {
+		return null;
+	}
+}
+
 export default async function cgsExtension(pi) {
 	const credentials = readCredentials(resolveAgentDir());
 	if (!credentials) return;
-	const providers = buildProviders(credentials, await loadCatalogLookup(pi.logger));
-	const usageOwner = providers[PROVIDER_OPENAI] ? PROVIDER_OPENAI : Object.keys(providers)[0];
-	if (usageOwner) providers[usageOwner].usage = createUsageProvider(credentials.baseUrl, usageOwner);
+	const [lookup, pricing] = await Promise.all([loadCatalogLookup(pi.logger), fetchPricing(credentials)]);
+	const providers = buildProviders(credentials, lookup, pricing ?? {});
+	const usageOwner = [PROVIDER_OPENAI, PROVIDER_CLAUDE, PROVIDER_CODEX, PROVIDER_ANTIGRAVITY].find(name => providers[name]);
+	if (usageOwner) providers[usageOwner].usage = createUsageProvider(credentials, usageOwner);
 	for (const [name, config] of Object.entries(providers)) pi.registerProvider(name, config);
 }

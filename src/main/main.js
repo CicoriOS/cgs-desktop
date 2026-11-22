@@ -286,8 +286,6 @@ function registerIpc() {
     applyWindowIcon(Boolean(snap && snap.signedIn));
     return { ...snap, windowIcon: currentIconKind };
   });
-  ipcMain.handle("cgs:apply-preset", (_event, id) => (cgsController ? cgsController.applyPreset(id) : null));
-  ipcMain.handle("cgs:dismiss-bubble", () => (cgsController ? cgsController.dismissBubble() : null));
   ipcMain.handle("cgs:open-login", async () => {
     if (!cgsController) return null;
     const { CGS_BASE_URL, notifyModelsChanged } = require("../cgs");
@@ -308,12 +306,12 @@ function registerIpc() {
     await Promise.all([cgsController.refresh(), cgsController.refreshUsage()]);
     return { state: { ...(await cgsController.snapshot()), windowIcon: currentIconKind }, usage: cgsController.usageSnapshot() };
   });
-  ipcMain.handle("cgs:open-console", async () => {
+  ipcMain.handle("cgs:open-console", async (_event, page) => {
     if (!cgsController) return false;
     const { CGS_BASE_URL, readCredentials } = require("../cgs");
     const { consoleUrl } = require("../cgs/account");
     const creds = await readCredentials(cgsController.agentDir);
-    const url = consoleUrl(creds ? creds.baseUrl : CGS_BASE_URL);
+    const url = consoleUrl(creds ? creds.baseUrl : CGS_BASE_URL, page);
     console.info(`[cgs] openExternal ${url}`);
     openExternally(url);
     return true;

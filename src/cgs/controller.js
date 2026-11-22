@@ -1,13 +1,12 @@
 "use strict";
-// Main-process model behind the topbar CGS button and the "tier changed" bubble. Holds no UI; main.js forwards
+// Main-process model behind the CGS account UI. Holds no UI; main.js forwards
 // `snapshot()` to the renderer over IPC and calls the action methods from IPC handlers.
 
 const { EventEmitter } = require("node:events");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { getLoginState, readCredentials, signOutLocally, applyPreset, CGS_PROVIDERS } = require("./config-writer");
-const { revokeDeviceKey } = require("./account");
-const { PRESET_IDS, PRESET_NAMES, readState, updateState, decideBubble } = require("./state");
+const { getLoginState, readCredentials, signOutLocally, CGS_PROVIDERS } = require("./config-writer");
+const { revokeDeviceClient } = require("./account");
 const { refreshTier } = require("./tier");
 const { refreshUsage } = require("./usage");
 
@@ -15,8 +14,8 @@ const POLL_INTERVAL_MS = 30 * 60 * 1000;
 const USAGE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 class CgsController extends EventEmitter {
-  /** @param {{ agentDir: string, intervalMs?: number, usageIntervalMs?: number, refresh?: typeof refreshTier, fetchUsage?: typeof refreshUsage, revoke?: typeof revokeDeviceKey, pluginDir?: string | null }} options `pluginDir`: the bundled extension, used to count the models per provider. */
-  constructor({ agentDir, intervalMs = POLL_INTERVAL_MS, usageIntervalMs = USAGE_POLL_INTERVAL_MS, refresh = refreshTier, fetchUsage = refreshUsage, revoke = revokeDeviceKey, pluginDir = null }) {
+  /** @param {{ agentDir: string, intervalMs?: number, usageIntervalMs?: number, refresh?: typeof refreshTier, fetchUsage?: typeof refreshUsage, revoke?: typeof revokeDeviceClient, pluginDir?: string | null }} options `pluginDir`: the bundled extension, used to count the models per provider. */
+  constructor({ agentDir, intervalMs = POLL_INTERVAL_MS, usageIntervalMs = USAGE_POLL_INTERVAL_MS, refresh = refreshTier, fetchUsage = refreshUsage, revoke = revokeDeviceClient, pluginDir = null }) {
     super();
     this.agentDir = agentDir;
     this.intervalMs = intervalMs;
@@ -172,7 +171,7 @@ class CgsController extends EventEmitter {
     try {
       this._plugin ??= import(pathToFileURL(path.join(this._pluginDir, "index.js")).href);
       const plugin = await this._plugin;
-      const providers = plugin.buildProviders({ baseUrl: creds.baseUrl, apiKey: creds.apiKey, models: Array.isArray(creds.models) ? creds.models : [] });
+      const providers = plugin.buildProviders({ baseUrl: creds.baseUrl, clientSecret: creds.clientSecret, models: Array.isArray(creds.models) ? creds.models : [] });
       return CGS_PROVIDERS.filter(id => providers[id]).map(id => ({ id, models: providers[id].models.length }));
     } catch {
       this._plugin = null;
@@ -181,41 +180,18 @@ class CgsController extends EventEmitter {
   }
 
   async snapshot() {
-    const [login, state, creds] = await Promise.all([getLoginState(this.agentDir), readState(this.agentDir), readCredentials(this.agentDir)]);
+    const [login, creds] = await Promise.all([getLoginState(this.agentDir), readCredentials(this.agentDir)]);
     const signedIn = login.signedIn && !this._revoked;
-    // Credentials are still on disk but the server rejected the key: the Settings card offers 重新登录 / 退出账户.
+    // Credentials are still on disk but the server rejected the client credential: the Settings card offers 重新登录 / 退出账户.
     const keyRejected = login.signedIn && this._revoked && !this._loggingOut;
-    const tier = signedIn ? login.tier : null;
     return {
       signedIn,
       keyRejected,
       username: signedIn || keyRejected ? login.username : null,
       baseUrl: signedIn || keyRejected ? creds?.baseUrl ?? null : null,
       providers: signedIn ? await this._providerCounts(creds) : [],
-      tier,
-      appliedPreset: state.appliedPreset,
-      presets: PRESET_IDS.map(id => ({ id, name: PRESET_NAMES[id] })),
-      bubble: decideBubble({ signedIn, tier, appliedPreset: state.appliedPreset, dismissedTier: state.dismissedTier }),
+      tier: signedIn ? login.tier : null,
     };
-  }
-
-  /** Apply a preset to config.yml (user-initiated only). */
-  async applyPreset(id) {
-    if (!PRESET_IDS.includes(id)) throw new Error(`unknown CGS preset: ${id}`);
-    if (!(await this.snapshot()).signedIn) throw new Error("CGS presets require a CGS login");
-    await applyPreset(this.agentDir, id);
-    const snap = await this.snapshot();
-    this.emit("change", snap);
-    return snap;
-  }
-
-  /** 「保持当前」: do not show the bubble again for the current tier. */
-  async dismissBubble() {
-    const login = await getLoginState(this.agentDir);
-    await updateState(this.agentDir, { dismissedTier: login.tier });
-    const snap = await this.snapshot();
-    this.emit("change", snap);
-    return snap;
   }
 
   /**
@@ -240,7 +216,7 @@ class CgsController extends EventEmitter {
     await Promise.allSettled([this._inflight, this._usageInflight]);
     try {
       const creds = await readCredentials(this.agentDir);
-      const remote = creds ? await this._revoke({ baseUrl: creds.baseUrl, apiKey: creds.apiKey }) : { status: "no-credentials" };
+      const remote = creds ? await this._revoke({ baseUrl: creds.baseUrl, clientSecret: creds.clientSecret }) : { status: "no-credentials" };
       const cleanup = await signOutLocally(this.agentDir);
       this._usageFetchedAt = 0;
       this._loggingOut = false;

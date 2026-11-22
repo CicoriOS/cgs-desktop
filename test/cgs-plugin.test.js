@@ -12,7 +12,7 @@ const load = () => import(pathToFileURL(PLUGIN).href);
 
 const CREDS = {
   baseUrl: "https://api.example.com/",
-  apiKey: "sk-test",
+  clientSecret: "cgc_test",
   models: [
     "claude-haiku-5-5",
     "claude-opus-5-5",
@@ -21,6 +21,7 @@ const CREDS = {
     "deepseek-v4.1-flash",
     "grok-4.7",
     "kimi-k3",
+    "gpt-6-astra",
     "gpt-image-2.5",
     "gpt-image-2",
     "text-embedding-3-small",
@@ -29,26 +30,32 @@ const CREDS = {
   ],
 };
 
-test("providers are partitioned by model id with the contract's api and base URLs", async () => {
+test("four channels: providers are partitioned by model id; each keeps its vendor's omp transport, only URL and credential differ", async () => {
   const { readCredentials, buildProviders } = await load();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cgs-plugin-"));
   fs.mkdirSync(path.join(dir, "cgs"));
   fs.writeFileSync(path.join(dir, "cgs", "credentials.json"), JSON.stringify(CREDS));
   const providers = buildProviders(readCredentials(dir));
 
-  assert.deepEqual(Object.keys(providers).sort(), ["cgs-anthropic", "cgs-gemini", "cgs-openai"]);
+  assert.deepEqual(Object.keys(providers).sort(), ["cgs-antigravity", "cgs-claude", "cgs-codex", "cgs-openai"]);
   const ids = name => providers[name].models.map(m => m.id);
-  assert.deepEqual(ids("cgs-anthropic"), ["claude-haiku-5-5", "claude-opus-5-5"]);
-  assert.deepEqual(ids("cgs-gemini"), ["gemini-3.8-flash", "gemini-4-argon"]);
+  assert.deepEqual(ids("cgs-claude"), ["claude-haiku-5-5", "claude-opus-5-5"]);
+  assert.deepEqual(ids("cgs-antigravity"), ["gemini-3.8-flash", "gemini-4-argon"]);
+  assert.deepEqual(ids("cgs-codex"), ["gpt-6-astra"]);
   assert.deepEqual(ids("cgs-openai"), ["deepseek-v4.1-flash", "grok-4.7", "kimi-k3"]);
 
-  assert.equal(providers["cgs-anthropic"].api, "anthropic-messages");
-  assert.equal(providers["cgs-anthropic"].baseUrl, "https://api.example.com");
-  assert.equal(providers["cgs-gemini"].api, "google-generative-ai");
-  assert.equal(providers["cgs-gemini"].baseUrl, "https://api.example.com/v1beta");
+  assert.equal(providers["cgs-claude"].api, "anthropic-messages");
+  assert.equal(providers["cgs-claude"].baseUrl, "https://api.example.com");
+  assert.equal(providers["cgs-claude"].apiKey, "cgc_test");
+  assert.equal(providers["cgs-antigravity"].api, "google-gemini-cli");
+  assert.equal(providers["cgs-antigravity"].baseUrl, "https://api.example.com");
+  assert.deepEqual(JSON.parse(providers["cgs-antigravity"].apiKey), { token: "cgc_test", projectId: "cgs" });
+  assert.equal(providers["cgs-codex"].api, "openai-codex-responses");
+  assert.equal(providers["cgs-codex"].baseUrl, "https://api.example.com/v1");
+  assert.equal(providers["cgs-codex"].apiKey, "cgc_test");
   assert.equal(providers["cgs-openai"].api, "openai-completions");
   assert.equal(providers["cgs-openai"].baseUrl, "https://api.example.com/v1");
-  for (const p of Object.values(providers)) assert.equal(p.apiKey, "sk-test");
+  assert.equal(providers["cgs-openai"].apiKey, "cgc_test");
 });
 
 test("image/embedding models are never registered; providers without models are omitted", async () => {
@@ -56,12 +63,15 @@ test("image/embedding models are never registered; providers without models are 
   for (const id of ["gpt-image-2", "gpt-image-2.5-flare", "dall-e-3", "text-embedding-3-large", "whisper-1", "tts-1", "gemini-3-pro-image-preview", "imagen-4"]) {
     assert.equal(providerForModel(id), null, id);
   }
-  for (const id of ["gpt-5.2", "o3", "glm-5.3-flash", "minimax-m3.1-flash", "deepseek-v4.1-flash"]) {
+  for (const id of ["glm-5.3-flash", "minimax-m3.1-flash", "deepseek-v4.1-flash", "grok-4.7", "kimi-k3"]) {
     assert.equal(providerForModel(id), "cgs-openai", id);
   }
-  const only = buildProviders({ baseUrl: "https://h", apiKey: "k", models: ["claude-opus-5-5"] });
-  assert.deepEqual(Object.keys(only), ["cgs-anthropic"]);
-  assert.deepEqual(buildProviders({ baseUrl: "https://h", apiKey: "k", models: [] }), {});
+  for (const id of ["gpt-5.2", "gpt-6-astra", "o3", "codex-mini-latest"]) {
+    assert.equal(providerForModel(id), "cgs-codex", id);
+  }
+  const only = buildProviders({ baseUrl: "https://h", clientSecret: "k", models: ["claude-opus-5-5"] });
+  assert.deepEqual(Object.keys(only), ["cgs-claude"]);
+  assert.deepEqual(buildProviders({ baseUrl: "https://h", clientSecret: "k", models: [] }), {});
 });
 
 test("model metadata: catalog-known ids inherit; unknown ids use the per-family table", async () => {
@@ -98,13 +108,13 @@ test("credentials are resolved from PI_CODING_AGENT_DIR, else ~/.omp/agent; bad 
   assert.equal(readCredentials(dir), null);
   fs.mkdirSync(path.join(dir, "cgs"));
   const file = path.join(dir, "cgs", "credentials.json");
-  for (const bad of ["{oops", JSON.stringify({ baseUrl: "https://h", apiKey: "", models: [] }), JSON.stringify({ baseUrl: "", apiKey: "k", models: [] }), JSON.stringify({ baseUrl: "https://h", apiKey: "k" })]) {
+  for (const bad of ["{oops", JSON.stringify({ baseUrl: "https://h", clientSecret: "", models: [] }), JSON.stringify({ baseUrl: "", clientSecret: "k", models: [] }), JSON.stringify({ baseUrl: "https://h", clientSecret: "k" })]) {
     fs.writeFileSync(file, bad);
     assert.equal(readCredentials(dir), null);
   }
 });
 
-test("extension factory registers nothing without credentials, three providers with them", async () => {
+test("extension factory registers nothing without credentials, four channels' providers with them", async () => {
   const { default: factory } = await load();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cgs-plugin-"));
   const prev = process.env.PI_CODING_AGENT_DIR;
@@ -118,7 +128,7 @@ test("extension factory registers nothing without credentials, three providers w
     fs.mkdirSync(path.join(dir, "cgs"));
     fs.writeFileSync(path.join(dir, "cgs", "credentials.json"), JSON.stringify(CREDS));
     await factory(pi);
-    assert.deepEqual(calls.map(c => c[0]).sort(), ["cgs-anthropic", "cgs-gemini", "cgs-openai"]);
+    assert.deepEqual(calls.map(c => c[0]).sort(), ["cgs-antigravity", "cgs-claude", "cgs-codex", "cgs-openai"]);
   } finally {
     if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = prev;
@@ -177,25 +187,57 @@ test("usage report is null when no subscription has a displayable limit", async 
   assert.equal(buildUsageReport({ subscriptions: [{ ...SUB, reset_period: "daily" }, { ...SUB, amount_total: 0 }] }, "p"), null);
 });
 
-test("usage provider calls <root>/api/device/usage with the bearer key", async () => {
+test("usage report shows the wallet in yuan as its own limit, even without a subscription", async () => {
+  const { buildUsageReport } = await load();
+  const balance = { quota: 1250000, used_quota: 9, display: "$2.5", cny: 17.5, cny_display: "¥17.5" };
+  const r = buildUsageReport({ username: "alice", balance, subscriptions: [] }, "p");
+  assert.equal(r.limits.length, 1);
+  assert.equal(r.limits[0].id, "cgs:balance");
+  assert.deepEqual(r.limits[0].amount, { remaining: 17.5, unit: "unknown" });
+  assert.equal(r.limits[0].status, "ok");
+  assert.deepEqual(r.limits[0].notes, ["¥17.5"]);
+  assert.deepEqual(r.metadata, { planType: "Pay as you go", balanceCny: 17.5, email: "alice" });
+  const withSub = buildUsageReport({ balance, subscriptions: [{ ...SUB, reset_period: "weekly", amount_total: 10, amount_used: 1, next_reset_at: 1 }] }, "p");
+  assert.deepEqual(withSub.limits.map(l => l.id).slice(0, 1), ["cgs:balance"]);
+  assert.equal(withSub.limits.length, 2);
+  assert.equal(buildUsageReport({ balance: { ...balance, quota: 0, cny: 0, cny_display: "¥0" }, subscriptions: [] }, "p").limits[0].status, "exhausted");
+});
+
+test("model cost is the site's real CNY price; unpriced models keep the catalog/zero cost", async () => {
+  const { buildProviders, fetchPricing } = await load();
+  const pricing = { "claude-haiku-5-5": { input: 7.3, output: 36.5, cache_read: 0.73 }, "deepseek-v4.1-flash": { input: 1, output: 2, cache_write: 1.25 }, "per-call": { per_call: 0.1 } };
+  const providers = buildProviders({ baseUrl: "https://h", clientSecret: "k", models: ["claude-haiku-5-5", "deepseek-v4.1-flash", "kimi-k3"] }, id => (id === "claude-haiku-5-5" ? { thinking: undefined } : undefined), pricing);
+  assert.deepEqual(providers["cgs-claude"].models[0].cost, { input: 7.3, output: 36.5, cacheRead: 0.73, cacheWrite: 0 });
+  const [ds, kimi] = providers["cgs-openai"].models;
+  assert.deepEqual(ds.cost, { input: 1, output: 2, cacheRead: 0, cacheWrite: 1.25 });
+  assert.deepEqual(kimi.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+
+  const ok = body => async () => ({ ok: true, json: async () => body });
+  const creds = { baseUrl: "https://h", clientSecret: "k" };
+  assert.deepEqual(await fetchPricing(creds, ok({ success: true, data: { currency: "CNY", models: pricing } })), pricing);
+  assert.equal(await fetchPricing(creds, ok({ success: true, data: { currency: "USD", models: pricing } })), null);
+  assert.equal(await fetchPricing(creds, async () => { throw new Error("offline"); }), null);
+  assert.equal(await fetchPricing(creds, async () => ({ ok: false, json: async () => ({}) })), null);
+});
+
+test("usage provider calls <root>/api/device/usage with the client credential, whatever the channel's own apiKey is", async () => {
   const { createUsageProvider } = await load();
   const calls = [];
   const respond = (status, body) => async (url, init) => {
     calls.push([url, init.headers.Authorization, init.signal instanceof AbortSignal]);
     return { status, ok: status >= 200 && status < 300, json: async () => body };
   };
-  const provider = createUsageProvider("https://api.example.com", "cgs-openai");
+  const provider = createUsageProvider({ baseUrl: "https://api.example.com", clientSecret: "cgc_abc" }, "cgs-openai");
   assert.equal(provider.id, "cgs-openai");
-  const params = { provider: "cgs-openai", credential: { type: "api_key", apiKey: "sk-abc" }, baseUrl: "https://api.example.com/v1" };
+  const params = { provider: "cgs-openai", credential: { type: "api_key", apiKey: "something-else" }, baseUrl: "https://api.example.com/v1" };
 
   const ok = await provider.fetchUsage(params, { fetch: respond(200, { success: true, data: { username: "u", subscriptions: [SUB] } }) });
-  assert.deepEqual(calls[0], ["https://api.example.com/api/device/usage", "Bearer sk-abc", true]);
+  assert.deepEqual(calls[0], ["https://api.example.com/api/device/usage", "Bearer cgc_abc", true]);
   assert.equal(ok.limits.length, 1);
 
   assert.equal(await provider.fetchUsage(params, { fetch: respond(401, { success: false }) }), null);
   await assert.rejects(provider.fetchUsage(params, { fetch: respond(500, {}) }), /HTTP 500/);
   await assert.rejects(provider.fetchUsage(params, { fetch: respond(200, { success: false, message: "nope" }) }), /nope/);
-  assert.equal(await provider.fetchUsage({ ...params, credential: { type: "api_key" } }, { fetch: respond(200, {}) }), null);
 });
 
 test("extension factory attaches the usage provider to cgs-openai only, rooted at the credentials baseUrl", async () => {
@@ -213,7 +255,7 @@ test("extension factory attaches the usage provider to cgs-openai only, rooted a
     assert.deepEqual(withUsage, ["cgs-openai"]);
     let url;
     await calls.find(([n]) => n === "cgs-openai")[1].usage.fetchUsage(
-      { provider: "cgs-openai", credential: { type: "api_key", apiKey: "sk-test" } },
+      { provider: "cgs-openai", credential: { type: "api_key", apiKey: "ignored" } },
       { fetch: async u => ((url = u), { status: 401, ok: false }) },
     );
     assert.equal(url, "https://api.example.com/api/device/usage");
@@ -237,8 +279,8 @@ test("usage rides on the first provider when there are no openai models", async 
   try {
     const calls = [];
     await factory({ registerProvider: (name, config) => calls.push([name, config]) });
-    assert.deepEqual(calls.map(([n, c]) => [n, Boolean(c.usage)]), [["cgs-anthropic", true]]);
-    assert.equal(calls[0][1].usage.id, "cgs-anthropic");
+    assert.deepEqual(calls.map(([n, c]) => [n, Boolean(c.usage)]), [["cgs-claude", true]]);
+    assert.equal(calls[0][1].usage.id, "cgs-claude");
   } finally {
     if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = prev;

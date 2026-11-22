@@ -54,11 +54,44 @@ async function getJson(url) {
   return res.json();
 }
 
+const DOWNLOAD_ATTEMPTS = 40;
+const STALL_MS = 20000;
+
+/**
+ * Downloads `url` into memory. The GitHub CDN stalls or resets connections on slow links, so a stalled or failed
+ * transfer (no bytes for STALL_MS) is resumed with a Range request instead of restarting from zero.
+ */
 async function download(url) {
   // Asset downloads redirect to a CDN; the Authorization header is dropped by fetch on cross-origin redirects.
-  const res = await fetch(url, { headers: { "User-Agent": "cgs-desktop-fetch", ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}) }, redirect: "follow" });
-  if (!res.ok) throw new Error(`GET ${url} -> ${res.status} ${res.statusText}`);
-  return Buffer.from(await res.arrayBuffer());
+  const base = { "User-Agent": "cgs-desktop-fetch", ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}) };
+  const chunks = [];
+  let have = 0;
+  let total = null;
+  for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
+    const ctl = new AbortController();
+    let timer = setTimeout(() => ctl.abort(), STALL_MS);
+    try {
+      const headers = have ? { ...base, Range: `bytes=${have}-` } : base;
+      const res = await fetch(url, { headers, redirect: "follow", signal: ctl.signal });
+      if (!res.ok) throw new Error(`GET ${url} -> ${res.status} ${res.statusText}`);
+      if (have && res.status !== 206) throw new Error(`GET ${url}: server ignored Range (${res.status})`);
+      if (total === null) total = (res.status === 206 ? have : 0) + Number(res.headers.get("content-length") || NaN);
+      for await (const chunk of res.body) {
+        chunks.push(chunk);
+        have += chunk.length;
+        clearTimeout(timer);
+        timer = setTimeout(() => ctl.abort(), STALL_MS);
+      }
+      clearTimeout(timer);
+      if (Number.isFinite(total) && have < total) throw new Error(`short body ${have}/${total}`);
+      return Buffer.concat(chunks);
+    } catch (err) {
+      clearTimeout(timer);
+      if (/-> (4\d\d)/.test(String(err.message)) && !/-> 429/.test(err.message)) throw err;
+      if (attempt === DOWNLOAD_ATTEMPTS) throw err;
+      console.log(`download ${url.split("/").pop()}: ${have} bytes, retry ${attempt} (${err.cause?.code ?? err.name}: ${err.message})`);
+    }
+  }
 }
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");

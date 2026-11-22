@@ -1,8 +1,8 @@
 // Run by scripts/build-ompweb.mjs with the ompweb checkout's own Bun (cwd = checkout, after its client build):
 //   bun scripts/ompweb-compile.ts <checkout> <outDir> <bun-target>
 // Compiles server/binary.ts into <outDir>/ompweb(.exe) and lays out the static root next to it (dist/, public/,
-// lib/omp/session-edit-extension.mjs, node_modules/katex, font licenses, licenses/), the same layout the ompweb
-// release archives have. Nothing is written inside the checkout.
+// node_modules/katex, font licenses, licenses/), the same layout the ompweb release archives have minus the `ompweb-omp`
+// runner: the desktop points OMP_WEB_OMP_BIN at its own omp. Nothing is written inside the checkout.
 import { cpSync, existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 const [checkout, outDir, target] = Bun.argv.slice(2) as [string, string, Bun.Build.CompileTarget];
@@ -33,7 +33,7 @@ for (const log of result.logs) console.log(log);
 if (!result.success) process.exit(1);
 
 const copy = (from: string, to: string) => cpSync(from, path.join(outDir, to), { recursive: true });
-for (const file of ["dist", "public", "LICENSE", "lib/omp/session-edit-extension.mjs"]) copy(path.join(checkout, file), file);
+for (const file of ["dist", "public", "LICENSE"]) copy(path.join(checkout, file), file);
 for (const file of new Bun.Glob("app/fonts/*-{OFL.txt,LICENSE.*}").scanSync(checkout)) copy(path.join(checkout, file), file);
 const katex = path.dirname(Bun.resolveSync("katex/package.json", checkout));
 for (const file of ["package.json", "LICENSE", "dist/katex.min.css", "dist/fonts"]) copy(path.join(katex, file), `node_modules/katex/${file}`);

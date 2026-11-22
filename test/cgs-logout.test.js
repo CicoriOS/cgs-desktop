@@ -9,7 +9,7 @@ const path = require("node:path");
 const YAML = require("yaml");
 const cw = require("../src/cgs/config-writer");
 const { readState } = require("../src/cgs/state");
-const { revokeDeviceKey, consoleUrl } = require("../src/cgs/account");
+const { revokeDeviceClient, consoleUrl } = require("../src/cgs/account");
 const { CgsController } = require("../src/cgs/controller");
 
 const PLUGIN_DIR = path.join(__dirname, "..", "plugin", "omp-cgs");
@@ -32,8 +32,8 @@ async function fakeServer(status) {
 
 async function signedInDir(baseUrl) {
   const dir = tmpDir();
-  await cw.writeCredentials(dir, { baseUrl, apiKey: "sk-test", tier: "pro", username: "alice", models: ["claude-sonnet-5-5", "gemini-4-argon"] });
-  await cw.applyPreset(dir, "pro");
+  await cw.writeCredentials(dir, { baseUrl, clientSecret: "cgc_test", tier: "pro", username: "alice", models: ["claude-sonnet-5-5", "gemini-4-argon"] });
+  await cw.applyDefaultRoles(dir);
   fs.writeFileSync(
     path.join(dir, "models.yml"),
     "providers:\n  my-own:\n    baseUrl: http://localhost:1\n  cgs-openai:\n    baseUrl: x\n  cgs-anthropic:\n    baseUrl: x\n  cgs-gemini:\n    baseUrl: x\n",
@@ -47,7 +47,7 @@ test("logout removes CGS roles and providers, keeps what the user changed", asyn
   const cfg = parsed(dir);
   cfg.modelRoles.default = "anthropic/claude-opus-5";
   cfg.retry.fallbackChains.web.push("other/web-model");
-  cfg.modelRoles.plan = "cgs-openai/not-managed-by-presets";
+  cfg.modelRoles.plan = "cgs-openai/not-managed-by-defaults";
   fs.writeFileSync(path.join(dir, "config.yml"), YAML.stringify(cfg));
 
   const result = await cw.signOutLocally(dir);
@@ -59,18 +59,19 @@ test("logout removes CGS roles and providers, keeps what the user changed", asyn
   assert.equal(after.modelRoles.default, "anthropic/claude-opus-5"); // user's value stays
   assert.equal(after.modelRoles.task, undefined); // still pointed at cgs-*: gone
   assert.equal(after.modelRoles.web, undefined);
+  assert.equal(after.task, undefined); // reviewer and scout overrides pointed at cgs-*: gone, and the empty container with them
   assert.deepEqual(after.retry.fallbackChains.web, ["other/web-model"]);
-  assert.equal(after.modelRoles.plan, "cgs-openai/not-managed-by-presets"); // not something applyPreset writes
+  assert.equal(after.modelRoles.plan, "cgs-openai/not-managed-by-defaults"); // not something applyDefaultRoles writes
   const models = parsed(dir, "models.yml");
   assert.deepEqual(Object.keys(models.providers), ["my-own"]);
-  assert.deepEqual(await readState(dir), { appliedPreset: null, lastKnownTier: null, dismissedTier: null });
+  assert.deepEqual(await readState(dir), { defaultsApplied: false, lastKnownTier: null });
 });
 
-test("logout of a pure-CGS config leaves no empty containers and resets the applied preset", async () => {
+test("logout of a pure-CGS config leaves no empty containers and resets the applied defaults", async () => {
   const dir = await signedInDir("http://127.0.0.1:1");
   await cw.signOutLocally(dir);
   assert.deepEqual(parsed(dir) ?? {}, {});
-  assert.equal((await readState(dir)).appliedPreset, null); // the next login applies the preset again
+  assert.equal((await readState(dir)).defaultsApplied, false); // the next login applies the defaults again
 });
 
 test("logout without credentials, models.yml or config.yml still succeeds", async () => {
@@ -93,9 +94,9 @@ test("server 200 and 401 both count as revoked", async () => {
   for (const [status, expected] of [[200, "revoked"], [401, "already-revoked"]]) {
     const server = await fakeServer(status);
     try {
-      const result = await revokeDeviceKey({ baseUrl: server.baseUrl, apiKey: "sk-abc" });
+      const result = await revokeDeviceClient({ baseUrl: server.baseUrl, clientSecret: "cgc_abc" });
       assert.equal(result.status, expected);
-      assert.deepEqual(server.calls, [{ method: "POST", url: "/api/device/logout", auth: "Bearer sk-abc" }]);
+      assert.deepEqual(server.calls, [{ method: "POST", url: "/api/device/logout", auth: "Bearer cgc_abc" }]);
     } finally {
       await server.close();
     }
@@ -119,7 +120,6 @@ test("controller.logout: server 401 is a clean logout", async () => {
     assert.equal(snap.keyRejected, false);
     assert.equal(snap.username, null);
     assert.deepEqual(snap.providers, []);
-    assert.equal(snap.bubble, null);
     assert.equal(events.at(-1).signedIn, false);
     assert.equal(ctl.usageSnapshot().usage, null);
   } finally {

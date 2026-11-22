@@ -3,6 +3,7 @@
 // exchange for uuid/verification link → poll until approved / denied / expired.
 
 const os = require("node:os");
+const { osVersion } = require("./client-info");
 const { requestJson, HttpError } = require("./http");
 const { solvePow } = require("./pow");
 
@@ -124,7 +125,7 @@ async function exchangeChallenge({ baseUrl, sessionId, nonce, signal }) {
 }
 
 /**
- * One poll. Returns { status: "pending" } | { status: "approved", apiKey, tier, username } |
+ * One poll. Returns { status: "pending" } | { status: "approved", clientSecret, tier, username } |
  * { status: "denied" } | { status: "expired" }.
  */
 async function pollOnce({ baseUrl, uuid, pollToken, signal }) {
@@ -142,12 +143,12 @@ async function pollOnce({ baseUrl, uuid, pollToken, signal }) {
     case "expired":
       return { status: data.status };
     case "approved":
-      if (typeof data.api_key !== "string" || !data.api_key) {
+      if (typeof data.client_secret !== "string" || !data.client_secret) {
         throw new CgsError("bad_response", "服务器返回了无法识别的登录结果");
       }
       return {
         status: "approved",
-        apiKey: data.api_key,
+        clientSecret: data.client_secret,
         tier: typeof data.tier === "string" ? data.tier : "free",
         username: typeof data.username === "string" ? data.username : "",
       };
@@ -157,7 +158,7 @@ async function pollOnce({ baseUrl, uuid, pollToken, signal }) {
 }
 
 /**
- * Full flow. Resolves { apiKey, tier, username }; rejects with CgsError (code "denied" | "expired" |
+ * Full flow. Resolves { clientSecret, tier, username }; rejects with CgsError (code "denied" | "expired" |
  * "aborted" | …). `onProgress` receives:
  *   { phase: "creating" } → { phase: "solving" } → { phase: "waiting", verificationUrl, uuid, expiresAt }
  */
@@ -168,14 +169,14 @@ async function runDeviceFlow({
   onProgress = () => {},
   pollIntervalMs = POLL_INTERVAL_MS,
   deviceName = os.hostname(),
-  platform = process.platform,
+  platform = osVersion(),
 } = {}) {
   throwIfAborted(signal);
   onProgress({ phase: "creating" });
   const session = await createSession({
     baseUrl,
     deviceName: String(deviceName || "unknown").slice(0, 64),
-    platform: String(platform).slice(0, 32),
+    platform: String(platform).slice(0, 64),
     appVersion: String(appVersion).slice(0, 32),
     signal,
   });
@@ -204,7 +205,7 @@ async function runDeviceFlow({
       if (isTransient(err) && ++failures < MAX_POLL_FAILURES) continue;
       throw err;
     }
-    if (result.status === "approved") return { apiKey: result.apiKey, tier: result.tier, username: result.username };
+    if (result.status === "approved") return { clientSecret: result.clientSecret, tier: result.tier, username: result.username };
     if (result.status === "denied") throw new CgsError("denied", "登录请求已被拒绝");
     if (result.status === "expired") throw new CgsError("expired", "登录链接已过期，请重新登录");
   }

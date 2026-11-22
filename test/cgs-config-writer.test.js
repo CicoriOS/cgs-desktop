@@ -10,7 +10,7 @@ const { DatabaseSync } = require("node:sqlite");
 const YAML = require("yaml");
 const cw = require("../src/cgs/config-writer");
 const cgs = require("../src/cgs");
-const { readState, updateState, decideBubble } = require("../src/cgs/state");
+const { readState } = require("../src/cgs/state");
 const { refreshTier } = require("../src/cgs/tier");
 const { CgsController } = require("../src/cgs/controller");
 const { detectThirdPartyCredentials, shouldShowStartupPopup } = require("../src/cgs/credential-detect");
@@ -24,96 +24,47 @@ const read = (dir, f = "config.yml") => fs.readFileSync(path.join(dir, f), "utf8
 const parsed = dir => YAML.parse(read(dir));
 
 test("index exports the contract interface", () => {
-  for (const key of ["CGS_BASE_URL", "prepareAgentDir", "getLoginState", "needsStartupLogin", "CgsController", "PRESET_IDS", "PRESET_NAMES"]) {
+  for (const key of ["CGS_BASE_URL", "prepareAgentDir", "getLoginState", "needsStartupLogin", "CgsController", "TIER_IDS", "TIER_NAMES"]) {
     assert.ok(key in cgs, `missing export ${key}`);
   }
   assert.equal(cgs.CGS_BASE_URL, process.env.CGS_BASE_URL || "https://api.cicori.com");
 });
 
-const WEB = "cgs-gemini/gemini-3.1-flash-lite";
-const WEB_CHAIN = { fallbackChains: { web: [WEB] } };
+const WEB = "cgs-antigravity/gemini-3.8-flash";
 
-const EXPECTED = {
-  free: {
-    modelRoles: {
-      default: "cgs-openai/deepseek-v4.1-flash:auto",
-      web: WEB,
-    },
-    retry: WEB_CHAIN,
+// The one default mapping: search Gemini 3.8 Flash, main agent Claude Haiku, task DeepSeek Flash 4.1, reviewer Astra,
+// scout Haiku; each model on its vendor's channel.
+const EXPECTED_DEFAULTS = {
+  modelRoles: {
+    default: "cgs-claude/claude-haiku-5-5:auto",
+    task: "cgs-openai/deepseek-v4.1-flash:auto",
+    web: WEB,
   },
-  go: {
-    modelRoles: {
-      default: "cgs-anthropic/claude-haiku-5-5:auto",
-      task: "cgs-openai/deepseek-v4.1-flash:auto",
-      web: WEB,
-    },
-    retry: WEB_CHAIN,
-  },
-  pro: {
-    modelRoles: {
-      default: "cgs-anthropic/claude-sonnet-5-5:auto",
-      task: "cgs-gemini/gemini-4-argon:auto",
-      web: WEB,
-    },
-    retry: WEB_CHAIN,
-  },
-  dedicated: {
-    modelRoles: {
-      default: "cgs-anthropic/claude-opus-5-5:auto",
-      task: "cgs-anthropic/claude-sonnet-5-5:low",
-      smol: "cgs-openai/deepseek-v4.1-flash:auto",
-      web: WEB,
-    },
-    retry: WEB_CHAIN,
-    task: { agentModelOverrides: { scout: "cgs-gemini/gemini-3.8-flash:auto" } },
-  },
+  retry: { fallbackChains: { web: [WEB] } },
+  task: { agentModelOverrides: { reviewer: "cgs-codex/gpt-6-astra:auto", scout: "cgs-claude/claude-haiku-5-5:auto" } },
 };
 
-for (const preset of Object.keys(EXPECTED)) {
-  test(`preset ${preset}: writes the table's keys, includes web search role, and records appliedPreset`, async () => {
-    const dir = tmpDir();
-    await cw.applyPreset(dir, preset);
-    const cfg = parsed(dir);
-    assert.deepEqual(cfg, EXPECTED[preset]);
-    assert.equal(cfg.modelRoles.web, WEB);
-    assert.equal((await readState(dir)).appliedPreset, preset);
-  });
-}
-
-test("free preset has web role but no subagent roles or overrides", async () => {
+test("default roles: the documented mapping is written and recorded as applied", async () => {
   const dir = tmpDir();
-  await cw.applyPreset(dir, "free");
-  const cfg = parsed(dir);
-  assert.equal(cfg.task, undefined);
-  assert.deepEqual(Object.keys(cfg.modelRoles).sort(), ["default", "web"]);
+  await cw.applyDefaultRoles(dir);
+  assert.deepEqual(parsed(dir), EXPECTED_DEFAULTS);
+  assert.equal((await readState(dir)).defaultsApplied, true);
 });
 
-test("web fallback chain replaces a stale web chain and keeps other retry settings and chains", async () => {
+test("default roles replace a stale web chain and keep other retry settings and chains", async () => {
   const dir = tmpDir();
   fs.writeFileSync(
     path.join(dir, "config.yml"),
     ["retry:", "  maxRetries: 7", "  fallbackChains:", "    web: [anthropic/claude-haiku-4-5]", "    default: [a/b]", ""].join("\n"),
   );
-  await cw.applyPreset(dir, "go");
+  await cw.applyDefaultRoles(dir);
   const cfg = parsed(dir);
   assert.deepEqual(cfg.retry.fallbackChains.web, [WEB]);
   assert.deepEqual(cfg.retry.fallbackChains.default, ["a/b"]);
   assert.equal(cfg.retry.maxRetries, 7);
 });
 
-test("preset switch removes stale CGS keys from the previous preset and prunes emptied maps", async () => {
-  const dir = tmpDir();
-  await cw.applyPreset(dir, "dedicated");
-  await cw.applyPreset(dir, "go");
-  assert.deepEqual(parsed(dir), EXPECTED.go); // smol + scout gone, no empty task:
-  await cw.applyPreset(dir, "free");
-  assert.deepEqual(parsed(dir), EXPECTED.free); // task gone, web stays
-  await cw.applyPreset(dir, "pro");
-  assert.deepEqual(parsed(dir), EXPECTED.pro);
-  assert.equal((await readState(dir)).appliedPreset, "pro");
-});
-
-test("unrelated keys and comments survive; stale CGS keys are removed; sibling keys of pruned maps stay", async () => {
+test("unrelated keys and comments survive applying the default roles", async () => {
   const dir = tmpDir();
   fs.writeFileSync(
     path.join(dir, "config.yml"),
@@ -124,30 +75,28 @@ test("unrelated keys and comments survive; stale CGS keys are removed; sibling k
       "modelRoles:",
       "  plan: anthropic/claude-opus-5-5:xhigh # keep me",
       "  web: old/web-model",
-      "  smol: old/smol-model",
       "task:",
       "  enableLsp: true",
       "  agentModelOverrides:",
-      "    reviewer: x/y # keep reviewer",
+      "    explore: x/y # keep explore",
       "    scout: old/scout",
       "# trailing comment",
       "",
     ].join("\n"),
   );
-  await cw.applyPreset(dir, "pro");
+  await cw.applyDefaultRoles(dir);
   const text = read(dir);
   assert.match(text, /# my personal omp config/);
   assert.match(text, /dark: titanium # favourite/);
   assert.match(text, /plan: anthropic\/claude-opus-5-5:xhigh # keep me/);
-  assert.match(text, /reviewer: x\/y # keep reviewer/);
+  assert.match(text, /explore: x\/y # keep explore/);
   assert.match(text, /# trailing comment/);
   const cfg = YAML.parse(text);
   assert.equal(cfg.modelRoles.web, WEB);
-  assert.equal(cfg.modelRoles.smol, undefined);
-  assert.equal(cfg.task.agentModelOverrides.scout, undefined);
-  assert.equal(cfg.task.agentModelOverrides.reviewer, "x/y");
+  assert.equal(cfg.task.agentModelOverrides.scout, "cgs-claude/claude-haiku-5-5:auto");
+  assert.equal(cfg.task.agentModelOverrides.reviewer, "cgs-codex/gpt-6-astra:auto");
+  assert.equal(cfg.task.agentModelOverrides.explore, "x/y");
   assert.equal(cfg.task.enableLsp, true);
-  assert.equal(cfg.modelRoles.default, "cgs-anthropic/claude-sonnet-5-5:auto");
   assert.equal(cfg.modelRoles.plan, "anthropic/claude-opus-5-5:xhigh");
   assert.equal(cfg.theme.dark, "titanium");
 });
@@ -155,7 +104,7 @@ test("unrelated keys and comments survive; stale CGS keys are removed; sibling k
 test("invalid YAML is never overwritten", async () => {
   const dir = tmpDir();
   fs.writeFileSync(path.join(dir, "config.yml"), "a: [unterminated\n");
-  await assert.rejects(cw.applyPreset(dir, "free"), /not valid YAML/);
+  await assert.rejects(cw.applyDefaultRoles(dir), /not valid YAML/);
   assert.equal(read(dir), "a: [unterminated\n");
 });
 
@@ -167,6 +116,7 @@ test("prepareAgentDir writes defaults only if absent and leaves user values alon
     lsp: { enabled: true },
     task: { enableLsp: true },
     defaultThinkingLevel: "auto",
+    edit: { modelVariants: { claude: "replace", gpt: "apply_patch" } },
   });
 
   fs.writeFileSync(
@@ -180,6 +130,7 @@ test("prepareAgentDir writes defaults only if absent and leaves user values alon
     defaultThinkingLevel: "high",
     computer: { enabled: false },
     lsp: { other: 1, enabled: true },
+    edit: { modelVariants: { claude: "replace", gpt: "apply_patch" } },
     task: { enableLsp: true },
   });
 });
@@ -217,42 +168,31 @@ test("the real bundled plugin installs with its manifest", async () => {
   assert.ok(fs.existsSync(path.join(agent, "extensions", "cgs", "index.js")));
 });
 
-test("credentials.json is written 0600 and getLoginState reads it", async () => {
+test("credentials.json is written 0600 and getLoginState reads it; a pre-client apiKey record is signed out", async () => {
   const dir = tmpDir();
   assert.deepEqual(await cgs.getLoginState(dir), { signedIn: false, tier: null, username: null });
-  await cw.writeCredentials(dir, { baseUrl: "https://x", apiKey: "sk-test", tier: "go", username: "bob", models: ["a"] });
+  await cw.writeCredentials(dir, { baseUrl: "https://x", clientSecret: "cgc_test", tier: "go", username: "bob", models: ["a"] });
   const file = path.join(dir, "cgs", "credentials.json");
   if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   const rec = JSON.parse(fs.readFileSync(file, "utf8"));
-  assert.deepEqual(Object.keys(rec).sort(), ["apiKey", "baseUrl", "linkedAt", "models", "tier", "username"]);
+  assert.deepEqual(Object.keys(rec).sort(), ["baseUrl", "clientSecret", "linkedAt", "models", "tier", "username"]);
   assert.ok(!Number.isNaN(Date.parse(rec.linkedAt)));
   assert.deepEqual(await cgs.getLoginState(dir), { signedIn: true, tier: "go", username: "bob" });
 
   fs.writeFileSync(file, "{not json");
   assert.deepEqual(await cgs.getLoginState(dir), { signedIn: false, tier: null, username: null });
-  fs.writeFileSync(file, JSON.stringify({ baseUrl: "https://x", apiKey: "" }));
+  fs.writeFileSync(file, JSON.stringify({ baseUrl: "https://x", clientSecret: "" }));
   assert.equal((await cgs.getLoginState(dir)).signedIn, false);
+  fs.writeFileSync(file, JSON.stringify({ baseUrl: "https://x", apiKey: `sk-${"a".repeat(48)}`, models: [] }));
+  assert.equal((await cgs.getLoginState(dir)).signedIn, false);
+  assert.equal(await cw.readCredentials(dir), null);
 });
 
-test("decideBubble: only shows when signed in and tier differs from both appliedPreset and dismissedTier", () => {
-  assert.equal(decideBubble({ signedIn: false, tier: "pro", appliedPreset: "free", dismissedTier: null }), null);
-  assert.equal(decideBubble({ signedIn: true, tier: "pro", appliedPreset: "pro", dismissedTier: null }), null);
-  assert.equal(decideBubble({ signedIn: true, tier: "pro", appliedPreset: "free", dismissedTier: "pro" }), null);
-  assert.deepEqual(decideBubble({ signedIn: true, tier: "pro", appliedPreset: "free", dismissedTier: null }), {
-    tier: "pro",
-    name: "Pro",
-  });
-  // Dismissing "go" must still notify when the user later upgrades to "dedicated".
-  assert.deepEqual(decideBubble({ signedIn: true, tier: "dedicated", appliedPreset: "free", dismissedTier: "go" }), {
-    tier: "dedicated",
-    name: "独享",
-  });
-});
-
-test("first login applies the matching preset; later logins and tier polls never auto-rewrite config.yml", async () => {
+test("first login applies the default roles; later logins and tier polls never rewrite config.yml", async () => {
   let currentTier = "free";
   let currentModels = ["deepseek-v4.1-flash"];
   let tierStatus = 200;
+  let seen = null;
   const srv = http.createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");
     if (req.url === "/v1/models") {
@@ -260,6 +200,7 @@ test("first login applies the matching preset; later logins and tier polls never
       return;
     }
     if (req.url === "/api/device/tier") {
+      seen = { auth: req.headers.authorization, os: req.headers["x-client-os"], version: req.headers["x-client-version"] };
       res.statusCode = tierStatus;
       res.end(
         JSON.stringify(
@@ -278,52 +219,40 @@ test("first login applies the matching preset; later logins and tier polls never
   const dir = tmpDir();
 
   try {
-    // 1. First-ever login in this agentDir (tier=free) → applies free preset.
-    await cw.completeLogin({ agentDir: dir, baseUrl, apiKey: "sk-1", tier: "free", username: "alice" });
-    assert.deepEqual(parsed(dir), EXPECTED.free);
-    assert.deepEqual(await readState(dir), { appliedPreset: "free", lastKnownTier: "free", dismissedTier: null });
+    // 1. First-ever login in this agentDir → default roles written.
+    await cw.completeLogin({ agentDir: dir, baseUrl, clientSecret: "cgc_1", tier: "free", username: "alice" });
+    assert.deepEqual(parsed(dir), EXPECTED_DEFAULTS);
+    assert.deepEqual(await readState(dir), { defaultsApplied: true, lastKnownTier: "free" });
 
-    // 2. Re-login after upgrading to pro → credentials + lastKnownTier update, but config.yml stays on free!
+    // 2. The user changes the main agent; a re-login after upgrading to pro updates credentials and the tier only.
+    const cfg = parsed(dir);
+    cfg.modelRoles.default = "cgs-claude/claude-opus-5-5:auto";
+    fs.writeFileSync(path.join(dir, "config.yml"), YAML.stringify(cfg));
     currentTier = "pro";
     currentModels = ["claude-sonnet-5-5", "gemini-4-argon"];
-    await cw.completeLogin({ agentDir: dir, baseUrl, apiKey: "sk-2", tier: "pro", username: "alice" });
-    assert.deepEqual(parsed(dir), EXPECTED.free);
-    assert.deepEqual(await readState(dir), { appliedPreset: "free", lastKnownTier: "pro", dismissedTier: null });
+    await cw.completeLogin({ agentDir: dir, baseUrl, clientSecret: "cgc_2", tier: "pro", username: "alice" });
+    assert.equal(parsed(dir).modelRoles.default, "cgs-claude/claude-opus-5-5:auto");
+    assert.deepEqual(await readState(dir), { defaultsApplied: true, lastKnownTier: "pro" });
 
-    // 3. Controller sees tier=pro vs appliedPreset=free → bubble recommends Pro.
-    const ctl = new CgsController({ agentDir: dir, intervalMs: 60_000 });
-    let snap = await ctl.snapshot();
-    assert.deepEqual(snap.bubble, { tier: "pro", name: "Pro" });
-
-    // 4. User clicks 保持当前 → dismissedTier="pro", bubble gone, config.yml untouched.
-    snap = await ctl.dismissBubble();
-    assert.equal(snap.bubble, null);
-    assert.equal((await readState(dir)).dismissedTier, "pro");
-    assert.deepEqual(parsed(dir), EXPECTED.free);
-
-    // 5. Server upgrades user to dedicated; next tier poll refreshes credentials + models and shows 独享 bubble.
+    // 3. A tier poll refreshes credentials + models, reports OS/app version, and leaves config.yml alone.
     currentTier = "dedicated";
     currentModels = ["claude-opus-5-5", "claude-sonnet-5-5", "deepseek-v4.1-flash", "gemini-3.8-flash"];
+    const ctl = new CgsController({ agentDir: dir, intervalMs: 60_000 });
     await ctl.refresh();
-    snap = await ctl.snapshot();
-    assert.deepEqual(snap.bubble, { tier: "dedicated", name: "独享" });
     const creds = JSON.parse(fs.readFileSync(path.join(dir, "cgs", "credentials.json"), "utf8"));
     assert.equal(creds.tier, "dedicated");
+    assert.equal(creds.clientSecret, "cgc_2");
     assert.ok(creds.models.includes("claude-opus-5-5"));
-    assert.deepEqual(parsed(dir), EXPECTED.free); // still untouched until user clicks 切换
+    assert.equal(seen.auth, "Bearer cgc_2");
+    assert.equal(seen.os, require("../src/cgs/client-info").osVersion());
+    assert.equal(seen.version, require("../package.json").version);
+    assert.equal(parsed(dir).modelRoles.default, "cgs-claude/claude-opus-5-5:auto");
+    assert.deepEqual((await ctl.snapshot()).tier, "dedicated");
 
-    // 6. User clicks 切换 → dedicated preset applied, bubble cleared.
-    snap = await ctl.applyPreset("dedicated");
-    assert.equal(snap.bubble, null);
-    assert.equal(snap.appliedPreset, "dedicated");
-    assert.deepEqual(parsed(dir), EXPECTED.dedicated);
-
-    // 7. 401 on tier poll → treated as signed out, no bubble.
+    // 4. 401 on tier poll → treated as signed out.
     tierStatus = 401;
     await ctl.refresh();
-    snap = await ctl.snapshot();
-    assert.equal(snap.signedIn, false);
-    assert.equal(snap.bubble, null);
+    assert.equal((await ctl.snapshot()).signedIn, false);
     ctl.stop();
   } finally {
     await new Promise(r => srv.close(r));
@@ -359,7 +288,7 @@ test("startup popup decision: shows only when neither CGS nor any third-party cr
   const cgsDir = tmpDir();
   await cw.writeCredentials(cgsDir, {
     baseUrl: "https://api.cicori.com",
-    apiKey: "sk-cgs",
+    clientSecret: "cgc_cgs",
     tier: "free",
     username: "u",
     models: ["deepseek-v4.1-flash"],
