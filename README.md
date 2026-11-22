@@ -29,7 +29,7 @@ On Linux/WSL, if Electron aborts with a `chrome-sandbox` error, run `npm start -
   `scripts/ompweb-compile.ts`. Skips the rebuild when `manifest.json`'s `ompweb.commit` matches `HEAD` and the binary is
   present.
 - `chromium`: omp's browser tool drives Chromium through **puppeteer-core** (not Playwright) and, absent
-  `PUPPETEER_EXECUTABLE_PATH` and a system Chrome, downloads Chrome for Testing into `~/.omp/puppeteer` on first use
+  `PUPPETEER_EXECUTABLE_PATH` and a system Chrome, downloads Chrome for Testing into `<config root>/puppeteer` on first use
   (~190 MB). `scripts/fetch-chromium.mjs` pre-fetches that exact build: the build id is read from the
   `PUPPETEER_REVISIONS` table embedded in the downloaded `omp` binary (so it always matches the bundled omp release;
   currently 150.0.7871.24 for omp v18.16.0 / puppeteer-core 25.3.0), the zip comes from the official
@@ -75,9 +75,11 @@ npm run dist:linux    # fetches linux-x64 upstreams, then builds dist/CGS-Deskto
 
 Same layout as Windows (`vendor/linux-x64/*` → `resources/*`, per-platform `extraResources` in package.json). The app runs
 omp in an environment of its own, never the user's: it starts the bundled `resources/omp/omp` (put first on PATH and passed
-as `OMP_WEB_OMP_BIN`), keeps the agent directory under userData (`~/.config/CGS Desktop/omp/agent`), drops every inherited
-`PI_*` / `OMP_*` variable and the AppImage launcher's own, and points `XDG_DATA_HOME` at an empty directory next to it so a
-locally installed omp's XDG data is never picked up (`buildEnv` in `src/main/services.js`). On a system without FUSE run
+as `OMP_WEB_OMP_BIN`), uses its own config root `~/.cgs-desktop` (`PI_CONFIG_DIR`; a local omp or pi keeps `~/.omp`) with the
+agent directory under userData (`~/.config/CGS Desktop/omp/agent`), drops every inherited `PI_*` / `OMP_*` variable and the
+AppImage launcher's own, and points `XDG_DATA_HOME` at an empty directory next to it so a locally installed omp's XDG data is
+never picked up (`buildEnv` in `src/main/services.js`). One thing stays shared: omp keeps a per-version native-addon cache in
+`~/.omp/natives/<version>` regardless of `PI_CONFIG_DIR`. On a system without FUSE run
 the AppImage with `--appimage-extract-and-run`; add `--no-sandbox` where Electron's sandbox is unavailable.
 
 

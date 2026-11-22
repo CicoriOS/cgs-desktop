@@ -86,11 +86,15 @@ async function choosePort(file, preferred = DEFAULT_PORT) {
 // Variables of an omp / ompweb the user may have configured for their own installation, and the AppImage launcher's.
 const FOREIGN_ENV = /^(PI_|OMP_|APPDIR$|APPIMAGE$|ARGV0$|OWD$)/i;
 
+// omp's config root is `~/<PI_CONFIG_DIR>` (default `.omp`, shared with a locally installed omp or pi). The desktop has its own.
+const CONFIG_DIR_NAME = ".cgs-desktop";
+
 /**
  * The environment of ompweb and every omp it starts. They run in an environment of their own: the bundled omp comes
- * first on PATH (and ompweb is told its path), the agent directory is under userData, and no omp / ompweb settings are
- * inherited from the shell. On Linux XDG_DATA_HOME points to an empty directory, so omp never opts into the XDG layout of
- * a locally installed omp. Other PATH entries stay: the agent needs the user's git, compilers and so on.
+ * first on PATH (and ompweb is told its path), the config root is `~/.cgs-desktop` instead of `~/.omp`, the agent
+ * directory is under userData, and no omp / ompweb settings are inherited from the shell. On Linux XDG_DATA_HOME points
+ * to an empty directory, so omp never opts into the XDG layout of a locally installed omp. Other PATH entries stay: the
+ * agent needs the user's git, compilers and so on.
  */
 function buildEnv({ agentDir, ompBin, chromeBin, baseEnv = process.env, platform = process.platform }) {
   const env = {};
@@ -99,10 +103,11 @@ function buildEnv({ agentDir, ompBin, chromeBin, baseEnv = process.env, platform
   const ompDir = path.dirname(ompBin);
   env[pathKey] = [ompDir, ...(env[pathKey] || "").split(path.delimiter).filter((dir) => dir && dir !== ompDir)].join(path.delimiter);
   if (platform === "linux") env.XDG_DATA_HOME = path.join(path.dirname(agentDir), "xdg-data");
+  env.PI_CONFIG_DIR = CONFIG_DIR_NAME;
   env.PI_CODING_AGENT_DIR = agentDir;
   env.OMP_WEB_OMP_BIN = ompBin;
   // omp's browser tool drives Chromium via puppeteer-core. PUPPETEER_EXECUTABLE_PATH takes precedence over everything
-  // (system Chrome/Edge lookup, the ~/.omp/puppeteer Chrome-for-Testing download), so the bundled build is the only
+  // (system Chrome/Edge lookup, the ~/.cgs-desktop/puppeteer Chrome-for-Testing download), so the bundled build is the only
   // browser omp launches. Its headless profile is an omp-owned temp dir, never a system browser profile.
   env.PUPPETEER_EXECUTABLE_PATH = chromeBin;
   return env;

@@ -31,6 +31,11 @@ test("buildEnv points omp at the bundled binary and agent dir and drops inherite
   assert.equal(env.HOME, "/home/u");
 });
 
+test("buildEnv gives omp its own config root whatever the shell configured", () => {
+  assert.equal(buildEnv(input).PI_CONFIG_DIR, ".cgs-desktop");
+  assert.equal(buildEnv({ ...input, baseEnv: { ...BASE, PI_CONFIG_DIR: ".pi" } }).PI_CONFIG_DIR, ".cgs-desktop");
+});
+
 test("buildEnv puts the bundled omp first on PATH once and keeps the user's other entries", () => {
   const entries = buildEnv(input).PATH.split(path.delimiter);
   assert.deepEqual(entries, ["/opt/cgs/resources/omp", "/home/u/.local/bin", "/usr/bin"]);

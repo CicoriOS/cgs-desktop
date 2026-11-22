@@ -67,7 +67,7 @@ export function resolveAgentDir(env = process.env, home = os.homedir()) {
 		if (v.startsWith("~/") || v.startsWith("~\\")) return path.join(home, v.slice(2));
 		return path.resolve(v);
 	}
-	return path.join(home, ".omp", "agent");
+	return path.join(home, (env.PI_CONFIG_DIR || "").trim() || ".omp", "agent");
 }
 
 export function readCredentials(agentDir) {
