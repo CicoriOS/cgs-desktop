@@ -10,8 +10,9 @@ const path = require("node:path");
 const { agentSocketPath, startAgent } = require("../src/cgs/agent");
 const { requestJson, routeThroughAgent } = require("../src/cgs/http");
 
-const binary = path.join(__dirname, "..", "vendor", "linux-x64", "cgs-agent", "cgs-agent");
-const skip = process.platform !== "linux" || !fs.existsSync(binary) ? "needs vendor/linux-x64/cgs-agent" : false;
+const target = { linux: "linux-x64", win32: "win-x64" }[process.platform];
+const binary = target && path.join(__dirname, "..", "vendor", target, "cgs-agent", process.platform === "win32" ? "cgs-agent.exe" : "cgs-agent");
+const skip = !binary || !fs.existsSync(binary) ? "needs vendor/<target>/cgs-agent (npm run fetch*)" : false;
 
 test("requests for the CGS origin reach the server through the agent's socket, others do not", { skip }, async (t) => {
   const seen = [];
