@@ -5,8 +5,9 @@
 //                   the `--headless` channel ompweb talks to, so they cannot be used.
 //   chromium/...    Chrome for Testing build pinned by that omp release (scripts/fetch-chromium.mjs), so omp's browser tool needs no first-use download
 //   ompweb/...      built from source: newest kahme247/ompweb default-branch commit (scripts/build-ompweb.mjs)
-//   manifest.json   { omp: { tag, ... }, chromium: { buildId, ... }, ompweb: { commit, builtAt } }
-// Requires git, bun, node/npm. Usage: node scripts/fetch-upstream.mjs [--target win-x64|linux-x64]
+//   cgs-agent/...   the CGS agent, built with Go from the local new-api checkout (scripts/build-agent.mjs)
+//   manifest.json   { omp: { tag, ... }, chromium: { buildId, ... }, ompweb: { commit, builtAt }, agent: { commit, builtAt } }
+// Requires git, bun, go, node/npm. Usage: node scripts/fetch-upstream.mjs [--target win-x64|linux-x64]
 import { createHash } from "node:crypto";
 import http from "node:http";
 import { existsSync } from "node:fs";
@@ -14,6 +15,7 @@ import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildOmpweb } from "./build-ompweb.mjs";
+import { buildAgent } from "./build-agent.mjs";
 import { fetchChromium } from "./fetch-chromium.mjs";
 
 if (process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy) {
@@ -164,6 +166,9 @@ async function main() {
     manifest.chromium = chromium;
     await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
   }
+
+  manifest.agent = await buildAgent({ target, outDir: path.join(vendor, "cgs-agent") });
+  await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
 
   console.log(`vendor/${target} ready: omp ${manifest.omp.tag}, chromium ${manifest.chromium.buildId}, ompweb ${manifest.ompweb.commit.slice(0, 10)}`);
 }

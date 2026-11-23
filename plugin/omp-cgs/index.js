@@ -334,10 +334,36 @@ export async function fetchPricing({ baseUrl: root, clientSecret }, doFetch = fe
 	}
 }
 
+/** Environment variable naming the CGS agent's socket (named pipe on Windows); set by CGS Desktop. */
+export const AGENT_SOCKET_ENV = "CGS_AGENT_SOCKET";
+
+/**
+ * Wraps `fetchImpl` so that requests to `origin()` (the current credentials' server) go to the CGS agent over
+ * `socketPath` as plain HTTP (Bun's `unix` fetch option); the agent forwards them directly or through the relay tunnel.
+ * Every other request is untouched.
+ */
+export function agentFetch(fetchImpl, socketPath, origin) {
+	return function cgsAgentFetch(input, init) {
+		const request = input instanceof Request ? input : null;
+		let url;
+		try {
+			url = new URL(request ? request.url : String(input));
+		} catch {
+			return fetchImpl(input, init);
+		}
+		if (url.origin !== origin()) return fetchImpl(input, init);
+		const local = `http://${url.host}${url.pathname}${url.search}`;
+		const next = request ? new Request(local, request) : local;
+		return fetchImpl(next, { ...init, unix: socketPath });
+	};
+}
+
 export default async function cgsExtension(pi) {
 	const agentDir = resolveAgentDir();
 	let credentials = readCredentials(agentDir);
 	if (!credentials) return;
+	const socketPath = process.env[AGENT_SOCKET_ENV];
+	if (socketPath) globalThis.fetch = agentFetch(globalThis.fetch, socketPath, () => new URL(credentials.baseUrl).origin);
 	applyCredentialEnv(credentials);
 	watchCredentials(agentDir, next => {
 		credentials = next;

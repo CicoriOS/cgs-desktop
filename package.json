@@ -84,6 +84,10 @@
         {
           "from": "vendor/win-x64/chromium",
           "to": "chromium"
+        },
+        {
+          "from": "vendor/win-x64/cgs-agent",
+          "to": "cgs-agent"
         }
       ]
     },
@@ -113,6 +117,10 @@
         {
           "from": "vendor/linux-x64/chromium",
           "to": "chromium"
+        },
+        {
+          "from": "vendor/linux-x64/cgs-agent",
+          "to": "cgs-agent"
         }
       ]
     },

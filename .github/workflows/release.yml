@@ -6,6 +6,12 @@ name: Release
 on:
   push:
     tags: ["v*.*.*"]
+  # Manual runs build and upload the artifacts without publishing a release.
+  workflow_dispatch:
+    inputs:
+      newapi_ref:
+        description: CicoriOS/newapi branch, tag or commit to build cgs-agent from
+        default: main
 
 permissions:
   contents: write
@@ -35,16 +41,31 @@ jobs:
           node-version: 24
           cache: npm
       - name: Tag matches package.json version
+        if: github.ref_type == 'tag'
         shell: bash
         run: |
           version=$(node -p 'require("./package.json").version')
           [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != package.json v$version"; exit 1; }
+      # cgs-agent is built from new-api's tunnelkit (scripts/build-agent.mjs); NEWAPI_TOKEN is a GitHub token that can
+      # read the private CicoriOS/newapi. The agent embeds the production root keys, so it must match the deployed server.
+      - uses: actions/checkout@v4
+        with:
+          repository: CicoriOS/newapi
+          token: ${{ secrets.NEWAPI_TOKEN }}
+          ref: ${{ inputs.newapi_ref || 'main' }}
+          persist-credentials: false
+          path: new-api
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: new-api/tunnelkit/go.mod
+          cache: false
       - run: npm ci
       - run: npm test
-      - name: Build (fetch ompweb, omp runner, Chromium; package)
+      - name: Build (fetch ompweb, omp runner, Chromium, cgs-agent; package)
         run: npm run ${{ matrix.dist }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CGS_NEWAPI_DIR: ${{ github.workspace }}/new-api
       - uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.os }}
@@ -54,6 +75,7 @@ jobs:
 
   publish:
     needs: build
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

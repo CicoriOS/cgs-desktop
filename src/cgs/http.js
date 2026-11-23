@@ -88,6 +88,14 @@ function connectTunnel(proxy, target, signal) {
   });
 }
 
+/** Requests to `origin` go to the CGS agent's socket instead of the network (see agent.js); null until it runs. */
+let agentRoute = null;
+
+/** `{ origin, socketPath }` routes that origin through the agent; null stops routing. */
+function routeThroughAgent(route) {
+  agentRoute = route;
+}
+
 /**
  * requestJson({ method, url, headers, body, signal, timeoutMs, env })
  * → { status, text, json }  (json is null when the body is not JSON).
@@ -113,11 +121,17 @@ async function requestJson({ method = "GET", url, headers = {}, body, signal, ti
   }, timeoutMs);
 
   try {
-    const proxy = proxyFor(target, env);
+    const viaAgent = agentRoute !== null && target.origin === agentRoute.origin;
+    const proxy = viaAgent ? null : proxyFor(target, env);
     const isHttps = target.protocol === "https:";
     const options = { method, headers: reqHeaders, signal: controller.signal };
     let mod = isHttps ? https : http;
-    if (!proxy) {
+    if (viaAgent) {
+      // The agent owns the connection to the server (direct or relay, proxies included); this is plain HTTP over IPC.
+      mod = http;
+      Object.assign(options, { socketPath: agentRoute.socketPath, path: target.pathname + target.search });
+      reqHeaders.Host = target.host;
+    } else if (!proxy) {
       Object.assign(options, { hostname: target.hostname, port: target.port || undefined, path: target.pathname + target.search });
     } else if (isHttps) {
       const socket = await connectTunnel(proxy, target, controller.signal);
@@ -167,4 +181,4 @@ async function requestJson({ method = "GET", url, headers = {}, body, signal, ti
   }
 }
 
-module.exports = { requestJson, proxyFor, HttpError };
+module.exports = { requestJson, proxyFor, routeThroughAgent, HttpError };
