@@ -43,7 +43,7 @@ On Linux/WSL, if Electron aborts with a `chrome-sandbox` error, run `npm start -
 - `cgs-agent`: `scripts/build-agent.mjs` runs `go build ./cmd/cgs-agent` in new-api's `tunnelkit` module
   (`$CGS_NEWAPI_DIR`, default `../new-api`) for the target and writes `vendor/<target>/cgs-agent/`. The agent embeds the
   production tunnel root keys, so build it from the new-api revision the server runs. The release workflow checks out
-  `CicoriOS/newapi` with the `NEWAPI_DEPLOY_KEY` secret (read-only deploy key).
+  `CicoriOS/newapi` with the `NEWAPI_TOKEN` secret (a GitHub token that can read that private repository; the organization disables deploy keys).
 
 Set `GITHUB_TOKEN` to avoid API rate limits; `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` are honoured by both the API downloader
 and `git`/`npm`/`bun`. The downloader uses Node's built-in proxy support: Node >= 24.5, or an older Node 24 started with
