@@ -8,6 +8,10 @@ on:
     tags: ["v*.*.*"]
   # Manual runs build and upload the artifacts without publishing a release.
   workflow_dispatch:
+    inputs:
+      newapi_ref:
+        description: CicoriOS/newapi branch, tag or commit to build cgs-agent from
+        default: main
 
 permissions:
   contents: write
@@ -48,6 +52,7 @@ jobs:
         with:
           repository: CicoriOS/newapi
           token: ${{ secrets.NEWAPI_TOKEN }}
+          ref: ${{ inputs.newapi_ref || 'main' }}
           persist-credentials: false
           path: new-api
       - uses: actions/setup-go@v5
