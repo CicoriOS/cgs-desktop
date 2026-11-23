@@ -7,12 +7,12 @@ omp runner is downloaded from the fork release that commit pins.
 
 ## Development
 
-Requires Node 24+ (with `npm`), `git` and `bun` (`npm ci` inside the `ompweb` checkout also installs the Bun version
+Requires Node 24+ (with `npm`), `git`, `go` (for `cgs-agent`) and `bun` (`npm ci` inside the `ompweb` checkout also installs the Bun version
 `ompweb` pins).
 
 ```sh
 npm install
-npm run fetch:linux   # prepares vendor/linux-x64/{omp,chromium,ompweb}; use `npm run fetch` on Windows
+npm run fetch:linux   # prepares vendor/linux-x64/{omp,chromium,ompweb,cgs-agent}; use `npm run fetch` on Windows
 npm start
 npm test
 ```
@@ -39,6 +39,11 @@ On Linux/WSL, if Electron aborts with a `chrome-sandbox` error, run `npm start -
   extracted (own zip reader, CRC-checked) to `vendor/<target>/chromium/chrome-win64/chrome.exe` (linux:
   `chrome-linux64/chrome`). `chromium/.build-id` is the completion marker and `manifest.json` records
   `chromium.{buildId,platform,url}`; an up-to-date install is skipped. `scripts/fetch-chromium.mjs --target <t>` runs it alone.
+
+- `cgs-agent`: `scripts/build-agent.mjs` runs `go build ./cmd/cgs-agent` in new-api's `tunnelkit` module
+  (`$CGS_NEWAPI_DIR`, default `../new-api`) for the target and writes `vendor/<target>/cgs-agent/`. The agent embeds the
+  production tunnel root keys, so build it from the new-api revision the server runs. The release workflow checks out
+  `CicoriOS/newapi` with the `NEWAPI_DEPLOY_KEY` secret (read-only deploy key).
 
 Set `GITHUB_TOKEN` to avoid API rate limits; `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` are honoured by both the API downloader
 and `git`/`npm`/`bun`. The downloader uses Node's built-in proxy support: Node >= 24.5, or an older Node 24 started with
@@ -102,6 +107,16 @@ the AppImage with `--appimage-extract-and-run`; add `--no-sandbox` where Electro
   closing the popup unsigned quits the app; it offers the browser-approved login and email registration, see "Email
   registration" below) → frameless main window (loading screen first) on `http://127.0.0.1:<port>/`. External links
   open in the system browser. `nativeTheme.themeSource = "system"`, so Chromium's `prefers-color-scheme` follows the OS.
+- `src/cgs/agent.js` + `cgs-agent`: started before everything else; serves the CGS API on a Unix socket
+  (`$XDG_RUNTIME_DIR/cgs-desktop-<id>/agent.sock`, else `<userData>/run/agent.sock`; Windows: named pipe
+  `\\.\pipe\cgs-agent-<id>`), no TCP port. It forwards every request directly, and through the signed relay tunnel
+  (new-api `/api/tunnel/v1`, Noise over WebSocket, the endpoints and IP groups set in the console's 「桌面中继」) when
+  direct fails; restarted when it exits. Users of the socket: this process (`routeThroughAgent` in `src/cgs/http.js`),
+  omp (the plugin wraps `fetch` for the CGS origin when `CGS_AGENT_SOCKET` is set; `PI_CODEX_WEBSOCKET=0` keeps Codex on
+  HTTP) and the console window (`src/main/console-window.js`: its session's `https` handler sends the CGS origin to the
+  socket, so 「打开 CGS 后台」 opens in-app). After each good tier check the controller fetches `GET /api/device/tunnel`
+  and hands the signed bundle to the agent (`src/cgs/tunnel.js`); the agent verifies it. In relay mode the sidebar usage
+  row shows **Relay enabled** (hover: endpoint). Log: `<userData>/logs/cgs-agent.log`.
 - `src/main/services.js`: spawns `ompweb --no-open -H 127.0.0.1 -p <port>`, waits for `Ready on`, then `ompweb host`. The port is
   **stable**: ompweb's localStorage/cookies are per origin, so a random port per launch would reset every UI preference.
   The first launch takes 39177 (a random free port when that is taken) and stores it in `<userData>/ompweb-port.json`; later

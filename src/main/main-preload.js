@@ -239,6 +239,13 @@ const bridge = {
     ipcRenderer.on("cgs:usage", listener);
     return () => ipcRenderer.removeListener("cgs:usage", listener);
   },
+  /** `{ mode: "direct" | "relay", endpoint?, tunnel_configured, version }` of the CGS agent, or null before it reports. */
+  getNetwork: () => ipcRenderer.invoke("cgs:get-network"),
+  onNetwork: (callback) => {
+    const listener = (_event, status) => callback(status);
+    ipcRenderer.on("cgs:network", listener);
+    return () => ipcRenderer.removeListener("cgs:network", listener);
+  },
   onState: (callback) => {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on("cgs:state", listener);
@@ -417,6 +424,14 @@ img.cgs-brand-logo { display: block; flex-shrink: 0; }
   font-size: 11px;
   line-height: 1.35;
   -webkit-app-region: no-drag;
+}
+.cgs-ur-relay {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(214, 140, 40, 0.18);
+  color: #d68c28;
+  font-weight: 600;
+  white-space: nowrap;
 }
 .cgs-ur-head, .cgs-ur-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .cgs-ur-line { justify-content: space-between; gap: 8px; }
@@ -976,7 +991,7 @@ function renderUsageRow(row) {
   const snap = usageState;
   const usage = snap.usage;
   const sig = JSON.stringify([usage, snap.stale, usageRefreshing, minuteBucket(), locale()]);
-  sync(row, sig, () => {
+  sync(row, sig + (networkRelay ? "|relay" : ""), () => {
     const sub = usage.subscriptions[0] || null;
     const percent = sub && !sub.unlimited ? percentOf(sub.amountUsed, sub.amountTotal) : 0;
     const limits = sub ? limitsOf(sub).filter((l) => l.limit > 0) : [];
@@ -988,6 +1003,11 @@ function renderUsageRow(row) {
       const dot = el("span", "cgs-stale-dot");
       dot.title = staleHint();
       head.append(dot);
+    }
+    if (networkRelay) {
+      const relay = el("span", "cgs-ur-relay", "Relay enabled");
+      relay.title = networkRelay;
+      head.append(relay);
     }
     head.append(buildRefreshButton());
     const children = [head];
@@ -1992,6 +2012,13 @@ bridge.onState((state) => {
   cgsState = state;
   renderCgsUi();
 });
+/** The relay endpoint in use ("label@ip"), or null while the agent reaches the server directly. */
+let networkRelay = null;
+function setNetwork(status) {
+  networkRelay = status && status.mode === "relay" ? status.endpoint || "relay" : null;
+  renderUsageUi();
+}
+bridge.onNetwork(setNetwork);
 bridge.onUsage((snap) => {
   usageState = snap;
   renderUsageUi();
@@ -2019,6 +2046,7 @@ window.addEventListener("DOMContentLoaded", () => {
       renderCgsUi();
     }
   });
+  bridge.getNetwork().then(setNetwork);
   bridge.getUsage().then((snap) => {
     if (snap) {
       usageState = snap;

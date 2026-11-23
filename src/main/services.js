@@ -27,12 +27,13 @@ function resolveBinaries({ isPackaged, resourcesPath, appRoot }) {
   const omp = path.join(base, "omp", `omp${exe}`);
   const ompweb = path.join(base, "ompweb", `ompweb${exe}`);
   const chrome = process.platform === "win32" ? path.join(base, "chromium", "chrome-win64", "chrome.exe") : path.join(base, "chromium", "chrome-linux64", "chrome");
-  for (const file of [omp, ompweb, chrome]) {
+  const agent = path.join(base, "cgs-agent", `cgs-agent${exe}`);
+  for (const file of [omp, ompweb, chrome, agent]) {
     if (!fs.existsSync(file)) {
       throw new Error(`Missing bundled binary: ${file}${isPackaged ? "" : "\nRun \"npm run fetch:linux\" (or \"npm run fetch\" on Windows) first."}`);
     }
   }
-  return { omp, ompweb, chrome };
+  return { omp, ompweb, chrome, agent };
 }
 
 function freeLoopbackPort() {
@@ -98,7 +99,7 @@ const CONFIG_DIR_NAME = ".cgs";
  * to an empty directory, so omp never opts into the XDG layout of a locally installed omp. Other PATH entries stay: the
  * agent needs the user's git, compilers and so on.
  */
-function buildEnv({ agentDir, ompBin, chromeBin, baseEnv = process.env, platform = process.platform, home = os.homedir() }) {
+function buildEnv({ agentDir, ompBin, chromeBin, agentSocket = null, baseEnv = process.env, platform = process.platform, home = os.homedir() }) {
   const env = {};
   for (const [key, value] of Object.entries(baseEnv)) if (!FOREIGN_ENV.test(key)) env[key] = value;
   const pathKey = Object.keys(env).find((k) => k.toUpperCase() === "PATH") || "PATH";
@@ -114,6 +115,12 @@ function buildEnv({ agentDir, ompBin, chromeBin, baseEnv = process.env, platform
   // (system Chrome/Edge lookup, the ~/.cgs/puppeteer Chrome-for-Testing download), so the bundled build is the only
   // browser omp launches. Its headless profile is an omp-owned temp dir, never a system browser profile.
   env.PUPPETEER_EXECUTABLE_PATH = chromeBin;
+  if (agentSocket) {
+    // The CGS plugin sends its server's requests to the agent (direct or relay). The Codex transport's WebSocket mode
+    // bypasses fetch, so it is turned off.
+    env.CGS_AGENT_SOCKET = agentSocket;
+    env.PI_CODEX_WEBSOCKET = "0";
+  }
   return env;
 }
 
@@ -135,10 +142,10 @@ function killTree(child) {
  * `ompweb host`. `onCrash(error)` is invoked once if either process dies while the services are meant to be running.
  * Returns { url, port, stop }.
  */
-async function startServices({ binaries, agentDir, logDir, portFile, onCrash }) {
+async function startServices({ binaries, agentDir, agentSocket, logDir, portFile, onCrash }) {
   fs.mkdirSync(logDir, { recursive: true });
   fs.mkdirSync(agentDir, { recursive: true });
-  const env = buildEnv({ agentDir, ompBin: binaries.omp, chromeBin: binaries.chrome });
+  const env = buildEnv({ agentDir, ompBin: binaries.omp, chromeBin: binaries.chrome, agentSocket });
   const cwd = path.dirname(binaries.ompweb);
   const port = await choosePort(portFile);
   const children = [];

@@ -39,12 +39,24 @@ jobs:
         run: |
           version=$(node -p 'require("./package.json").version')
           [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != package.json v$version"; exit 1; }
+      # cgs-agent is built from new-api's tunnelkit (scripts/build-agent.mjs); NEWAPI_DEPLOY_KEY is a read-only deploy key
+      # of CicoriOS/newapi. The agent embeds the production root keys, so it must match the deployed server.
+      - uses: actions/checkout@v4
+        with:
+          repository: CicoriOS/newapi
+          ssh-key: ${{ secrets.NEWAPI_DEPLOY_KEY }}
+          path: new-api
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: new-api/tunnelkit/go.mod
+          cache: false
       - run: npm ci
       - run: npm test
-      - name: Build (fetch ompweb, omp runner, Chromium; package)
+      - name: Build (fetch ompweb, omp runner, Chromium, cgs-agent; package)
         run: npm run ${{ matrix.dist }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CGS_NEWAPI_DIR: ${{ github.workspace }}/new-api
       - uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.os }}

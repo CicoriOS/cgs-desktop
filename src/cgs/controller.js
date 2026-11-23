@@ -9,14 +9,17 @@ const { getLoginState, readCredentials, signOutLocally, CGS_PROVIDERS } = requir
 const { revokeDeviceClient } = require("./account");
 const { refreshTier } = require("./tier");
 const { refreshUsage } = require("./usage");
+const { syncTunnel } = require("./tunnel");
 
 const POLL_INTERVAL_MS = 30 * 60 * 1000;
 const USAGE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 class CgsController extends EventEmitter {
   /** @param {{ agentDir: string, intervalMs?: number, usageIntervalMs?: number, refresh?: typeof refreshTier, fetchUsage?: typeof refreshUsage, revoke?: typeof revokeDeviceClient, pluginDir?: string | null }} options `pluginDir`: the bundled extension, used to count the models per provider. */
-  constructor({ agentDir, intervalMs = POLL_INTERVAL_MS, usageIntervalMs = USAGE_POLL_INTERVAL_MS, refresh = refreshTier, fetchUsage = refreshUsage, revoke = revokeDeviceClient, pluginDir = null }) {
+  constructor({ agentDir, intervalMs = POLL_INTERVAL_MS, usageIntervalMs = USAGE_POLL_INTERVAL_MS, refresh = refreshTier, fetchUsage = refreshUsage, revoke = revokeDeviceClient, pluginDir = null, agent = null, sync = syncTunnel }) {
     super();
+    this._agent = agent; // the CGS agent's control client: receives the signed tunnel configuration
+    this._sync = sync;
     this.agentDir = agentDir;
     this.intervalMs = intervalMs;
     this.usageIntervalMs = usageIntervalMs;
@@ -99,6 +102,7 @@ class CgsController extends EventEmitter {
         } else if (result.status === "ok") {
           this._revoked = false;
           this._schedule();
+          if (this._agent) await this._sync(this.agentDir, this._agent, { signal: this._abort.signal });
         }
       } catch {
         // detection is best effort: retry next tick

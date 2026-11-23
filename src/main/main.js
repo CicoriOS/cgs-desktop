@@ -27,6 +27,18 @@ let mainWindowCreated = false;
 let cgsController = null;
 /** @type {import("./updater").Updater | null} */
 let updater = null;
+/** @type {{ client: import("../cgs/agent").AgentClient, stop: () => void } | null} */
+let cgsAgent = null;
+let stopAgentWatch = null;
+/** Last agent status ({ mode: "direct" | "relay", endpoint?, ... }); the renderer shows "Relay enabled" in relay mode. */
+let networkStatus = null;
+
+function stopAgent() {
+  stopAgentWatch?.();
+  stopAgentWatch = null;
+  cgsAgent?.stop();
+  cgsAgent = null;
+}
 
 nativeTheme.themeSource = "system";
 
@@ -51,10 +63,12 @@ if (!app.requestSingleInstanceLock()) {
     cgsController?.stop();
     updater?.stop();
     if (services) services.stop();
+    stopAgent();
   });
   app.on("will-quit", () => {
     cgsController?.stop();
     if (services) services.stop();
+    stopAgent();
   });
   registerIpc();
   app.whenReady().then(start).catch(fatal);
@@ -65,6 +79,7 @@ function fatal(error) {
   quitting = true;
   cgsController?.stop();
   if (services) services.stop();
+  stopAgent();
   const message = error instanceof Error ? error.message : String(error);
   dialog.showErrorBox("CGS Desktop", message);
   app.exit(1);
@@ -81,10 +96,25 @@ async function start() {
   await prepareAgentDir(agentDir, { pluginSourceDir });
 
   const binaries = resolveBinaries({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appRoot: APP_ROOT });
+  // Every CGS request (this process, omp, the console window) goes through the agent: direct, or the relay tunnel.
+  const { agentSocketPath, startAgent } = require("../cgs/agent");
+  const { routeThroughAgent } = require("../cgs/http");
+  const agentSocket = agentSocketPath({ userData: app.getPath("userData") });
+  cgsAgent = await startAgent({
+    binary: binaries.agent,
+    socketPath: agentSocket,
+    upstream: CGS_BASE_URL,
+    dataDir: path.join(app.getPath("userData"), "cgs-agent"),
+    logFile: path.join(app.getPath("userData"), "logs", "cgs-agent.log"),
+  });
+  if (quitting) return cgsAgent.stop();
+  routeThroughAgent({ origin: new URL(CGS_BASE_URL).origin, socketPath: agentSocket });
+  stopAgentWatch = cgsAgent.client.watch(broadcastNetwork);
   // A crash after startup surfaces as an error dialog instead of leaving a dead window.
   const servicesReady = startServices({
     binaries,
     agentDir,
+    agentSocket,
     logDir: path.join(app.getPath("userData"), "logs"),
     portFile: path.join(app.getPath("userData"), "ompweb-port.json"),
     onCrash: fatal,
@@ -108,7 +138,7 @@ async function start() {
     }
   }
 
-  cgsController = new CgsController({ agentDir, pluginDir: pluginSourceDir });
+  cgsController = new CgsController({ agentDir, pluginDir: pluginSourceDir, agent: cgsAgent.client });
   cgsController.on("change", (snap) => {
     broadcastCgsState(snap);
   });
@@ -137,6 +167,13 @@ function broadcastCgsState(snap) {
 function broadcastUsage(usageSnap) {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send("cgs:usage", usageSnap);
+  }
+}
+
+function broadcastNetwork(status) {
+  networkStatus = status;
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send("cgs:network", status);
   }
 }
 
@@ -311,8 +348,8 @@ function registerIpc() {
     const { consoleUrl } = require("../cgs/account");
     const creds = await readCredentials(cgsController.agentDir);
     const url = consoleUrl(creds ? creds.baseUrl : CGS_BASE_URL, page);
-    console.info(`[cgs] openExternal ${url}`);
-    openExternally(url);
+    const { openConsoleWindow } = require("./console-window");
+    openConsoleWindow({ url, socketPath: cgsAgent ? cgsAgent.client.socketPath : null, icon: getWindowIcon() });
     return true;
   });
   ipcMain.handle("cgs:logout", async () => {
@@ -325,6 +362,7 @@ function registerIpc() {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
+  ipcMain.handle("cgs:get-network", () => networkStatus);
   ipcMain.handle("cgs:get-usage", () => (cgsController ? cgsController.usageSnapshot() : null));
   ipcMain.handle("cgs:refresh-usage", () => (cgsController ? cgsController.refreshUsage() : null));
   // Self-update (see updater.js).
