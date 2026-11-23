@@ -17,6 +17,14 @@ const PLUGIN_DIR = path.join(__dirname, "..", "plugin", "omp-cgs");
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "cgs-logout-"));
 const exists = (dir, ...p) => fs.existsSync(path.join(dir, ...p));
 const parsed = (dir, f = "config.yml") => YAML.parse(fs.readFileSync(path.join(dir, f), "utf8"));
+const LAYOUT = cw.normalizeLayout({
+  orchestrator: { model: "cgs-claude/claude-haiku-5-5", thinking: "off" },
+  agents: [
+    { name: "task", model: "cgs-openai/deepseek-v4.1-flash", thinking: "max" },
+    { name: "reviewer", model: "cgs-codex/gpt-6-astra", thinking: "max" },
+  ],
+  web_model: "cgs-antigravity/gemini-3.8-flash",
+});
 
 /** A server answering POST /api/device/logout with `status`; resolves { baseUrl, calls, close }. */
 async function fakeServer(status) {
@@ -33,7 +41,7 @@ async function fakeServer(status) {
 async function signedInDir(baseUrl) {
   const dir = tmpDir();
   await cw.writeCredentials(dir, { baseUrl, clientSecret: "cgc_test", tier: "pro", username: "alice", models: ["claude-sonnet-5-5", "gemini-4-argon"] });
-  await cw.applyDefaultRoles(dir);
+  await cw.applyDefaultLayout(dir, LAYOUT);
   fs.writeFileSync(
     path.join(dir, "models.yml"),
     "providers:\n  my-own:\n    baseUrl: http://localhost:1\n  cgs-openai:\n    baseUrl: x\n  cgs-anthropic:\n    baseUrl: x\n  cgs-gemini:\n    baseUrl: x\n",
@@ -43,11 +51,14 @@ async function signedInDir(baseUrl) {
 
 test("logout removes CGS roles and providers, keeps what the user changed", async () => {
   const dir = await signedInDir("http://127.0.0.1:1");
-  // The user repoints default and adds their own web fallback next to the CGS one.
+  // The user repoints default, adds their own web fallback next to the CGS one, and adds two orchestrator roles: one on a
+  // CGS model, one on their own provider.
   const cfg = parsed(dir);
   cfg.modelRoles.default = "anthropic/claude-opus-5";
   cfg.retry.fallbackChains.web.push("other/web-model");
   cfg.modelRoles.plan = "cgs-openai/not-managed-by-defaults";
+  cfg.task.agentModelOverrides.scout = "cgs-claude/claude-haiku-5-5:low";
+  cfg.task.agentModelOverrides.explore = "anthropic/claude-sonnet-5:high";
   fs.writeFileSync(path.join(dir, "config.yml"), YAML.stringify(cfg));
 
   const result = await cw.signOutLocally(dir);
@@ -57,11 +68,10 @@ test("logout removes CGS roles and providers, keeps what the user changed", asyn
   assert.equal(exists(dir, "cgs", "credentials.json"), false);
   const after = parsed(dir);
   assert.equal(after.modelRoles.default, "anthropic/claude-opus-5"); // user's value stays
-  assert.equal(after.modelRoles.task, undefined); // still pointed at cgs-*: gone
-  assert.equal(after.modelRoles.web, undefined);
-  assert.equal(after.task, undefined); // reviewer and scout overrides pointed at cgs-*: gone, and the empty container with them
+  assert.equal(after.modelRoles.web, undefined); // still pointed at cgs-*: gone
+  assert.deepEqual(after.task, { agentModelOverrides: { explore: "anthropic/claude-sonnet-5:high" } }); // every cgs-* override gone
   assert.deepEqual(after.retry.fallbackChains.web, ["other/web-model"]);
-  assert.equal(after.modelRoles.plan, "cgs-openai/not-managed-by-defaults"); // not something applyDefaultRoles writes
+  assert.equal(after.modelRoles.plan, "cgs-openai/not-managed-by-defaults"); // not something the default layout writes
   const models = parsed(dir, "models.yml");
   assert.deepEqual(Object.keys(models.providers), ["my-own"]);
   assert.deepEqual(await readState(dir), { defaultsApplied: false, lastKnownTier: null });

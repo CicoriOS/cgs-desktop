@@ -3,7 +3,7 @@
 
 const { clientHeaders } = require("./client-info");
 const { requestJson, HttpError } = require("./http");
-const { fetchModelIds, readCredentials, writeCredentials } = require("./config-writer");
+const { ensureDefaultLayout, fetchModelIds, readCredentials, writeCredentials } = require("./config-writer");
 const { normalizeTier, updateState } = require("./state");
 
 /**
@@ -32,7 +32,8 @@ async function fetchTier({ baseUrl, clientSecret, signal }) {
 
 /**
  * Re-detect the tier of the signed-in account and refresh what depends on it: credentials.json (tier, username,
- * model list for the plugin) and state.json `lastKnownTier`. config.yml is NEVER touched here.
+ * model list for the plugin) and state.json `lastKnownTier`. config.yml is only touched when the server's default
+ * layout has not been applied yet (its fetch failed at login).
  * Resolves { status: "signed-out" | "unauthorized" | "error" } or { status: "ok", tier, username }.
  */
 async function refreshTier(agentDir, { signal } = {}) {
@@ -56,6 +57,7 @@ async function refreshTier(agentDir, { signal } = {}) {
     linkedAt: creds.linkedAt,
   });
   await updateState(agentDir, { lastKnownTier: result.tier });
+  await ensureDefaultLayout(agentDir, { baseUrl: creds.baseUrl, clientSecret: creds.clientSecret, signal });
   return { status: "ok", tier: result.tier, username: result.username ?? creds.username ?? null };
 }
 

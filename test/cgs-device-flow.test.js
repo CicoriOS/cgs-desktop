@@ -183,7 +183,7 @@ test("abort while waiting stops polling and rejects with code aborted", async ()
   }
 });
 
-test("completeLogin fetches /v1/models with the key and writes credentials + tier config", async () => {
+test("completeLogin fetches /v1/models with the key and writes credentials", async () => {
   const srv = await fakeServer();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cgs-login-"));
   try {
@@ -193,9 +193,8 @@ test("completeLogin fetches /v1/models with the key and writes credentials + tie
     const saved = JSON.parse(fs.readFileSync(path.join(dir, "cgs", "credentials.json"), "utf8"));
     assert.equal(saved.clientSecret, KEY);
     assert.equal(saved.baseUrl, srv.baseUrl);
-    const config = YAML.parse(fs.readFileSync(path.join(dir, "config.yml"), "utf8"));
-    assert.equal(config.modelRoles.web, "cgs-antigravity/gemini-3.8-flash");
-    assert.equal(config.modelRoles.default, "cgs-claude/claude-haiku-5-5:auto");
+    // this server has no /api/device/layout: the login still succeeds, config.yml is left for a later retry
+    assert.equal(fs.existsSync(path.join(dir, "config.yml")), false);
 
     // a bad key changes nothing and reports a typed error
     const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "cgs-login-"));

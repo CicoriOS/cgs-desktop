@@ -12,6 +12,11 @@
 //   cgs-openai       api openai-completions       <baseUrl>/v1   every other chat id
 // Without valid credentials nothing is registered.
 //
+// Account switches: a session's omp process outlives a sign-out/sign-in, so the credential is never baked into the
+// providers. Their `apiKey` is the NAME of an environment variable (omp resolves a configured key that names a set
+// variable on every request), and the extension keeps those variables in step with credentials.json; a running
+// conversation continues on the account that is signed in now.
+//
 // Model metadata: omp's model registry fills every field a registered model
 // leaves undefined (reasoning, input, contextWindow, maxTokens, cost) from its
 // bundled catalog, matching by model id, and derives catalog-only fields such as
@@ -37,6 +42,43 @@ export const PROVIDER_CODEX = "cgs-codex";
 export const PROVIDER_OPENAI = "cgs-openai";
 const ANTIGRAVITY_PROJECT = "cgs";
 
+/** Environment variables the providers' `apiKey` names (see the header). */
+export const SECRET_ENV = "CGS_CLIENT_SECRET";
+export const ANTIGRAVITY_KEY_ENV = "CGS_ANTIGRAVITY_KEY";
+export const CREDENTIALS_POLL_MS = 2000;
+
+/** Put the credential where the providers' `apiKey` points. */
+export function applyCredentialEnv({ clientSecret }, env = process.env) {
+	env[SECRET_ENV] = clientSecret;
+	// omp expects the Antigravity channel's credential as JSON {token, projectId}; the gateway ignores the project.
+	env[ANTIGRAVITY_KEY_ENV] = JSON.stringify({ token: clientSecret, projectId: ANTIGRAVITY_PROJECT });
+}
+
+/**
+ * Re-read credentials.json every `intervalMs` and call `onChange(credentials)` when its content changed to a usable
+ * record (a sign-out leaves the last credential in place until the next sign-in). Returns a stop function.
+ */
+export function watchCredentials(agentDir, onChange, intervalMs = CREDENTIALS_POLL_MS) {
+	const file = path.join(agentDir, "cgs", "credentials.json");
+	const read = () => {
+		try {
+			return fs.readFileSync(file, "utf8");
+		} catch {
+			return null;
+		}
+	};
+	let last = read();
+	const timer = setInterval(() => {
+		const text = read();
+		if (text === last) return;
+		last = text;
+		const credentials = readCredentials(agentDir);
+		if (credentials) onChange(credentials);
+	}, intervalMs);
+	timer.unref?.();
+	return () => clearInterval(timer);
+}
+
 // OpenAI's own families (GPT, o-series, Codex, Astra) go through the Codex channel.
 const CODEX_ID = /^(gpt|o\d|codex|chatgpt)|astra/i;
 
@@ -49,7 +91,7 @@ const NON_CHAT_ID =
 export const FAMILY_FALLBACKS = [
 	{ family: "claude", test: /^claude/i, reasoning: true, input: ["text", "image"], contextWindow: 200000, maxTokens: 32000 },
 	{ family: "gemini", test: /^gemini/i, reasoning: true, input: ["text", "image"], contextWindow: 1048576, maxTokens: 65536 },
-	{ family: "deepseek", test: /^deepseek/i, reasoning: true, input: ["text"], contextWindow: 131072, maxTokens: 8192 },
+	{ family: "deepseek", test: /^deepseek/i, reasoning: true, input: ["text", "image"], contextWindow: 1000000, maxTokens: 65536 },
 	{ family: "glm", test: /^glm/i, reasoning: true, input: ["text"], contextWindow: 131072, maxTokens: 8192 },
 	{ family: "grok", test: /^grok/i, reasoning: true, input: ["text", "image"], contextWindow: 131072, maxTokens: 8192 },
 	{ family: "kimi", test: /^kimi/i, reasoning: true, input: ["text"], contextWindow: 131072, maxTokens: 8192 },
@@ -146,23 +188,18 @@ export function buildModel(id, reference, price) {
  * `lookup(id)` returns the catalog reference model or undefined.
  */
 export function buildProviders(credentials, lookup = () => undefined, pricing = {}) {
-	const { baseUrl, clientSecret, models } = credentials;
-	// One omp transport per channel; only the credential and the URL differ from the upstream vendor's own.
+	const { baseUrl, models } = credentials;
+	// One omp transport per channel; only the credential and the URL differ from the upstream vendor's own. `apiKey` names
+	// the environment variable holding the current credential (applyCredentialEnv).
 	const defs = {
 		// Claude Code channel: POST <root>/v1/messages, Bearer credential, Claude Code client fingerprint.
-		[PROVIDER_CLAUDE]: { api: "anthropic-messages", baseUrl, apiKey: clientSecret, models: [] },
-		// Antigravity channel (Cloud Code Assist wire): POST <root>/v1internal:streamGenerateContent. omp expects a
-		// JSON credential {token, projectId}; the gateway ignores the project.
-		[PROVIDER_ANTIGRAVITY]: {
-			api: "google-gemini-cli",
-			baseUrl,
-			apiKey: JSON.stringify({ token: clientSecret, projectId: ANTIGRAVITY_PROJECT }),
-			models: [],
-		},
+		[PROVIDER_CLAUDE]: { api: "anthropic-messages", baseUrl, apiKey: SECRET_ENV, models: [] },
+		// Antigravity channel (Cloud Code Assist wire): POST <root>/v1internal:streamGenerateContent, JSON credential.
+		[PROVIDER_ANTIGRAVITY]: { api: "google-gemini-cli", baseUrl, apiKey: ANTIGRAVITY_KEY_ENV, models: [] },
 		// Codex channel: POST <root>/v1/codex/responses.
-		[PROVIDER_CODEX]: { api: "openai-codex-responses", baseUrl: `${baseUrl}/v1`, apiKey: clientSecret, models: [] },
+		[PROVIDER_CODEX]: { api: "openai-codex-responses", baseUrl: `${baseUrl}/v1`, apiKey: SECRET_ENV, models: [] },
 		// OpenAI-compatible channel: POST <root>/v1/chat/completions.
-		[PROVIDER_OPENAI]: { api: "openai-completions", baseUrl: `${baseUrl}/v1`, apiKey: clientSecret, models: [] },
+		[PROVIDER_OPENAI]: { api: "openai-completions", baseUrl: `${baseUrl}/v1`, apiKey: SECRET_ENV, models: [] },
 	};
 	for (const id of models) {
 		const provider = providerForModel(id);
@@ -239,10 +276,10 @@ export function buildUsageReport(data, provider, now = Date.now()) {
 
 /**
  * UsageProvider for `provider` that queries `<root>/api/device/usage` with the client credential
- * (root = credentials baseUrl, not a provider baseUrl; the credential comes from credentials.json, since the
- * Antigravity channel's own apiKey is a JSON envelope).
+ * (root = credentials baseUrl, not a provider baseUrl; the Antigravity channel's own apiKey is a JSON envelope).
+ * `current()` returns the credentials signed in now.
  */
-export function createUsageProvider({ baseUrl: root, clientSecret }, provider) {
+export function createUsageProvider(current, provider) {
 	return {
 		id: provider,
 		cacheVersion: 3,
@@ -250,6 +287,7 @@ export function createUsageProvider({ baseUrl: root, clientSecret }, provider) {
 		async fetchUsage(params, ctx) {
 			const timeout = AbortSignal.timeout(USAGE_TIMEOUT_MS);
 			const signal = params.signal ? AbortSignal.any([params.signal, timeout]) : timeout;
+			const { baseUrl: root, clientSecret } = current();
 			const res = await ctx.fetch(`${root}/api/device/usage`, {
 				headers: { Authorization: `Bearer ${clientSecret}`, Accept: "application/json" },
 				signal,
@@ -297,11 +335,17 @@ export async function fetchPricing({ baseUrl: root, clientSecret }, doFetch = fe
 }
 
 export default async function cgsExtension(pi) {
-	const credentials = readCredentials(resolveAgentDir());
+	const agentDir = resolveAgentDir();
+	let credentials = readCredentials(agentDir);
 	if (!credentials) return;
+	applyCredentialEnv(credentials);
+	watchCredentials(agentDir, next => {
+		credentials = next;
+		applyCredentialEnv(next);
+	});
 	const [lookup, pricing] = await Promise.all([loadCatalogLookup(pi.logger), fetchPricing(credentials)]);
 	const providers = buildProviders(credentials, lookup, pricing ?? {});
 	const usageOwner = [PROVIDER_OPENAI, PROVIDER_CLAUDE, PROVIDER_CODEX, PROVIDER_ANTIGRAVITY].find(name => providers[name]);
-	if (usageOwner) providers[usageOwner].usage = createUsageProvider(credentials, usageOwner);
+	if (usageOwner) providers[usageOwner].usage = createUsageProvider(() => credentials, usageOwner);
 	for (const [name, config] of Object.entries(providers)) pi.registerProvider(name, config);
 }

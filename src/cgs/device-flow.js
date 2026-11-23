@@ -13,7 +13,7 @@ const MAX_POLL_FAILURES = 5;
 /** Error with a Simplified-Chinese message safe to show to the user. */
 class CgsError extends Error {
   /**
-   * @param {"network"|"timeout"|"rate_limited"|"server"|"bad_response"|"rejected"|"challenge_failed"|"denied"|"expired"|"aborted"|"models"} code
+   * @param {"network"|"timeout"|"rate_limited"|"server"|"bad_response"|"rejected"|"challenge_failed"|"denied"|"expired"|"aborted"|"models"|"layout"} code
    */
   constructor(code, userMessage, cause) {
     super(`${code}: ${userMessage}`, cause ? { cause } : undefined);

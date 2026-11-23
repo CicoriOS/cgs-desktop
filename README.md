@@ -54,7 +54,7 @@ The installer bundles `vendor/win-x64/omp` → `resources/omp`, `vendor/win-x64/
 `vendor/win-x64/chromium` → `resources/chromium` and `plugin/omp-cgs` → `resources/plugin/omp-cgs` (all as
 `extraResources`, outside the asar so the executables can run;
 `scripts/after-pack.js` copies ompweb's `node_modules/` because electron-builder never copies those directories itself).
-Output: `dist/CGS Desktop-Setup-<version>.exe` (NSIS, per-user, x64) and `dist/win-unpacked/`. The bundled Chromium adds
+Output: `dist/CGS-Desktop-Setup-<version>.exe` (NSIS, per-user, x64) and `dist/win-unpacked/`. The bundled Chromium adds
 about 149 MB to the installer (279 MB → 428 MB) and ~420 MB unpacked.
 
 On Windows `npm run dist:win` just works. On Linux, electron-builder needs a way to run Windows tools (rcedit for the exe
@@ -194,11 +194,18 @@ the AppImage with `--appimage-extract-and-run`; add `--no-sandbox` where Electro
 
   All four send the client credential as `Authorization: Bearer`; the Antigravity channel's `apiKey` is omp's JSON form
   `{"token": <credential>, "projectId": "cgs"}`.
-- **Default roles** (written once at the first login, `DEFAULT_ROLES` in `src/cgs/config-writer.js`; edit freely afterwards in
-  ompweb's AI model defaults or `config.yml`, later logins never overwrite them): search `cgs-antigravity/gemini-3.8-flash`
-  (also the only entry of `retry.fallbackChains.web`), main agent `cgs-claude/claude-haiku-5-5`, task
-  `cgs-openai/deepseek-v4.1-flash`, reviewer `cgs-codex/gpt-6-astra`, scout `cgs-claude/claude-haiku-5-5`. The old per-tier
-  presets and the tier-change bubble are gone; the tier is only displayed.
+- **Default layout, served by the server.** `GET /api/device/layout` (client credential; new-api option
+  `device_setting.default_layout`, JSON, validated on save) returns `{ orchestrator: {model, thinking}, agents: [{name, model,
+  thinking}], web_model }`. It is applied once per agent directory at the first login (`ensureDefaultLayout` in
+  `src/cgs/config-writer.js`): the orchestrator becomes `modelRoles.default`, each agent `task.agentModelOverrides.<name>` as
+  `provider/model:thinking`, the web model `modelRoles.web` plus the only entry of `retry.fallbackChains.web`. If the fetch
+  fails the login still succeeds and the next tier poll retries; once applied, later logins never overwrite it. The shipped
+  server default: orchestrator `cgs-claude/claude-haiku-5-5` thinking off; `task` `cgs-openai/deepseek-v4.1-flash`, `sonic`
+  `cgs-claude/claude-haiku-5-5`, `reviewer` `cgs-codex/gpt-6-astra`, all thinking `max`; search `cgs-antigravity/gemini-3.8-flash`.
+  Changing the defaults is a server option change, not a client release.
+- **Orchestrator** (Settings → Agents, `main-preload.js`): edits the orchestrator and per-agent models/thinking levels in
+  `config.yml` (IPC `cgs:orchestration-*`), adds and removes roles (the server layout's agents stay listed), and 「恢复默认」
+  loads the server layout (applied on save). New sessions use the saved layout.
 - **Tool style per vendor** comes from omp's own `edit.modelVariants` (model-selector substring → edit mode), seeded on first
   run when absent: `claude → replace` (exact string replacement, Claude Code style), `gpt → apply_patch` (Codex style);
   other models keep omp's default. It is per model, so a user can set it per channel or per model in `config.yml`.
@@ -208,7 +215,13 @@ the AppImage with `--appimage-extract-and-run`; add `--no-sandbox` where Electro
   `GET /api/device/pricing` returns the user's real per-model prices (¥ per million tokens: input, output, cache read/write after
   the group ratio, `per_call` for per-request models). The plugin fetches it once at start (8 s timeout, best effort) and fills
   each model's `cost` with it; models the site does not price keep the catalog cost. omp prints its own `$` glyph before cost
-  numbers, but the numbers are yuan.
+  numbers, but the numbers are yuan. Settings → Usage shows CGS costs in ¥; other providers' costs are real dollars: their
+  provider and model rows keep `$`, and the headline total is the CGS part in ¥ with the others as a smaller `$` subtitle.
+  (The daily chart and the day/project breakdowns are ompweb's mixed sums and stay in ¥.)
+- **Sessions are not tied to an account.** Conversations live on this machine; only requests carry the account. The
+  plugin registers its providers with `apiKey` set to the *name* of an environment variable (`CGS_CLIENT_SECRET`,
+  `CGS_ANTIGRAVITY_KEY`), which omp resolves on every request, and every omp process polls credentials.json (2 s) to keep
+  those variables current. After signing out of account A and into B, an open conversation's next request goes out as B.
 - **Email registration** (the login popup's 「使用邮箱注册」): the app registers with email + password without a browser, through
   its own endpoints (`src/cgs/register-flow.js`, server `/api/device/register/*`, not the console's registration). Every code
   mail costs a proof of work like the login does (a resend solves a new one); the server mails a 6-digit code (60 s between
@@ -216,3 +229,25 @@ the AppImage with `--appimage-extract-and-run`; add `--no-sandbox` where Electro
   so the app is signed in at once. The password stays in the main process between the form and the code screen. A server
   without a mail provider writes the code to its log instead (`[desktop-register] … verification code for <email>: <code>`).
   Every build signs in through CGS: there is no third-party login, and closing the login popup unsigned quits the app.
+
+## Updates and releases
+
+Packaged builds update themselves from this repository's GitHub releases (`electron-updater`, `build.publish` in
+package.json): a check at startup and every 4 h, background download, install on quit or via 「重启并更新」 (Settings → System
+card, and a banner once downloaded). Unpackaged runs (`npm start`) never update.
+
+Versioning starts at 0.2.0; every release bumps the last number (0.2.1, 0.2.2, …).
+
+Releases are built and published by GitHub Actions, never from a workstation:
+
+```sh
+npm run release:bump          # 0.2.0 → 0.2.1: package.json + lock, commit "release: v0.2.1", tag v0.2.1
+git push --follow-tags        # the tag starts .github/workflows/release.yml
+```
+
+`release.yml` runs on a `v*.*.*` tag (it fails when the tag differs from package.json's version): `npm test`, then
+`npm run dist:win` on `windows-latest` and `npm run dist:linux` on `ubuntu-latest` (each fetches ompweb, the omp runner
+and Chromium itself), then one job publishes the installer, the AppImage and the update metadata (`latest.yml`,
+`latest-linux.yml`, the installer's blockmap) as the full (not draft) GitHub release `v<version>`. Re-running it
+replaces the assets of that release. `ci.yml` runs `npm test` on pushes to master and on pull requests. The repository
+must stay public for clients to read releases without a token.

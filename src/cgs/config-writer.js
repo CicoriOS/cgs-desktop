@@ -13,40 +13,23 @@ const { CgsError } = require("./device-flow");
 const { writeFileAtomic } = require("./fs-util");
 const { normalizeTier, readState, updateState } = require("./state");
 
-// ---- default role mapping ----------------------------------------------------------------------
+// ---- default layout (served by GET /api/device/layout) ----------------------------------------------------------
 
 const KEY_DEFAULT = ["modelRoles", "default"];
 const KEY_TASK = ["modelRoles", "task"];
 const KEY_WEB = ["modelRoles", "web"];
 const KEY_WEB_CHAIN = ["retry", "fallbackChains", "web"];
 const KEY_SMOL = ["modelRoles", "smol"];
-const KEY_REVIEWER = ["task", "agentModelOverrides", "reviewer"];
-const KEY_SCOUT = ["task", "agentModelOverrides", "scout"];
-
-/** CGS-managed keys: the ones the default mapping writes (plus `smol`, which earlier versions' presets wrote). Logout removes them where they still point at cgs-* models. */
-const MANAGED_KEYS = [KEY_DEFAULT, KEY_TASK, KEY_WEB, KEY_WEB_CHAIN, KEY_SMOL, KEY_REVIEWER, KEY_SCOUT];
+/** Per-agent model selectors (`<agent name>: provider/model[:thinking]`), read by omp's task tool. */
+const KEY_AGENT_OVERRIDES = ["task", "agentModelOverrides"];
+const overrideKey = name => [...KEY_AGENT_OVERRIDES, name];
 
 /**
- * Search model, plus a one-entry `retry.fallbackChains.web` that replaces omp's default web chain (which ends in the
- * session model's own hosted search, i.e. Anthropic). A Gemini failure then surfaces as a search error instead of
- * silently switching providers.
+ * CGS-managed keys: the ones the default layout writes (plus `task` and `smol`, which earlier versions wrote). Logout
+ * removes them where they still point at cgs-* models; every `task.agentModelOverrides.*` entry is treated the same way
+ * (the orchestrator in Settings → Agents writes arbitrary agent names there).
  */
-const WEB_MODEL = "cgs-antigravity/gemini-3.8-flash";
-const WEB_CHAIN = [WEB_MODEL];
-
-/**
- * The default role mapping, written once at the first login; the user edits it freely afterwards (ompweb's AI model
- * defaults, config.yml). Main agent Claude Haiku, task DeepSeek Flash 4.1, reviewer Astra, scout Haiku, search Gemini
- * 3.8 Flash. Each model sits on its vendor's channel (see plugin/omp-cgs/index.js).
- */
-const DEFAULT_ROLES = [
-  [KEY_DEFAULT, "cgs-claude/claude-haiku-5-5:auto"],
-  [KEY_TASK, "cgs-openai/deepseek-v4.1-flash:auto"],
-  [KEY_WEB, WEB_MODEL],
-  [KEY_WEB_CHAIN, WEB_CHAIN],
-  [KEY_REVIEWER, "cgs-codex/gpt-6-astra:auto"],
-  [KEY_SCOUT, "cgs-claude/claude-haiku-5-5:auto"],
-];
+const MANAGED_KEYS = [KEY_DEFAULT, KEY_TASK, KEY_WEB, KEY_WEB_CHAIN, KEY_SMOL];
 
 /**
  * Defaults written by prepareAgentDir only when the key is absent. `edit.modelVariants` gives each vendor's models
@@ -107,16 +90,26 @@ function deleteAndPrune(doc, keyPath) {
   }
 }
 
-/** Pure: write the default role mapping into a parsed Document (mutates it). */
-function applyDefaultRolesToDocument(doc) {
-  for (const [keyPath, value] of DEFAULT_ROLES) doc.setIn(keyPath, value);
+/**
+ * Pure: write a default layout (see normalizeLayout) into a parsed Document (mutates it). The orchestrator becomes
+ * `modelRoles.default`, each agent `task.agentModelOverrides.<name>` (other agents' overrides stay). The web model also
+ * gets a one-entry `retry.fallbackChains.web`, replacing omp's default web chain (which ends in the session model's own
+ * hosted search): a search-model failure then surfaces as an error instead of silently switching providers.
+ */
+function applyLayoutToDocument(doc, layout) {
+  doc.setIn(KEY_DEFAULT, formatSelector(layout.orchestrator));
+  for (const agent of layout.agents) doc.setIn(overrideKey(agent.name), formatSelector(agent));
+  if (layout.webModel) {
+    doc.setIn(KEY_WEB, layout.webModel);
+    doc.setIn(KEY_WEB_CHAIN, [layout.webModel]);
+  }
 }
 
-/** Write the default role mapping into config.yml and record `defaultsApplied` in state.json. */
-async function applyDefaultRoles(agentDir) {
+/** Write a default layout into config.yml and record `defaultsApplied` in state.json. */
+async function applyDefaultLayout(agentDir, layout) {
   const file = configPath(agentDir);
   const { doc, text } = await loadConfigDoc(file);
-  applyDefaultRolesToDocument(doc);
+  applyLayoutToDocument(doc, layout);
   await saveConfigDoc(file, doc, text);
   await updateState(agentDir, { defaultsApplied: true });
 }
@@ -128,6 +121,146 @@ async function applyFirstRunDefaults(agentDir) {
     if (!doc.hasIn(keyPath)) doc.setIn(keyPath, value);
   }
   await saveConfigDoc(file, doc, text);
+}
+
+// ---- orchestration (Settings → Agents → orchestrator) ------------------------------------------------------------
+
+/** omp's thinking selectors; a model selector may end in `:<level>`. */
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"];
+const AGENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
+
+/** "provider/model:max" → { model: "provider/model", thinking: "max" }; no level suffix → thinking "". */
+function parseSelector(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  const colon = text.lastIndexOf(":");
+  if (colon > 0 && THINKING_LEVELS.includes(text.slice(colon + 1))) return { model: text.slice(0, colon), thinking: text.slice(colon + 1) };
+  return { model: text, thinking: "" };
+}
+
+function formatSelector({ model, thinking }) {
+  return thinking ? `${model}:${thinking}` : model;
+}
+
+/** A map key/value as a JS value: values set on a Document (setIn) are plain, parsed ones are Scalar nodes. */
+const plain = (node) => (YAML.isScalar(node) ? node.value : node);
+
+/** Pure: the orchestration a parsed config Document describes: the orchestrator and every agent override. */
+function orchestrationFromDocument(doc) {
+  const overrides = doc.getIn(KEY_AGENT_OVERRIDES, true);
+  const agents = YAML.isMap(overrides)
+    ? overrides.items
+        .filter(pair => typeof plain(pair.value) === "string")
+        .map(pair => ({ name: String(plain(pair.key)), ...parseSelector(plain(pair.value)) }))
+    : [];
+  return { orchestrator: parseSelector(doc.getIn(KEY_DEFAULT)), agents };
+}
+
+/** Validates an orchestration ({ orchestrator, agents }); throws a message the UI shows as is. */
+function normalizeOrchestration(input) {
+  const clean = (entry, what) => {
+    const model = typeof entry?.model === "string" ? entry.model.trim() : "";
+    const thinking = typeof entry?.thinking === "string" ? entry.thinking : "";
+    if (thinking && !THINKING_LEVELS.includes(thinking)) throw new Error(`${what}: unknown thinking level "${thinking}"`);
+    if (/[\s:]/.test(model)) throw new Error(`${what}: invalid model "${model}"`);
+    return { model, thinking: model ? thinking : "" };
+  };
+  const orchestrator = clean(input?.orchestrator, "Orchestrator");
+  if (!orchestrator.model) throw new Error("Orchestrator: a model is required");
+  const seen = new Set();
+  const agents = (Array.isArray(input?.agents) ? input.agents : []).map(entry => {
+    const name = typeof entry?.name === "string" ? entry.name.trim() : "";
+    if (!AGENT_NAME_RE.test(name)) throw new Error(`Invalid agent name "${name}"`);
+    if (seen.has(name)) throw new Error(`Duplicate agent "${name}"`);
+    seen.add(name);
+    return { name, ...clean(entry, name) };
+  });
+  return { orchestrator, agents };
+}
+
+/**
+ * Pure: write an orchestration into a parsed config Document (mutates it). `modelRoles.default` is the orchestrator;
+ * each agent with a model becomes `task.agentModelOverrides.<name>`; overrides of agents without a model or no longer
+ * listed are removed.
+ */
+function applyOrchestrationToDocument(doc, orchestration) {
+  const { orchestrator, agents } = normalizeOrchestration(orchestration);
+  doc.setIn(KEY_DEFAULT, formatSelector(orchestrator));
+  const wanted = new Map(agents.filter(agent => agent.model).map(agent => [agent.name, formatSelector(agent)]));
+  const overrides = doc.getIn(KEY_AGENT_OVERRIDES, true);
+  if (YAML.isMap(overrides)) {
+    for (const pair of [...overrides.items]) {
+      const name = plain(pair.key);
+      if (typeof name === "string" && !wanted.has(name)) deleteAndPrune(doc, overrideKey(name));
+    }
+  }
+  for (const [name, selector] of wanted) doc.setIn(overrideKey(name), selector);
+}
+
+async function readOrchestration(agentDir) {
+  const { doc } = await loadConfigDoc(configPath(agentDir));
+  return orchestrationFromDocument(doc);
+}
+
+/** Write the orchestration into config.yml; resolves the orchestration as now stored. */
+async function writeOrchestration(agentDir, orchestration) {
+  const file = configPath(agentDir);
+  const { doc, text } = await loadConfigDoc(file);
+  applyOrchestrationToDocument(doc, orchestration);
+  await saveConfigDoc(file, doc, text);
+  return orchestrationFromDocument(doc);
+}
+
+/** The `data` of GET /api/device/layout → { orchestrator, agents, webModel } (validated), or null when unusable. */
+function normalizeLayout(data) {
+  if (!data || typeof data !== "object") return null;
+  try {
+    const { orchestrator, agents } = normalizeOrchestration({ orchestrator: data.orchestrator, agents: data.agents });
+    const webModel = typeof data.web_model === "string" ? data.web_model.trim() : "";
+    if (/[\s:]/.test(webModel)) return null;
+    return { orchestrator, agents: agents.filter(agent => agent.model), webModel };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * GET <baseUrl>/api/device/layout with the client credential: the default layout the server operator configures
+ * (device_setting.default_layout). Resolves the normalized layout; rejects with CgsError("layout") on any failure.
+ */
+async function fetchLayout({ baseUrl, clientSecret, signal }) {
+  let res;
+  try {
+    res = await requestJson({
+      url: `${String(baseUrl).replace(/\/+$/, "")}/api/device/layout`,
+      headers: clientHeaders(clientSecret),
+      signal,
+      timeoutMs: 15000,
+    });
+  } catch (err) {
+    if (err instanceof HttpError && err.kind === "aborted") throw new CgsError("aborted", "已取消");
+    throw new CgsError("layout", "无法获取默认智能体编排", err);
+  }
+  const layout = res.status === 200 && res.json && res.json.success === true ? normalizeLayout(res.json.data) : null;
+  if (!layout) throw new CgsError("layout", `获取默认智能体编排失败（HTTP ${res.status}）`);
+  return layout;
+}
+
+/**
+ * Apply the server's default layout once per agentDir (`defaultsApplied` unset). A failed fetch leaves it unset, so the
+ * next login or account refresh tries again; resolves whether the layout was applied now.
+ */
+async function ensureDefaultLayout(agentDir, { baseUrl, clientSecret, signal }) {
+  if ((await readState(agentDir)).defaultsApplied) return false;
+  let layout;
+  try {
+    layout = await fetchLayout({ baseUrl, clientSecret, signal });
+  } catch (err) {
+    if (err instanceof CgsError && err.code === "aborted") throw err;
+    console.warn(`[cgs] default layout not applied: ${err.message}`);
+    return false;
+  }
+  await applyDefaultLayout(agentDir, layout);
+  return true;
 }
 
 // ---- credentials -----------------------------------------------------------------------------
@@ -172,14 +305,14 @@ async function readCredentials(agentDir) {
 }
 
 /**
- * After approval: fetch models, write credentials, remember the tier. The default role mapping is applied here only
+ * After approval: fetch models, write credentials, remember the tier. The server's default layout is applied here only
  * for the very first login in this agentDir (`defaultsApplied` unset); later logins never touch config.yml, so
  * whatever the user changed since stays.
  */
 async function completeLogin({ agentDir, baseUrl, clientSecret, tier, username, signal }) {
   const models = await fetchModelIds(baseUrl, clientSecret, signal);
   const record = await writeCredentials(agentDir, { baseUrl, clientSecret, tier, username, models });
-  if (!(await readState(agentDir)).defaultsApplied) await applyDefaultRoles(agentDir);
+  await ensureDefaultLayout(agentDir, { baseUrl, clientSecret, signal });
   await updateState(agentDir, { lastKnownTier: normalizeTier(tier) });
   return record;
 }
@@ -211,13 +344,16 @@ function isCgsModelRef(value) {
 }
 
 /**
- * Pure: remove the CGS-managed keys (MANAGED_KEYS, i.e. everything applyPreset writes) from a parsed config Document
- * (mutates it), but only where the value still references a cgs-* model. A role the user pointed elsewhere stays; in a
- * list (`retry.fallbackChains.web`) only the cgs-* entries go. Returns the dotted paths that were removed or trimmed.
+ * Pure: remove the CGS-managed keys (MANAGED_KEYS and every `task.agentModelOverrides.*` entry) from a parsed config
+ * Document (mutates it), but only where the value still references a cgs-* model. A role the user pointed elsewhere
+ * stays; in a list (`retry.fallbackChains.web`) only the cgs-* entries go. Returns the dotted paths that were removed or
+ * trimmed.
  */
 function removeCgsKeysFromDocument(doc) {
   const changed = [];
-  for (const keyPath of MANAGED_KEYS) {
+  const overrides = doc.getIn(KEY_AGENT_OVERRIDES, true);
+  const overrideKeys = YAML.isMap(overrides) ? overrides.items.map(pair => plain(pair.key)).filter(key => typeof key === "string").map(overrideKey) : [];
+  for (const keyPath of [...MANAGED_KEYS, ...overrideKeys]) {
     const node = doc.getIn(keyPath, true);
     if (YAML.isScalar(node)) {
       if (!isCgsModelRef(node.value)) continue;
@@ -367,13 +503,19 @@ async function prepareAgentDir(agentDir, { pluginSourceDir }) {
 }
 
 module.exports = {
-  DEFAULT_ROLES,
-  WEB_MODEL,
   MANAGED_KEYS,
   FIRST_RUN_DEFAULTS,
-  applyDefaultRolesToDocument,
-  applyDefaultRoles,
+  THINKING_LEVELS,
+  applyLayoutToDocument,
+  applyDefaultLayout,
   applyFirstRunDefaults,
+  normalizeLayout,
+  fetchLayout,
+  ensureDefaultLayout,
+  orchestrationFromDocument,
+  applyOrchestrationToDocument,
+  readOrchestration,
+  writeOrchestration,
   fetchModelIds,
   readCredentials,
   writeCredentials,

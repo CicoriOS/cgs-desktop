@@ -30,80 +30,122 @@ test("index exports the contract interface", () => {
 
 const WEB = "cgs-antigravity/gemini-3.8-flash";
 
-// The one default mapping: search Gemini 3.8 Flash, main agent Claude Haiku, task DeepSeek Flash 4.1, reviewer Astra,
-// scout Haiku; each model on its vendor's channel.
+// GET /api/device/layout `data`, as the server sends it.
+const SERVER_LAYOUT = {
+  orchestrator: { model: "cgs-claude/claude-haiku-5-5", thinking: "off" },
+  agents: [
+    { name: "task", model: "cgs-openai/deepseek-v4.1-flash", thinking: "max" },
+    { name: "sonic", model: "cgs-claude/claude-haiku-5-5", thinking: "max" },
+    { name: "reviewer", model: "cgs-codex/gpt-6-astra", thinking: "max" },
+  ],
+  web_model: WEB,
+};
+const LAYOUT = cw.normalizeLayout(SERVER_LAYOUT);
+
 const EXPECTED_DEFAULTS = {
-  modelRoles: {
-    default: "cgs-claude/claude-haiku-5-5:auto",
-    task: "cgs-openai/deepseek-v4.1-flash:auto",
-    web: WEB,
+  modelRoles: { default: "cgs-claude/claude-haiku-5-5:off", web: WEB },
+  task: {
+    agentModelOverrides: {
+      task: "cgs-openai/deepseek-v4.1-flash:max",
+      sonic: "cgs-claude/claude-haiku-5-5:max",
+      reviewer: "cgs-codex/gpt-6-astra:max",
+    },
   },
   retry: { fallbackChains: { web: [WEB] } },
-  task: { agentModelOverrides: { reviewer: "cgs-codex/gpt-6-astra:auto", scout: "cgs-claude/claude-haiku-5-5:auto" } },
 };
 
-test("default roles: the documented mapping is written and recorded as applied", async () => {
+test("normalizeLayout accepts the server layout and rejects unusable ones", () => {
+  assert.deepEqual(LAYOUT, {
+    orchestrator: { model: "cgs-claude/claude-haiku-5-5", thinking: "off" },
+    agents: SERVER_LAYOUT.agents,
+    webModel: WEB,
+  });
+  assert.equal(cw.normalizeLayout(null), null);
+  assert.equal(cw.normalizeLayout({ agents: [] }), null); // no orchestrator model
+  assert.equal(cw.normalizeLayout({ ...SERVER_LAYOUT, orchestrator: { model: "a/b", thinking: "huge" } }), null);
+  assert.equal(cw.normalizeLayout({ ...SERVER_LAYOUT, agents: [{ name: "../x", model: "a/b" }] }), null);
+  assert.equal(cw.normalizeLayout({ ...SERVER_LAYOUT, agents: [{ name: "x", model: "a/b" }, { name: "x", model: "a/c" }] }), null);
+});
+
+test("default layout: written and recorded as applied", async () => {
   const dir = tmpDir();
-  await cw.applyDefaultRoles(dir);
+  await cw.applyDefaultLayout(dir, LAYOUT);
   assert.deepEqual(parsed(dir), EXPECTED_DEFAULTS);
   assert.equal((await readState(dir)).defaultsApplied, true);
 });
 
-test("default roles replace a stale web chain and keep other retry settings and chains", async () => {
-  const dir = tmpDir();
-  fs.writeFileSync(
-    path.join(dir, "config.yml"),
-    ["retry:", "  maxRetries: 7", "  fallbackChains:", "    web: [anthropic/claude-haiku-4-5]", "    default: [a/b]", ""].join("\n"),
-  );
-  await cw.applyDefaultRoles(dir);
-  const cfg = parsed(dir);
-  assert.deepEqual(cfg.retry.fallbackChains.web, [WEB]);
-  assert.deepEqual(cfg.retry.fallbackChains.default, ["a/b"]);
-  assert.equal(cfg.retry.maxRetries, 7);
-});
-
-test("unrelated keys and comments survive applying the default roles", async () => {
+test("default layout replaces a stale web chain and keeps other retry settings, chains, overrides and comments", async () => {
   const dir = tmpDir();
   fs.writeFileSync(
     path.join(dir, "config.yml"),
     [
       "# my personal omp config",
-      "theme:",
-      "  dark: titanium # favourite",
       "modelRoles:",
       "  plan: anthropic/claude-opus-5-5:xhigh # keep me",
-      "  web: old/web-model",
+      "retry:",
+      "  maxRetries: 7",
+      "  fallbackChains:",
+      "    web: [anthropic/claude-haiku-4-5]",
+      "    default: [a/b]",
       "task:",
       "  enableLsp: true",
       "  agentModelOverrides:",
       "    explore: x/y # keep explore",
-      "    scout: old/scout",
-      "# trailing comment",
+      "    sonic: old/sonic",
       "",
     ].join("\n"),
   );
-  await cw.applyDefaultRoles(dir);
+  await cw.applyDefaultLayout(dir, LAYOUT);
   const text = read(dir);
   assert.match(text, /# my personal omp config/);
-  assert.match(text, /dark: titanium # favourite/);
   assert.match(text, /plan: anthropic\/claude-opus-5-5:xhigh # keep me/);
   assert.match(text, /explore: x\/y # keep explore/);
-  assert.match(text, /# trailing comment/);
   const cfg = YAML.parse(text);
-  assert.equal(cfg.modelRoles.web, WEB);
-  assert.equal(cfg.task.agentModelOverrides.scout, "cgs-claude/claude-haiku-5-5:auto");
-  assert.equal(cfg.task.agentModelOverrides.reviewer, "cgs-codex/gpt-6-astra:auto");
-  assert.equal(cfg.task.agentModelOverrides.explore, "x/y");
+  assert.deepEqual(cfg.retry.fallbackChains, { web: [WEB], default: ["a/b"] });
+  assert.equal(cfg.retry.maxRetries, 7);
   assert.equal(cfg.task.enableLsp, true);
-  assert.equal(cfg.modelRoles.plan, "anthropic/claude-opus-5-5:xhigh");
-  assert.equal(cfg.theme.dark, "titanium");
+  assert.equal(cfg.task.agentModelOverrides.sonic, "cgs-claude/claude-haiku-5-5:max");
+  assert.equal(cfg.task.agentModelOverrides.explore, "x/y");
 });
 
 test("invalid YAML is never overwritten", async () => {
   const dir = tmpDir();
   fs.writeFileSync(path.join(dir, "config.yml"), "a: [unterminated\n");
-  await assert.rejects(cw.applyDefaultRoles(dir), /not valid YAML/);
+  await assert.rejects(cw.applyDefaultLayout(dir, LAYOUT), /not valid YAML/);
   assert.equal(read(dir), "a: [unterminated\n");
+});
+
+test("orchestration: read, edit, add and remove roles, keep unrelated config", async () => {
+  const dir = tmpDir();
+  await cw.applyDefaultLayout(dir, LAYOUT);
+  fs.appendFileSync(path.join(dir, "config.yml"), "theme:\n  dark: titanium # mine\n");
+  const current = await cw.readOrchestration(dir);
+  assert.deepEqual(current, { orchestrator: LAYOUT.orchestrator, agents: LAYOUT.agents });
+
+  // task follows the agent default (no override), reviewer drops its level, a new role is added, sonic is removed
+  const next = {
+    orchestrator: { model: "cgs-claude/claude-sonnet-5-5", thinking: "high" },
+    agents: [
+      { name: "task", model: "", thinking: "max" },
+      { name: "reviewer", model: "cgs-codex/gpt-6-astra", thinking: "" },
+      { name: "scout", model: "cgs-claude/claude-haiku-5-5", thinking: "low" },
+    ],
+  };
+  const stored = await cw.writeOrchestration(dir, next);
+  assert.deepEqual(stored.agents.map(a => a.name), ["reviewer", "scout"]);
+  const cfg = parsed(dir);
+  assert.equal(cfg.modelRoles.default, "cgs-claude/claude-sonnet-5-5:high");
+  assert.deepEqual(cfg.task.agentModelOverrides, { reviewer: "cgs-codex/gpt-6-astra", scout: "cgs-claude/claude-haiku-5-5:low" });
+  assert.equal(cfg.modelRoles.web, WEB);
+  assert.match(read(dir), /dark: titanium # mine/);
+
+  // removing every agent drops the empty override map
+  await cw.writeOrchestration(dir, { orchestrator: next.orchestrator, agents: [] });
+  assert.equal(parsed(dir).task, undefined);
+
+  await assert.rejects(cw.writeOrchestration(dir, { orchestrator: { model: "" }, agents: [] }), /model is required/);
+  await assert.rejects(cw.writeOrchestration(dir, { orchestrator: next.orchestrator, agents: [{ name: "a b", model: "x/y" }] }), /Invalid agent name/);
+  await assert.rejects(cw.writeOrchestration(dir, { orchestrator: { model: "x/y", thinking: "huge" }, agents: [] }), /thinking level/);
 });
 
 test("prepareAgentDir writes defaults only if absent and leaves user values alone", async () => {
@@ -186,15 +228,23 @@ test("credentials.json is written 0600 and getLoginState reads it; a pre-client 
   assert.equal(await cw.readCredentials(dir), null);
 });
 
-test("first login applies the default roles; later logins and tier polls never rewrite config.yml", async () => {
+test("the server layout is applied once (retried by the tier poll after a failure); later logins and polls never rewrite config.yml", async () => {
   let currentTier = "free";
   let currentModels = ["deepseek-v4.1-flash"];
   let tierStatus = 200;
+  let layoutStatus = 503;
+  let layoutRequests = 0;
   let seen = null;
   const srv = http.createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");
     if (req.url === "/v1/models") {
       res.end(JSON.stringify({ object: "list", data: currentModels.map(id => ({ id })) }));
+      return;
+    }
+    if (req.url === "/api/device/layout") {
+      layoutRequests++;
+      res.statusCode = layoutStatus;
+      res.end(JSON.stringify(layoutStatus === 200 ? { success: true, data: SERVER_LAYOUT } : { success: false }));
       return;
     }
     if (req.url === "/api/device/tier") {
@@ -217,10 +267,18 @@ test("first login applies the default roles; later logins and tier polls never r
   const dir = tmpDir();
 
   try {
-    // 1. First-ever login in this agentDir → default roles written.
+    // 1. First-ever login while the layout endpoint fails: signed in, nothing written to config.yml yet.
     await cw.completeLogin({ agentDir: dir, baseUrl, clientSecret: "cgc_1", tier: "free", username: "alice" });
+    assert.equal(fs.existsSync(path.join(dir, "config.yml")), false);
+    assert.deepEqual(await readState(dir), { defaultsApplied: false, lastKnownTier: "free" });
+
+    // 1b. The next tier poll fetches the layout and applies it.
+    layoutStatus = 200;
+    const first = new CgsController({ agentDir: dir, intervalMs: 60_000 });
+    await first.refresh();
+    first.stop();
     assert.deepEqual(parsed(dir), EXPECTED_DEFAULTS);
-    assert.deepEqual(await readState(dir), { defaultsApplied: true, lastKnownTier: "free" });
+    assert.equal((await readState(dir)).defaultsApplied, true);
 
     // 2. The user changes the main agent; a re-login after upgrading to pro updates credentials and the tier only.
     const cfg = parsed(dir);
@@ -245,6 +303,7 @@ test("first login applies the default roles; later logins and tier polls never r
     assert.equal(seen.os, require("../src/cgs/client-info").osVersion());
     assert.equal(seen.version, require("../package.json").version);
     assert.equal(parsed(dir).modelRoles.default, "cgs-claude/claude-opus-5-5:auto");
+    assert.equal(layoutRequests, 2); // the failed one at login and the applied one; never again
     assert.deepEqual((await ctl.snapshot()).tier, "dedicated");
 
     // 4. 401 on tier poll → treated as signed out.

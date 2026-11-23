@@ -46,16 +46,44 @@ test("four channels: providers are partitioned by model id; each keeps its vendo
 
   assert.equal(providers["cgs-claude"].api, "anthropic-messages");
   assert.equal(providers["cgs-claude"].baseUrl, "https://api.example.com");
-  assert.equal(providers["cgs-claude"].apiKey, "cgc_test");
+  assert.equal(providers["cgs-claude"].apiKey, "CGS_CLIENT_SECRET");
   assert.equal(providers["cgs-antigravity"].api, "google-gemini-cli");
   assert.equal(providers["cgs-antigravity"].baseUrl, "https://api.example.com");
-  assert.deepEqual(JSON.parse(providers["cgs-antigravity"].apiKey), { token: "cgc_test", projectId: "cgs" });
+  assert.equal(providers["cgs-antigravity"].apiKey, "CGS_ANTIGRAVITY_KEY");
   assert.equal(providers["cgs-codex"].api, "openai-codex-responses");
   assert.equal(providers["cgs-codex"].baseUrl, "https://api.example.com/v1");
-  assert.equal(providers["cgs-codex"].apiKey, "cgc_test");
+  assert.equal(providers["cgs-codex"].apiKey, "CGS_CLIENT_SECRET");
   assert.equal(providers["cgs-openai"].api, "openai-completions");
   assert.equal(providers["cgs-openai"].baseUrl, "https://api.example.com/v1");
-  assert.equal(providers["cgs-openai"].apiKey, "cgc_test");
+  assert.equal(providers["cgs-openai"].apiKey, "CGS_CLIENT_SECRET");
+  // the credential itself lives in the environment those names point at
+  const env = {};
+  const { applyCredentialEnv } = await load();
+  applyCredentialEnv(readCredentials(dir), env);
+  assert.deepEqual(env, { CGS_CLIENT_SECRET: "cgc_test", CGS_ANTIGRAVITY_KEY: JSON.stringify({ token: "cgc_test", projectId: "cgs" }) });
+});
+
+test("an account switch reaches a running process: watchCredentials reports the new credentials, not a sign-out", async () => {
+  const { watchCredentials } = await load();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cgs-plugin-"));
+  fs.mkdirSync(path.join(dir, "cgs"));
+  const file = path.join(dir, "cgs", "credentials.json");
+  fs.writeFileSync(file, JSON.stringify(CREDS));
+  const seen = [];
+  const stop = watchCredentials(dir, creds => seen.push(creds.clientSecret), 10);
+  const tick = () => new Promise(r => setTimeout(r, 40));
+  try {
+    await tick();
+    assert.deepEqual(seen, []); // unchanged file: nothing
+    fs.rmSync(file); // account A signs out
+    await tick();
+    assert.deepEqual(seen, []);
+    fs.writeFileSync(file, JSON.stringify({ ...CREDS, clientSecret: "cgc_B" })); // account B signs in
+    await tick();
+    assert.deepEqual(seen, ["cgc_B"]);
+  } finally {
+    stop();
+  }
 });
 
 test("image/embedding models are never registered; providers without models are omitted", async () => {
@@ -227,7 +255,7 @@ test("usage provider calls <root>/api/device/usage with the client credential, w
     calls.push([url, init.headers.Authorization, init.signal instanceof AbortSignal]);
     return { status, ok: status >= 200 && status < 300, json: async () => body };
   };
-  const provider = createUsageProvider({ baseUrl: "https://api.example.com", clientSecret: "cgc_abc" }, "cgs-openai");
+  const provider = createUsageProvider(() => ({ baseUrl: "https://api.example.com", clientSecret: "cgc_abc" }), "cgs-openai");
   assert.equal(provider.id, "cgs-openai");
   const params = { provider: "cgs-openai", credential: { type: "api_key", apiKey: "something-else" }, baseUrl: "https://api.example.com/v1" };
 

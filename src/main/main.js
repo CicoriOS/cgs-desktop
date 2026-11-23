@@ -25,6 +25,8 @@ let quitting = false;
 let mainWindowCreated = false;
 /** @type {import("../cgs/controller").CgsController | null} */
 let cgsController = null;
+/** @type {import("./updater").Updater | null} */
+let updater = null;
 
 nativeTheme.themeSource = "system";
 
@@ -47,6 +49,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", () => {
     quitting = true;
     cgsController?.stop();
+    updater?.stop();
     if (services) services.stop();
   });
   app.on("will-quit", () => {
@@ -113,6 +116,9 @@ async function start() {
 
   createMainWindow();
   mainWindowCreated = true;
+  const { Updater } = require("./updater");
+  updater = new Updater({ app, onState: broadcastUpdate });
+  updater.start();
   await mainWindow.loadFile(path.join(__dirname, "loading.html"));
   const started = await servicesReady;
   if (quitting) return;
@@ -131,6 +137,12 @@ function broadcastCgsState(snap) {
 function broadcastUsage(usageSnap) {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send("cgs:usage", usageSnap);
+  }
+}
+
+function broadcastUpdate(state) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send("cgs:update", state);
   }
 }
 
@@ -315,6 +327,42 @@ function registerIpc() {
   });
   ipcMain.handle("cgs:get-usage", () => (cgsController ? cgsController.usageSnapshot() : null));
   ipcMain.handle("cgs:refresh-usage", () => (cgsController ? cgsController.refreshUsage() : null));
+  // Self-update (see updater.js).
+  ipcMain.handle("cgs:update-get", () => (updater ? updater.state() : null));
+  ipcMain.handle("cgs:update-check", () => (updater ? updater.check() : null));
+  ipcMain.handle("cgs:update-install", () => (updater ? updater.install() : false));
+  ipcMain.handle("cgs:app-version", () => app.getVersion());
+  // Settings → Agents orchestrator (see main-preload.js): config.yml modelRoles.default + task.agentModelOverrides.
+  ipcMain.handle("cgs:orchestration-get", async () => {
+    if (!cgsController) return { ok: false, error: "CGS not ready" };
+    const { readOrchestration } = require("../cgs/config-writer");
+    try {
+      return { ok: true, orchestration: await readOrchestration(cgsController.agentDir) };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle("cgs:orchestration-save", async (_event, orchestration) => {
+    if (!cgsController) return { ok: false, error: "CGS not ready" };
+    const { writeOrchestration } = require("../cgs/config-writer");
+    try {
+      return { ok: true, orchestration: await writeOrchestration(cgsController.agentDir, orchestration) };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  // The server's default layout (GET /api/device/layout), for "restore defaults"; never written here.
+  ipcMain.handle("cgs:orchestration-defaults", async () => {
+    if (!cgsController) return { ok: false, error: "CGS not ready" };
+    const { fetchLayout, readCredentials } = require("../cgs/config-writer");
+    const creds = await readCredentials(cgsController.agentDir);
+    if (!creds) return { ok: false, error: "signed-out" };
+    try {
+      return { ok: true, layout: await fetchLayout({ baseUrl: creds.baseUrl, clientSecret: creds.clientSecret }) };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
   // ompweb's `omp-*` localStorage mirror (see prefs.js / main-preload.js): sync load before page scripts, async deltas.
   ipcMain.on("cgs:prefs-load", (event) => {
     event.returnValue = prefsStore().load();

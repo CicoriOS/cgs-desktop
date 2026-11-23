@@ -1,7 +1,7 @@
 {
   "name": "cgs-desktop",
   "productName": "CGS Desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "CGS Desktop: omp coding agent + ompweb in a desktop window, with the CGS provider",
   "desktopName": "cgs-desktop.desktop",
   "main": "src/main/main.js",
@@ -19,9 +19,11 @@
     "start": "electron .",
     "test": "node --test test/*.test.js",
     "dist:win": "node scripts/fetch-upstream.mjs --target win-x64 && electron-builder --win --x64 --publish never",
-    "dist:linux": "node scripts/fetch-upstream.mjs --target linux-x64 && electron-builder --linux AppImage --x64 --publish never"
+    "dist:linux": "node scripts/fetch-upstream.mjs --target linux-x64 && electron-builder --linux AppImage --x64 --publish never",
+    "release:bump": "npm version patch -m \"release: v%s\""
   },
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "yaml": "^2.8.1"
   },
   "devDependencies": {
@@ -41,6 +43,14 @@
       "assets/**/*"
     ],
     "afterPack": "scripts/after-pack.js",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "CicoriOS",
+        "repo": "cgs-desktop",
+        "releaseType": "release"
+      }
+    ],
     "extraResources": [
       {
         "from": "plugin/omp-cgs",
@@ -63,9 +73,18 @@
       ],
       "icon": "assets/icon.ico",
       "extraResources": [
-        { "from": "vendor/win-x64/omp", "to": "omp" },
-        { "from": "vendor/win-x64/ompweb", "to": "ompweb" },
-        { "from": "vendor/win-x64/chromium", "to": "chromium" }
+        {
+          "from": "vendor/win-x64/omp",
+          "to": "omp"
+        },
+        {
+          "from": "vendor/win-x64/ompweb",
+          "to": "ompweb"
+        },
+        {
+          "from": "vendor/win-x64/chromium",
+          "to": "chromium"
+        }
       ]
     },
     "linux": {
@@ -83,16 +102,25 @@
       "artifactName": "CGS-Desktop-${version}-${arch}.${ext}",
       "syncDesktopName": true,
       "extraResources": [
-        { "from": "vendor/linux-x64/omp", "to": "omp" },
-        { "from": "vendor/linux-x64/ompweb", "to": "ompweb" },
-        { "from": "vendor/linux-x64/chromium", "to": "chromium" }
+        {
+          "from": "vendor/linux-x64/omp",
+          "to": "omp"
+        },
+        {
+          "from": "vendor/linux-x64/ompweb",
+          "to": "ompweb"
+        },
+        {
+          "from": "vendor/linux-x64/chromium",
+          "to": "chromium"
+        }
       ]
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "CGS-Desktop-Setup-${version}.${ext}"
     }
   }
 }
