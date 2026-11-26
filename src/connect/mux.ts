@@ -37,6 +37,8 @@ const READ_ONLY_FRAMES: Record<string, true> = {
   get_session_stats: true,
   get_subagents: true,
   get_subagent_messages: true,
+  // Changes only which frames omp forwards to this connection, not the session.
+  set_subagent_subscription: true,
   get_model_picker: true,
   get_available_thinking_levels: true,
   get_btw_history: true,

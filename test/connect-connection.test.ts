@@ -132,7 +132,7 @@ test("first connection: password, fingerprint to confirm, then the host API work
   expect(c.getSnapshot().name).toBe("Chrome on Linux");
   expect(w.sockets).toHaveLength(0);
 
-  c.password(PASSWORD, "My laptop");
+  c.password(PASSWORD);
   await until(c, "fingerprint");
   expect(c.getSnapshot().emoji).toHaveLength(12);
   expect(w.sockets[0]!.url).toBe("wss://cgs.example/relay?ticket=T");
@@ -144,14 +144,14 @@ test("first connection: password, fingerprint to confirm, then the host API work
   // A POST whose optional field is undefined (the page's own openChild) must reach the device as plain JSON.
   await expect(c.host.openChild("/w")).resolves.toMatchObject({ cwd: "/w" });
   expect(w.devices[0]!.seen.findLast((m) => m.k === "req")).toMatchObject({ method: "POST", path: "/api/children", body: { cwd: "/w" } });
-  expect(w.credentials.browsers.map((b) => b.name)).toEqual(["My laptop"]);
+  expect(w.credentials.browsers.map((b) => b.name)).toEqual(["Chrome on Linux"]);
 });
 
 test("a wrong password asks again and does not save a key", async () => {
   const w = await world();
   const c = connect(w);
   await c.start();
-  c.password("not the password", "Laptop");
+  c.password("not the password");
   await until(c, "password");
   expect(c.getSnapshot().problem).toBeTruthy();
   expect(w.credentials.browsers).toEqual([]);
@@ -161,7 +161,7 @@ test("a saved key resumes without a password and without a fingerprint step", as
   const w = await world();
   const first = connect(w);
   await first.start();
-  first.password(PASSWORD, "Laptop");
+  first.password(PASSWORD);
   await until(first, "fingerprint");
   first.confirm();
   await until(first, "ready");
@@ -177,7 +177,7 @@ test("a device whose key changed is refused until the user confirms and signs in
   const w = await world();
   const first = connect(w);
   await first.start();
-  first.password(PASSWORD, "Laptop");
+  first.password(PASSWORD);
   await until(first, "fingerprint");
   first.confirm();
   await until(first, "ready");
@@ -196,14 +196,14 @@ test("without a console login the page asks to sign in; without the entitlement 
   w.refreshStatus = 401;
   const c = connect(w);
   await c.start();
-  c.password(PASSWORD, "Laptop");
+  c.password(PASSWORD);
   await until(c, "login");
 
   const v = await world();
   v.ticketStatus = 403;
   const d = connect(v);
   await d.start();
-  d.password(PASSWORD, "Laptop");
+  d.password(PASSWORD);
   await until(d, "forbidden");
 });
 
@@ -215,7 +215,7 @@ test("when another browser holds control the page says so, takes over on request
   };
   const c = connect(w);
   await c.start();
-  c.password(PASSWORD, "Laptop");
+  c.password(PASSWORD);
   await until(c, "busy");
   expect(c.getSnapshot().by).toBe("Phone");
   c.takeover();
@@ -233,7 +233,7 @@ test("relay close codes map to pages: device offline keeps retrying", async () =
   const w = await world();
   const c = connect(w);
   await c.start();
-  c.password(PASSWORD, "Laptop");
+  c.password(PASSWORD);
   await until(c, "fingerprint");
   c.confirm();
   await until(c, "ready");

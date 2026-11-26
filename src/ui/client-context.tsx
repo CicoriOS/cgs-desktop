@@ -2,18 +2,10 @@ import { createContext, type ReactNode, useContext, useMemo, useSyncExternalStor
 import { t } from "../i18n";
 import type { Actions, Client, ClientState } from "../core/types";
 
-/** One symbol of a device fingerprint (ADR 0036). Only the connect page supplies these. */
-export interface DeviceMark {
-  readonly emoji: string;
-  readonly zh: string;
-  readonly en: string;
-}
-
 interface Scope {
   client: Client;
   actions: Actions;
   readOnly: boolean;
-  mark?: readonly DeviceMark[];
 }
 
 const Ctx = createContext<Scope | undefined>(undefined);
@@ -35,13 +27,10 @@ function readOnlyActions(actions: Actions): Actions {
   return guarded as unknown as Actions;
 }
 
-/**
- * `readOnly`: the view shows the session but no action can change it (taken over elsewhere).
- * `mark`: the device fingerprint, shown in the sidebar's device line when present.
- */
-export function ClientProvider({ client, readOnly = false, mark, children }: { client: Client; readOnly?: boolean; mark?: readonly DeviceMark[]; children: ReactNode }) {
+/** `readOnly`: the view shows the session but no action can change it (taken over elsewhere). */
+export function ClientProvider({ client, readOnly = false, children }: { client: Client; readOnly?: boolean; children: ReactNode }) {
   const actions = useMemo(() => (readOnly ? readOnlyActions(client.actions) : client.actions), [client, readOnly]);
-  const scope = useMemo<Scope>(() => ({ client, actions, readOnly, mark }), [client, actions, readOnly, mark]);
+  const scope = useMemo<Scope>(() => ({ client, actions, readOnly }), [client, actions, readOnly]);
   return <Ctx.Provider value={scope}>{children}</Ctx.Provider>;
 }
 
@@ -64,5 +53,3 @@ export function useClientState<T>(select: (s: ClientState) => T): T {
 export const useActions = (): Actions => useScope().actions;
 
 export const useReadOnly = (): boolean => useScope().readOnly;
-
-export const useDeviceMark = (): readonly DeviceMark[] | undefined => useScope().mark;

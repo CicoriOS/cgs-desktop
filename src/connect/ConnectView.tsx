@@ -35,7 +35,7 @@ export function ConnectView({ device }: { device: string }) {
   if (live && client) {
     const readOnly = state.phase === "readonly";
     return (
-      <ClientProvider client={client} readOnly={readOnly} mark={state.emoji}>
+      <ClientProvider client={client} readOnly={readOnly}>
         <div className="connect-shell">
           {readOnly && (
             <div className="connect-banner" role="status">

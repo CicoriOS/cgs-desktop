@@ -1,6 +1,6 @@
 import { type JSX, useEffect, useMemo, useState } from "react";
 import type { RingState, ToolCall } from "../../../core/types";
-import { useClientState } from "../../client-context";
+import { useRunScope } from "../scope";
 import { baseName } from "../../format";
 import { Ring } from "../../ring";
 import { addedLines, diffStats, type DiffLine, parseDiff, replacementPreview } from "./diff";
@@ -154,8 +154,7 @@ export function toolRingState(call: ToolCall, streaming: boolean): RingState {
 }
 
 export function ToolCard({ call }: { call: ToolCall }) {
-  const streaming = useClientState((s) => s.run.streaming);
-  const level = useClientState((s) => s.thinking.resolved);
+  const { streaming, level } = useRunScope();
   const failed = call.status === "fail";
   const [open, setOpen] = useState(false);
   const [autoOpened, setAutoOpened] = useState(false);

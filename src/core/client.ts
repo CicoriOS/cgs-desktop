@@ -1,8 +1,10 @@
-import { type EventFrame, applyFrame, initialState, newTurnId, ringFor } from "./reducer";
+import { type EventFrame, applyFrame, initialState, newTurnId, ringFor, subagentsFromTools } from "./reducer";
 import { type SessionEntry, activeBranch, turnsFromEntries, turnsFromMessages, turnTailIds } from "./history";
 import type { RawMessage } from "./messages";
 import { buildStats, type SessionTotals, type StatsView, type SubagentSnapshot, type UsageMessage } from "./stats";
-import type { Actions, BtwRecord, ChildStatus, Client, ClientState, DialogAnswer, HostApi, ImageRef, ModelPicker, RawLog, RingState, RpcTransport, ThinkingLevel, ToolCall, Turn } from "./types";
+import { mergeSubagents, reconcileRoster, subagentsFromSnapshot } from "./subagents";
+import { parsePhases } from "./todos";
+import type { Actions, BtwRecord, ChildStatus, Client, ClientState, DialogAnswer, HostApi, ImageRef, ModelPicker, RawLog, RingState, RpcTransport, SubagentTranscript, ThinkingLevel, ToolCall, Turn } from "./types";
 import { getLocale, subscribeLocale, t } from "../i18n";
 
 const RAW_CAP = 3000;
@@ -44,6 +46,7 @@ interface StateData {
   isStreaming?: boolean;
   isSettled?: boolean;
   queuedMessages?: { steering?: string[]; followUp?: string[] };
+  todoPhases?: unknown;
 }
 
 const toImageContent = (images: ImageRef[] | undefined) => (images?.length ? { images: images.map((i) => ({ type: "image", mimeType: i.mimeType, data: i.data })) } : {});
@@ -180,7 +183,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
         out.push({ ...t, state: "done", pending: false });
         continue;
       }
-      const started = t.assistant.some((a) => a.items.length > 0);
+      const started = t.assistant.some((a) => a.items.some((i) => i.kind !== "notice"));
       if (!started) {
         restore = { text: t.user.text, images: t.user.images };
         continue;
@@ -231,6 +234,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
       model: st.model ? { provider: st.model.provider, id: st.model.id, name: st.model.name ?? st.model.id } : s.model,
       thinking: { resolved: st.thinkingLevel ?? s.thinking.resolved, configured: st.configuredThinkingLevel ?? s.thinking.configured },
       sessionFile: st.sessionFile ?? s.sessionFile,
+      todos: st.todoPhases === undefined ? s.todos : parsePhases(st.todoPhases),
       run: { ...s.run, streaming: !(st.isSettled ?? !st.isStreaming) },
     }));
     if (state.run.streaming && state.run.state === "idle") requestRing("work");
@@ -284,13 +288,26 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     }
   }
 
+  /** Asks omp for subagent progress frames (ADR 0037) and reads the roster: frames sent before this point are not replayed. */
+  async function syncSubagents(): Promise<void> {
+    const current = epoch;
+    try {
+      await rpc({ type: "set_subagent_subscription", level: "progress" });
+      const roster = subagentsFromSnapshot(await rpc({ type: "get_subagents" }));
+      // What history lists as running but omp does not know is over; what omp lists is merged in.
+      if (current === epoch) set((s) => ({ ...s, subagents: mergeSubagents(reconcileRoster(s.subagents, roster), roster) }));
+    } catch {
+      /* an omp without subagent frames: the task results still list them */
+    }
+  }
+
   function resetSession(): void {
     clearTimeout(hold?.timer);
     hold = undefined;
     runEnded = false;
     endInfo = undefined;
     deliveringQueue = false;
-    set((s) => ({ ...s, turns: [], tools: {}, queue: [], dialogs: [], btw: [], title: "", run: { state: "idle", streaming: false } }));
+    set((s) => ({ ...s, turns: [], tools: {}, queue: [], todos: [], subagents: [], dialogs: [], btw: [], title: "", run: { state: "idle", streaming: false } }));
   }
 
   async function hydrate(): Promise<void> {
@@ -315,7 +332,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
         }
         set((s) => {
           let next: ClientState = {
-            ...s, ...built, title: built.turns[0]?.user.text.slice(0, 60) || s.title,
+            ...s, ...built, subagents: subagentsFromTools(built.tools), title: built.turns[0]?.user.text.slice(0, 60) || s.title,
             run: { streaming, state: ring ?? (streaming ? "work" : "idle") },
             thinking: { ...s.thinking, resolved: level ?? s.thinking.resolved },
             dialogs: [],
@@ -345,6 +362,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
       attached?.resolve(false);
       toast(errorMessage(e));
     }
+    if (current === epoch && state.connection === "ready") void syncSubagents();
     if (current === epoch) void refreshSessions();
   }
 
@@ -471,6 +489,9 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
         return;
       case "thinking_level_changed":
         set((s) => ({ ...s, thinking: { resolved: (ev.resolved as ThinkingLevel) ?? s.thinking.resolved, configured: (ev.configured as ThinkingLevel | "auto") ?? s.thinking.configured } }));
+        return;
+      case "todo_auto_clear":
+        void refreshState();
         return;
       case "model_changed":
         void refreshState();
@@ -620,6 +641,10 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
         const r = await rpc<{ records?: BtwRecord[] }>({ type: "get_btw_history" });
         set((s) => ({ ...s, btw: (r.records ?? []).map((x) => ({ id: x.id, question: x.question, answer: x.answer ?? "", status: x.status })) }));
       }),
+    subagentTranscript: async (id, fromByte): Promise<SubagentTranscript> => {
+      const r = await rpc<{ messages?: RawMessage[]; nextByte?: number; reset?: boolean }>({ type: "get_subagent_messages", subagentId: id, ...(fromByte ? { fromByte } : {}) });
+      return { messages: r.messages ?? [], nextByte: r.nextByte ?? fromByte ?? 0, reset: r.reset === true };
+    },
     loadStats: async () => {
       const [totals, entries, subs] = await Promise.all([
         rpc<SessionTotals>({ type: "get_session_stats" }),

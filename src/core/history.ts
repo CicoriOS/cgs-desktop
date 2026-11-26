@@ -1,4 +1,4 @@
-import { assistantFrom, imagesOf, isReply, type RawMessage, resultFrom, textOf } from "./messages";
+import { assistantFrom, imagesOf, isReply, noticeFrom, type RawMessage, resultFrom, textOf } from "./messages";
 import { newTurnId } from "./reducer";
 import type { ToolCall, Turn } from "./types";
 
@@ -8,6 +8,10 @@ export interface SessionEntry {
   type: string;
   timestamp?: string;
   message?: RawMessage;
+  /** `custom_message` entries carry their message fields at the top level. */
+  customType?: string;
+  content?: unknown;
+  details?: unknown;
 }
 
 /** The entries on the path from the root to `leafId` (default: the last entry), oldest first. */
@@ -62,6 +66,15 @@ export function turnsFromMessages(items: Item[]): { turns: Turn[]; tools: Record
         turn.state = "failed";
         turn.errorText = m.errorMessage;
       }
+    } else if (m.role === "developer" || m.role === "custom") {
+      const notice = noticeFrom(id ?? `h${n}`, m);
+      if (!notice) continue;
+      let turn = turns.at(-1);
+      if (!turn) {
+        turn = { id: newTurnId(), user: { text: "" }, assistant: [], state: "done", startedAt: m.timestamp ?? 0 };
+        turns.push(turn);
+      }
+      turn.assistant.push({ id: `notice-${notice.id}`, items: [notice] });
     }
   }
   return { turns, tools };
@@ -69,9 +82,12 @@ export function turnsFromMessages(items: Item[]): { turns: Turn[]; tools: Record
 
 /** From `get_tree`-style entries: only the active branch, only message entries, with entry ids. */
 export function turnsFromEntries(entries: SessionEntry[], leafId?: string | null) {
-  const items = activeBranch(entries, leafId)
-    .filter((e) => e.type === "message" && e.message)
-    .map((e) => ({ id: e.id, message: e.message as RawMessage }));
+  const items = activeBranch(entries, leafId).flatMap((e) => {
+    if (e.type === "message" && e.message) return [{ id: e.id, message: e.message }];
+    // A custom message (a rule injected after a rewind) is stored beside the entry's own fields, not under `message`.
+    if (e.type === "custom_message") return [{ id: e.id, message: { role: "custom", customType: e.customType, content: e.content, details: e.details } }];
+    return [];
+  });
   return turnsFromMessages(items);
 }
 

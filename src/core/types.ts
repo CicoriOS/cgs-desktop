@@ -1,5 +1,6 @@
 // Shared contract for the web client (ADR 0032). The UI renders omp RPC frames; it never assumes a transport.
 // core/ turns frames into `ClientState` and implements `Actions`; ui/ only reads state and calls actions.
+import type { RawMessage } from "./messages";
 import type { StatsView } from "./stats";
 
 export type RingState = "idle" | "think" | "work" | "ok" | "fail" | "stop";
@@ -23,11 +24,22 @@ export interface ToolCall {
   result?: ToolResult;
 }
 
-/** One block of an assistant message, in stream order. */
+/** Text for the model, not the user (a harness reminder, a rule injected after a rewind): a quiet card, folded by default (ADR 0037). */
+export interface NoticeItem {
+  kind: "notice";
+  id: string;
+  tone: "reminder" | "notice" | "interrupt" | "rule" | "other";
+  /** `rule`: the rule names. */
+  names?: string;
+  text: string;
+}
+
+/** One block of an assistant message, in stream order. Notices sit in a message of their own. */
 export type AssistantItem =
   | { kind: "thinking"; text: string }
   | { kind: "text"; text: string }
-  | { kind: "tool"; callId: string };
+  | { kind: "tool"; callId: string }
+  | NoticeItem;
 
 export interface AssistantMessage {
   id: string;
@@ -80,6 +92,41 @@ export interface BtwRecord {
   status?: string;
 }
 
+export type TodoStatus = "pending" | "in_progress" | "completed" | "abandoned";
+
+/** omp's todo list: phases of tasks (`get_state.todoPhases`, `todo` tool results). */
+export interface TodoPhase {
+  name?: string;
+  tasks: { content: string; status: TodoStatus }[];
+}
+
+export type SubagentStatus = "pending" | "running" | "completed" | "failed" | "aborted";
+
+/** A subagent the main agent started (ADR 0037). Fields omp did not report stay undefined. */
+export interface SubagentInfo {
+  id: string;
+  index: number;
+  agent: string;
+  status: SubagentStatus;
+  description?: string;
+  /** The task given to it (assignment); its transcript's first message is the full prompt. */
+  task?: string;
+  /** The subagent's own thinking level as omp resolved it (`resolvedThinkingLevel`): `auto`, `high`, ... */
+  level?: string;
+  model?: string;
+  /** The `task` tool call that started it. */
+  parentToolCallId?: string;
+}
+
+/** A slice of a subagent's transcript read with `get_subagent_messages`. */
+export interface SubagentTranscript {
+  messages: RawMessage[];
+  /** Pass back as `fromByte` to read only what was appended since. */
+  nextByte: number;
+  /** The file shrank: the slice starts over and replaces what the caller held. */
+  reset: boolean;
+}
+
 export interface QueuedMessage {
   text: string;
   mode: "steer" | "followUp";
@@ -119,6 +166,10 @@ export interface ClientState {
   run: { state: RingState; streaming: boolean };
   /** Messages sent while the agent was busy and not yet delivered (`queue_update`). */
   queue: QueuedMessage[];
+  /** The session's todo list; empty when there is none. */
+  todos: TodoPhase[];
+  /** Subagents of this session, in the order they were started. */
+  subagents: SubagentInfo[];
   workspaces: Workspace[];
   children: ChildStatus[];
   btw: BtwRecord[];
@@ -182,6 +233,8 @@ export interface Actions {
   loadBtw(): Promise<void>;
   /** Token and cost use per model, cache hit rate, context fill per agent (`get_session_stats`, `get_entries`, `get_subagents`). */
   loadStats(): Promise<StatsView>;
+  /** The transcript of a subagent (`get_subagent_messages`); rejects when omp cannot give it (the process restarted). */
+  subagentTranscript(id: string, fromByte?: number): Promise<SubagentTranscript>;
   /** Sends a hand-written frame (RPC drawer). */
   sendRaw(json: string): void;
   clearRaw(): void;

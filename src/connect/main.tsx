@@ -2,6 +2,8 @@ import { createRoot } from "react-dom/client";
 import { getLocale } from "../i18n";
 import "../ui/styles/base.css";
 import "../ui/styles/chat.css";
+import "../ui/styles/dock.css";
+import "../ui/styles/notice.css";
 import "./connect.css";
 import { ConnectView } from "./ConnectView";
 import { MissingPage } from "./screens";

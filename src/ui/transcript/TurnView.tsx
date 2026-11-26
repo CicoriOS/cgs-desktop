@@ -6,6 +6,8 @@ import { CheckIcon, CopyIcon, ForkIcon } from "../icons";
 import { Ring } from "../ring";
 import { Markdown } from "./Markdown";
 import { callNames, type Step, viewTurn } from "./process";
+import { NoticeCard } from "./NoticeCard";
+import { useInSubagent, useRunScope } from "./scope";
 import { AskCard } from "./tools/AskCard";
 import { ToolCard } from "./tools/ToolCard";
 import { useT } from "../../i18n";
@@ -46,8 +48,7 @@ function Fold({ className, summary, children, defaultOpen = false }: { className
 
 function CallChain({ calls }: { calls: ToolCall[] }) {
   const t = useT();
-  const streaming = useClientState((s) => s.run.streaming);
-  const level = useClientState((s) => s.thinking.resolved);
+  const { streaming, level } = useRunScope();
   const running = calls.some((c) => c.status === "running");
   const failed = calls.some((c) => c.status === "fail");
   const state: RingState = running ? (streaming ? "work" : "idle") : failed ? "fail" : "ok";
@@ -68,6 +69,7 @@ function StepLine({ step, thinkingNow, live }: { step: Step; thinkingNow: boolea
   const t = useT();
   if (step.kind === "ask") return <AskCard call={step.call} live={live} />;
   if (step.kind === "calls") return <CallChain calls={step.calls} />;
+  if (step.kind === "notice") return <NoticeCard item={step.item} />;
   if (step.kind === "note")
     return (
       <div className="pnote">
@@ -84,9 +86,12 @@ function StepLine({ step, thinkingNow, live }: { step: Step; thinkingNow: boolea
 export const TurnView = memo(function TurnView({ turn, index, isLast, tools }: { turn: Turn; index: number; isLast: boolean; tools: Record<string, ToolCall> }) {
   const t = useT();
   const actions = useActions();
-  const readOnly = useReadOnly();
-  const run = useClientState((s) => s.run);
-  const level = useClientState((s) => s.thinking.resolved);
+  const inSubagent = useInSubagent();
+  const readOnly = useReadOnly() || inSubagent;
+  const mainRun = useClientState((s) => s.run);
+  const scope = useRunScope();
+  const level = scope.level;
+  const run = inSubagent ? { state: scope.streaming ? ("work" as const) : ("idle" as const), streaming: scope.streaming } : mainRun;
   const view = useMemo(() => viewTurn(turn, tools), [turn, tools]);
 
   const live = turn.state === "running";

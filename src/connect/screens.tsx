@@ -1,7 +1,6 @@
 import { type FormEvent, type ReactNode, useState } from "react";
 import { useLocale, useT } from "../i18n";
-import type { DeviceMark } from "../ui/client-context";
-import type { RelayConnection, RelayState } from "./connection";
+import type { DeviceMark, RelayConnection, RelayState } from "./connection";
 
 /** Plain shell for every connect page; the logo path follows the deployment base, not a fixed root. */
 export function Page({ children }: { children: ReactNode }) {
@@ -43,17 +42,15 @@ function Retry({ relay }: { relay: RelayConnection }) {
   );
 }
 
-function PasswordScreen({ name, problem, onSubmit }: { name: string; problem?: string; onSubmit: (password: string, name: string) => void }) {
+function PasswordScreen({ problem, onSubmit }: { problem?: string; onSubmit: (password: string) => void }) {
   const t = useT();
   const [password, setPassword] = useState("");
-  const [browser, setBrowser] = useState(name);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!password) return;
-    const trimmed = browser.trim() || name;
     setPassword("");
-    onSubmit(password, trimmed);
+    onSubmit(password);
   };
 
   return (
@@ -66,11 +63,6 @@ function PasswordScreen({ name, problem, onSubmit }: { name: string; problem?: s
           <span>{t("connect.password.label")}</span>
           <input type="password" autoFocus autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </label>
-        <label>
-          <span>{t("connect.password.name")}</span>
-          <input value={browser} maxLength={64} onChange={(e) => setBrowser(e.target.value)} />
-        </label>
-        <p className="muted small">{t("connect.password.nameHint")}</p>
         <div className="connect-actions">
           <button type="submit" className="primary" disabled={!password}>
             {t("connect.password.submit")}
@@ -169,7 +161,7 @@ export function StateScreen({ state, relay }: { state: RelayState; relay: RelayC
         </Notice>
       );
     case "password":
-      return <PasswordScreen name={state.name} problem={state.problem} onSubmit={(password, name) => relay.password(password, name)} />;
+      return <PasswordScreen problem={state.problem} onSubmit={(password) => relay.password(password)} />;
     case "fingerprint":
       return (
         <FingerprintScreen

@@ -1,5 +1,8 @@
-import { assistantFrom, imagesOf, isReply, type RawMessage, resultFrom, textOf } from "./messages";
-import type { ClientState, Dialog, RingState, ToolCall, Turn } from "./types";
+import { isRecord } from "./guards";
+import { assistantFrom, imagesOf, isReply, noticeFrom, type RawMessage, resultFrom, textOf } from "./messages";
+import { mergeSubagents, subagentFromFrame, subagentsFromTaskDetails } from "./subagents";
+import { parsePhases } from "./todos";
+import type { ClientState, Dialog, NoticeItem, RingState, SubagentInfo, ToolCall, Turn } from "./types";
 
 export function initialState(): ClientState {
   return {
@@ -12,6 +15,8 @@ export function initialState(): ClientState {
     tools: {},
     run: { state: "idle", streaming: false },
     queue: [],
+    todos: [],
+    subagents: [],
     dialogs: [],
     workspaces: [],
     children: [],
@@ -36,6 +41,8 @@ export interface EventFrame {
   record?: { id: string; question: string; answer?: string; status?: string };
   recordId?: string;
   delta?: string;
+  /** subagent_lifecycle / subagent_progress */
+  payload?: unknown;
   // extension_ui_request
   id?: string;
   method?: string;
@@ -97,6 +104,27 @@ function setResult(tools: Record<string, ToolCall>, id: string, result: ToolCall
   return { ...tools, [id]: { ...call, result, status: result.isError ? "fail" : "ok" } };
 }
 
+/** What a finished tool call tells beyond its own card: a `todo` result is the new list, a `task` result lists the subagents it ran. */
+function foldToolResult(s: ClientState, call: ToolCall | undefined): ClientState {
+  if (!call?.result || call.result.isError) return s;
+  const details = call.result.details;
+  if (call.name === "todo") return isRecord(details) && Array.isArray(details.phases) ? { ...s, todos: parsePhases(details.phases) } : s;
+  if (call.name === "task") return { ...s, subagents: mergeSubagents(s.subagents, subagentsFromTaskDetails(details, call.id)) };
+  return s;
+}
+
+/** The subagents the `task` results of a rebuilt history list. */
+export function subagentsFromTools(tools: Record<string, ToolCall>): SubagentInfo[] {
+  return mergeSubagents([], Object.values(tools).flatMap((c) => (c.name === "task" && c.result && !c.result.isError ? subagentsFromTaskDetails(c.result.details, c.id) : [])));
+}
+
+/** A notice goes in as a message of its own, in arrival order; the same frame twice (start, end) adds it once. */
+function addNotice(s: ClientState, notice: NoticeItem, now: number): ClientState {
+  const turns = s.turns.length ? s.turns : [{ id: newTurnId(), user: { text: "" }, assistant: [], state: "running" as const, startedAt: now }];
+  if (turns.at(-1)!.assistant.some((a) => a.items.some((i) => i.kind === "notice" && i.id === notice.id))) return s;
+  return { ...s, turns: replaceLast(turns, (t) => ({ ...t, assistant: [...t.assistant, { id: `notice-${notice.id}`, items: [notice] }] })) };
+}
+
 function onMessage(s: ClientState, f: EventFrame, now: number): ClientState {
   const m = (typeof f.message === "object" ? f.message : undefined) ?? f.assistantMessageEvent?.partial;
   if (!m) return s;
@@ -117,9 +145,15 @@ function onMessage(s: ClientState, f: EventFrame, now: number): ClientState {
   }
 
   if (m.role === "toolResult") {
-    return m.toolCallId ? { ...s, tools: setResult(s.tools, m.toolCallId, resultFrom(m)) } : s;
+    if (!m.toolCallId) return s;
+    const tools = setResult(s.tools, m.toolCallId, resultFrom(m));
+    return foldToolResult({ ...s, tools }, tools[m.toolCallId]);
   }
 
+  if (m.role === "developer" || m.role === "custom") {
+    const notice = noticeFrom(f.messageId ?? `n${s.turns.length}:${textOf(m.content).length}`, m);
+    return notice ? addNotice(s, notice, now) : s;
+  }
   if (m.role !== "assistant" || !f.messageId) return s;
   const { message, calls } = assistantFrom(f.messageId, m);
   const turns = s.turns.length
@@ -152,7 +186,14 @@ export function applyFrame(s: ClientState, f: EventFrame, now: number): ClientSt
     }
     case "tool_execution_end": {
       if (!f.toolCallId || s.tools[f.toolCallId]?.result) return s;
-      return { ...s, tools: setResult(s.tools, f.toolCallId, { content: f.result?.content ?? [], details: f.result?.details, isError: !!f.isError }, f.toolName) };
+      const tools = setResult(s.tools, f.toolCallId, { content: f.result?.content ?? [], details: f.result?.details, isError: !!f.isError }, f.toolName);
+      return foldToolResult({ ...s, tools }, tools[f.toolCallId]);
+    }
+    case "subagent_lifecycle":
+    case "subagent_progress": {
+      const info = subagentFromFrame(f);
+      const started = f.type === "subagent_lifecycle" && isRecord(f.payload) && f.payload.status === "started";
+      return info ? { ...s, subagents: mergeSubagents(s.subagents, [info], started) } : s;
     }
     case "extension_ui_request": {
       if (f.method === "cancel") return { ...s, dialogs: s.dialogs.filter((d) => d.id !== f.targetId) }; // omp closed it (timeout, abort)

@@ -37,3 +37,16 @@ export function Ring({ state, level, small }: { state: RingState; level: Thinkin
   if (state === "think") style["--c"] = levelColor(level);
   return <span className={small ? "ring sm" : "ring"} role="img" data-s={state} aria-label={name} title={name} style={style} />;
 }
+
+/** A subagent's own thinking level (ADR 0037), whatever it is doing now: a dot in the level's colour and its name beside it. An unknown level is a hollow grey dot and no name. */
+export function LevelDot({ level }: { level?: string }) {
+  const t = useT();
+  const name = level ? levelName(level) : undefined;
+  const title = name ? t("dock.thinking", { level: name }) : t("dock.thinkingUnknown");
+  return (
+    <span className="lvl" title={title} aria-label={title} role="img" data-known={level ? "1" : "0"} data-hot={level && isHot(level) ? "1" : "0"}>
+      <i style={level ? { background: levelColor(level) } : undefined} />
+      {name && <small>{name}</small>}
+    </span>
+  );
+}

@@ -63,6 +63,12 @@ input, textarea { font: inherit; color: inherit; }
 .sess .unseen { width: 7px; height: 7px; flex: none; background: var(--accent); border-radius: 50%; }
 #device { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 #device span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#device .dev-status { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; flex: none; font-size: 12px; }
+.dev-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.dev-status[data-status="ready"] i { background: var(--ok); }
+.dev-status[data-status="connecting"] i { background: #e0a21e; animation: dev-pulse 1.2s ease-in-out infinite; }
+.dev-status[data-status="closed"] i { background: var(--danger); }
+@keyframes dev-pulse { 50% { opacity: .35; } }
 .ws-empty { padding: 4px 10px 6px 30px; color: var(--faint); font-size: 13px; }
 
 /* ---- main column ---- */

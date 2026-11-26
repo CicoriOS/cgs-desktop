@@ -1,4 +1,4 @@
-import type { ToolCall, Turn } from "../../core/types";
+import type { NoticeItem, ToolCall, Turn } from "../../core/types";
 import { t } from "../../i18n";
 
 /** One line of a turn's process: a thought, a run of consecutive tool calls, or a note the model wrote between calls. */
@@ -7,7 +7,9 @@ export type Step =
   | { kind: "note"; text: string }
   | { kind: "calls"; calls: ToolCall[] }
   /** The ask tool: the question and the user's answer are part of the conversation, so it is never folded into the process. */
-  | { kind: "ask"; call: ToolCall };
+  | { kind: "ask"; call: ToolCall }
+  /** Text the harness gave the model (a reminder, an injected rule): a folded card. */
+  | { kind: "notice"; item: NoticeItem };
 
 export interface TurnView {
   steps: Step[];
@@ -43,6 +45,8 @@ export function viewTurn(turn: Turn, tools: Record<string, ToolCall>): TurnView 
       if (item.kind === "tool") {
         const call = tools[item.callId];
         if (call) pushCall(call);
+      } else if (item.kind === "notice") {
+        steps.push({ kind: "notice", item });
       } else if (item.kind === "thinking") {
         hasThinking = true;
         steps.push({ kind: "thought", text: item.text });

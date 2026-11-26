@@ -4,17 +4,23 @@
 import { BrowserSession, fingerprint, fromBase64, toBase64, UNKNOWN_CHILD_REASON, WireError, type Step, type WireEvent, type WireMessage } from "@cgs/wire";
 import type { HostApi, RpcTransport } from "../core/types";
 import { t } from "../i18n";
-import type { DeviceMark } from "../ui/client-context";
 import { deviceStore, type DeviceStore } from "./browser-store";
 import { RelayMux, type MuxMessage } from "./mux";
+
+/** One symbol of a device fingerprint, shown on the confirmation page (ADR 0036). */
+export interface DeviceMark {
+  readonly emoji: string;
+  readonly zh: string;
+  readonly en: string;
+}
 
 export type Phase = "connecting" | "missing" | "login" | "forbidden" | "disabled" | "offline" | "error" | "revoked" | "locked" | "password" | "fingerprint" | "changed" | "busy" | "ready" | "readonly";
 
 export interface RelayState {
   phase: Phase;
-  /** The device's fingerprint when known: shown to confirm, and as the mark in the sidebar. */
+  /** The device's fingerprint when known: shown once, to confirm it. */
   emoji: readonly DeviceMark[];
-  /** Name offered for this browser in the password form. */
+  /** What the device lists this browser as, read from the user agent ("Chrome on Linux"). */
   name: string;
   problem?: string;
   /** Who holds control (busy) or took it (readonly). */
@@ -147,10 +153,9 @@ export class RelayConnection {
     this.#set({ phase: "password" });
   }
 
-  password(password: string, name: string): void {
-    this.#state = { ...this.#state, name };
+  password(password: string): void {
     this.#set({ phase: "connecting" });
-    void this.#connect(password, name);
+    void this.#connect(password, this.#state.name);
   }
 
   retry(): void {

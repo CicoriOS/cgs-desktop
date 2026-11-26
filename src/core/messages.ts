@@ -1,4 +1,5 @@
-import type { AssistantMessage, ToolCall, ToolResult } from "./types";
+import { isRecord } from "./guards";
+import type { AssistantMessage, NoticeItem, ToolCall, ToolResult } from "./types";
 
 /** An omp message as it appears in frames and session entries (only the fields the client reads). */
 export interface RawMessage {
@@ -10,6 +11,8 @@ export interface RawMessage {
   toolCallId?: string;
   details?: unknown;
   isError?: boolean;
+  /** `custom` messages: which kind (`ttsr-injection`, ...). */
+  customType?: string;
 }
 
 interface Block {
@@ -60,4 +63,23 @@ export function resultFrom(m: RawMessage): ToolResult {
 /** An assistant message with text and no tool calls is the reply (everything before it is process). */
 export function isReply(m: AssistantMessage): boolean {
   return m.items.some((i) => i.kind === "text") && !m.items.some((i) => i.kind === "tool");
+}
+
+/** The tags the harness wraps its own text in; the model is told such blocks are not the user's. */
+const HARNESS_BLOCK = /^<(system-[a-z][a-z-]*|irc|tangent-notice)\b[^>]*>\s*([\s\S]*?)\s*<\/\1>$/i;
+const TONES: Record<string, NoticeItem["tone"]> = { "system-reminder": "reminder", "system-notice": "notice", "system-interrupt": "interrupt" };
+
+/**
+ * Text the harness put in front of the model, not the user: a rule injected after a stream rewind (`custom` message of type
+ * `ttsr-injection`) and the reminders and notices omp adds as `developer` messages. They are shown as quiet cards (ADR 0037).
+ */
+export function noticeFrom(id: string, m: RawMessage): NoticeItem | undefined {
+  const raw = textOf(m.content).trim();
+  if (m.role === "custom" && m.customType === "ttsr-injection") {
+    const rules = isRecord(m.details) && Array.isArray(m.details.rules) ? m.details.rules.filter((r): r is string => typeof r === "string") : [];
+    return { kind: "notice", id, tone: "rule", ...(rules.length ? { names: rules.join(", ") } : {}), text: HARNESS_BLOCK.exec(raw)?.[2] ?? raw };
+  }
+  if (m.role !== "developer" || !raw) return undefined;
+  const block = HARNESS_BLOCK.exec(raw);
+  return { kind: "notice", id, tone: (block && TONES[block[1]!.toLowerCase()]) || "other", text: block?.[2] ?? raw };
 }
