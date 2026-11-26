@@ -3,6 +3,8 @@ import { useT } from "../i18n";
 import { BtwPanel } from "./BtwPanel";
 import { useClientState } from "./client-context";
 import { Composer } from "./composer/Composer";
+import { DialogHost } from "./dialogs/DialogHost";
+import { FEATURES } from "./features";
 import { cx } from "./format";
 import { RpcDrawer } from "./RpcDrawer";
 import { Sidebar } from "./Sidebar";
@@ -35,10 +37,11 @@ export function App() {
           {empty && <div id="empty-hello">{t("empty.hello")}</div>}
           <Transcript />
         </section>
+        <DialogHost />
         <Composer />
         {btw && !empty && <BtwPanel onClose={() => setBtw(false)} />}
       </main>
-      {right && <aside id="right"><div className="placeholder">{t("right.placeholder")}</div></aside>}
+      {FEATURES.rightPanel && right && <aside id="right"><div className="placeholder">{t("right.placeholder")}</div></aside>}
       {workspaceDialog && <WorkspaceDialog onClose={() => setWorkspaceDialog(false)} />}
       <button type="button" id="rpc-pill" title={t("rpc.pill")} onClick={() => setRpc((v) => !v)}>RPC</button>
       {rpc && <RpcDrawer onClose={() => setRpc(false)} />}

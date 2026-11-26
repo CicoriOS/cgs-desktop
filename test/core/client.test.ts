@@ -127,3 +127,54 @@ test("removing a queued message returns it to the draft only when omp removed it
   await r;
   expect(c.getState().draftRestore?.text).toBe("稍后");
 });
+
+test("an ask form becomes a dialog; answering sends extension_ui_response and closes it; omp's cancel closes it too", async () => {
+  const { t, c } = await connected();
+  t.push({ type: "extension_ui_request", id: "ui1", method: "form", html: "<form></form>" });
+  t.push({ type: "extension_ui_request", id: "ui2", method: "confirm", title: "Run it?", message: "rm -rf" });
+  expect(c.getState().dialogs.map((d) => [d.id, d.method])).toEqual([["ui1", "form"], ["ui2", "confirm"]]);
+  c.actions.answerDialog("ui1", { data: { db: "pg" } });
+  expect(t.sent.at(-1)).toEqual({ type: "extension_ui_response", id: "ui1", data: { db: "pg" } });
+  expect(c.getState().dialogs.map((d) => d.id)).toEqual(["ui2"]);
+  t.push({ type: "extension_ui_request", id: "ui3", method: "cancel", targetId: "ui2" });
+  expect(c.getState().dialogs).toEqual([]);
+});
+
+test("notify shows a toast and set_editor_text fills the draft; neither opens a dialog", async () => {
+  const { t, c } = await connected();
+  t.push({ type: "extension_ui_request", id: "n1", method: "notify", message: "heads up" });
+  t.push({ type: "extension_ui_request", id: "n2", method: "set_editor_text", text: "draft" });
+  expect(c.getState().toast?.text).toBe("heads up");
+  expect(c.getState().draftRestore?.text).toBe("draft");
+  expect(c.getState().dialogs).toEqual([]);
+});
+
+test("a page that connects while the ask tool waits gets the form back from the backlog", async () => {
+  const t = fakeTransport();
+  const c = createClient(t.transport, fakeHost, { holdMs: 0 });
+  t.open();
+  await tick();
+  // backlog replayed before get_state answers: one form still waiting, one cancelled, one finished by the tool
+  t.push({ type: "extension_ui_request", id: "old", method: "form", html: "<form>a</form>" });
+  t.push({ type: "extension_ui_request", id: "x", method: "cancel", targetId: "old" });
+  t.push({ type: "extension_ui_request", id: "live", method: "form", html: "<form>b</form>" });
+  t.respond("get_state", { isStreaming: true, sessionFile: "/s.jsonl" });
+  await tick();
+  expect(c.getState().dialogs.map((d) => d.id)).toEqual(["live"]);
+  t.respond("get_entries", { entries: [], leafId: null });
+});
+
+test("images ride along with prompt and steer, and show in the optimistic message", async () => {
+  const { t, c } = await connected();
+  const img = { mimeType: "image/png", data: "AAAA" };
+  const sending = c.actions.send("看图", [img]);
+  expect(c.getState().turns[0]!.user.images).toEqual([img]);
+  expect(t.sent.at(-1)).toMatchObject({ type: "prompt", message: "看图", images: [{ type: "image", mimeType: "image/png", data: "AAAA" }] });
+  t.respond("prompt", { agentInvoked: true });
+  await sending;
+  t.push({ type: "agent_start" });
+  const steering = c.actions.send("", [img]); // images alone are a message
+  expect(t.sent.at(-1)).toMatchObject({ type: "steer", message: "", images: [{ type: "image" }] });
+  t.respond("steer");
+  await steering;
+});

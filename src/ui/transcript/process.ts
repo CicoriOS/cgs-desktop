@@ -5,7 +5,9 @@ import { t } from "../../i18n";
 export type Step =
   | { kind: "thought"; text: string }
   | { kind: "note"; text: string }
-  | { kind: "calls"; calls: ToolCall[] };
+  | { kind: "calls"; calls: ToolCall[] }
+  /** The ask tool: the question and the user's answer are part of the conversation, so it is never folded into the process. */
+  | { kind: "ask"; call: ToolCall };
 
 export interface TurnView {
   steps: Step[];
@@ -25,6 +27,10 @@ export function viewTurn(turn: Turn, tools: Record<string, ToolCall>): TurnView 
   let callCount = 0;
   let hasThinking = false;
   const pushCall = (call: ToolCall) => {
+    if (call.name === "ask") {
+      steps.push({ kind: "ask", call });
+      return;
+    }
     callCount++;
     const last = steps.at(-1);
     if (last?.kind === "calls") last.calls.push(call);

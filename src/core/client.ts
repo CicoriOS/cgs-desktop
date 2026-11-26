@@ -1,7 +1,7 @@
 import { type EventFrame, applyFrame, initialState, newTurnId, ringFor } from "./reducer";
 import { type SessionEntry, turnsFromEntries, turnsFromMessages, turnTailIds } from "./history";
 import type { RawMessage } from "./messages";
-import type { Actions, BtwRecord, Client, ClientState, HostApi, ModelPicker, RawLog, RingState, RpcTransport, ThinkingLevel, Turn } from "./types";
+import type { Actions, BtwRecord, Client, ClientState, DialogAnswer, HostApi, ImageRef, ModelPicker, RawLog, RingState, RpcTransport, ThinkingLevel, Turn } from "./types";
 import { t } from "../i18n";
 
 const RAW_CAP = 3000;
@@ -42,6 +42,7 @@ interface StateData {
   isStreaming?: boolean;
 }
 
+const toImageContent = (images: ImageRef[] | undefined) => (images?.length ? { images: images.map((i) => ({ type: "image", mimeType: i.mimeType, data: i.data })) } : {});
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function createClient(transport: RpcTransport, host: HostApi, opts: ClientOptions = {}): Client {
@@ -76,6 +77,7 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
   let seq = 0;
   const pending = new Map<string, Pending>();
   let replaying = true;
+  const replayForms = new Map<string, EventFrame>();
   let ready = Promise.withResolvers<void>();
 
   function sendFrame(text: string): boolean {
@@ -104,7 +106,7 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
   }
 
   const toast = (text: string) => set((s) => ({ ...s, toast: { text, seq: (s.toast?.seq ?? 0) + 1 } }));
-  const restoreDraft = (text: string) => set((s) => ({ ...s, draftRestore: { text, seq: (s.draftRestore?.seq ?? 0) + 1 } }));
+  const restoreDraft = (text: string, images?: ImageRef[]) => set((s) => ({ ...s, draftRestore: { text, ...(images?.length ? { images } : {}), seq: (s.draftRestore?.seq ?? 0) + 1 } }));
 
   /** Runs a mutating action: failures become a toast instead of a rejection. */
   async function guard(fn: () => Promise<void>): Promise<void> {
@@ -151,8 +153,8 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
    * A turn that ended in an error or a stop. Nothing of the model's work yet: the message leaves the transcript and returns to the
    * editor. Otherwise the work stays and the turn is marked, so the user message can offer "edit".
    */
-  function finishTurns(turns: Turn[], status: string | undefined, message: string | undefined): { turns: Turn[]; restore?: string } {
-    let restore: string | undefined;
+  function finishTurns(turns: Turn[], status: string | undefined, message: string | undefined): { turns: Turn[]; restore?: { text: string; images?: ImageRef[] } } {
+    let restore: { text: string; images?: ImageRef[] } | undefined;
     const out: Turn[] = [];
     for (const [i, t] of turns.entries()) {
       if (t.state !== "running" && !t.pending) {
@@ -166,7 +168,7 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
       }
       const started = t.assistant.some((a) => a.items.length > 0);
       if (!started) {
-        restore = t.user.text;
+        restore = { text: t.user.text, images: t.user.images };
         continue;
       }
       out.push({ ...t, pending: false, state: status === "error" ? "failed" : "interrupted", errorText: message });
@@ -180,13 +182,13 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
       return;
     }
     const info = endInfo;
-    let restore: string | undefined;
+    let restore: { text: string; images?: ImageRef[] } | undefined;
     set((s) => {
       const r = finishTurns(s.turns, info?.status, info?.message);
       restore = r.restore;
       return { ...s, turns: r.turns, run: { ...s.run, streaming: false } };
     });
-    if (restore !== undefined) restoreDraft(restore);
+    if (restore) restoreDraft(restore.text, restore.images);
     if (info?.message && info.status !== "completed") toast(info.message);
     runEnded = true;
     endInfo = undefined;
@@ -298,7 +300,14 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
     }
     const ev = f as EventFrame & Record<string, unknown>;
     if (ev.type === "ready") ready.resolve();
-    if (replaying) return; // backlog from before this page connected: the chat is rebuilt from get_state and the session file
+    if (replaying) {
+      // Backlog from before this page connected: the chat is rebuilt from get_state and the session file. A form still waiting for
+      // an answer is the exception (the ask tool stays blocked on it): keep the forms the backlog neither cancelled nor finished.
+      if (ev.type === "extension_ui_request" && ev.method === "form" && ev.id) replayForms.set(ev.id, ev);
+      else if (ev.type === "extension_ui_request" && ev.method === "cancel" && ev.targetId) replayForms.delete(ev.targetId);
+      else if (ev.type === "tool_execution_end" && ev.toolName === "ask") replayForms.clear();
+      return;
+    }
     switch (ev.type) {
       case "bridge_restart":
         ready = Promise.withResolvers<void>();
@@ -326,6 +335,9 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
         return;
       case "extension_ui_request":
         if (ev.method === "setTitle") void refreshSessions(); // omp named the session; the title itself is read from the session file
+        else if (ev.method === "notify") toast(String(ev.message ?? ""));
+        else if (ev.method === "set_editor_text") restoreDraft(String(ev.text ?? ""));
+        else set((s) => applyFrame(s, ev, now())); // dialogs and cancel; other presentation requests are not drawn
         return;
     }
     set((s) => applyFrame(s, ev, now()));
@@ -347,31 +359,33 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
     void (async () => {
       await refreshState();
       replaying = false;
+      if (state.run.streaming) for (const f of replayForms.values()) set((s) => applyFrame(s, f, now()));
+      replayForms.clear();
       await loadSession();
     })();
   });
 
   // ------------------------------------------------------------------ actions
   const actions: Actions = {
-    async send(text) {
+    async send(text, images) {
       const t = text.trim();
-      if (!t) return;
+      if (!t && !images?.length) return;
       if (state.run.streaming) {
         try {
-          await rpc({ type: "steer", message: t });
+          await rpc({ type: "steer", message: t, ...toImageContent(images) });
         } catch (e) {
-          restoreDraft(t);
+          restoreDraft(t, images);
           toast(errorMessage(e));
         }
         return;
       }
-      const turn: Turn = { id: newTurnId(), user: { text: t }, assistant: [], state: "running", startedAt: now(), pending: true };
+      const turn: Turn = { id: newTurnId(), user: { text: t, ...(images?.length ? { images } : {}) }, assistant: [], state: "running", startedAt: now(), pending: true };
       runEnded = false;
       endInfo = undefined;
-      set((s) => ({ ...s, turns: [...s.turns, turn], title: s.title || t.slice(0, 60), run: { ...s.run, streaming: true } }));
+      set((s) => ({ ...s, turns: [...s.turns, turn], title: s.title || t.slice(0, 60) || "…", run: { ...s.run, streaming: true } }));
       requestRing("work");
       try {
-        const r = await rpc<{ agentInvoked?: boolean }>({ type: "prompt", message: t });
+        const r = await rpc<{ agentInvoked?: boolean }>({ type: "prompt", message: t, ...toImageContent(images) });
         if (r?.agentInvoked === false) {
           // handled locally (a slash command): no model turn follows, the message stays
           set((s) => ({ ...s, turns: s.turns.map((x) => (x.id === turn.id ? { ...x, pending: false, state: "done" } : x)), run: { ...s.run, streaming: false } }));
@@ -380,7 +394,7 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
       } catch (e) {
         set((s) => ({ ...s, turns: s.turns.filter((x) => x.id !== turn.id), run: { ...s.run, streaming: false } }));
         requestRing("idle");
-        restoreDraft(t);
+        restoreDraft(t, images);
         toast(errorMessage(e));
       }
     },
@@ -404,6 +418,11 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
         if (r?.removed) restoreDraft(item.text);
       }),
     restoreDraft,
+    notify: toast,
+    answerDialog: (id: string, answer: DialogAnswer) => {
+      sendFrame(JSON.stringify({ type: "extension_ui_response", id, ...answer }));
+      set((s) => ({ ...s, dialogs: s.dialogs.filter((d) => d.id !== id) }));
+    },
     newSession: (cwd) =>
       guard(async () => {
         const target = cwd ?? (state.activeCwd || state.cwd);

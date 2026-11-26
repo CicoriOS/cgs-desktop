@@ -1,5 +1,5 @@
 import { assistantFrom, imagesOf, isReply, type RawMessage, resultFrom, textOf } from "./messages";
-import type { ClientState, RingState, ToolCall, Turn } from "./types";
+import type { ClientState, Dialog, RingState, ToolCall, Turn } from "./types";
 
 export function initialState(): ClientState {
   return {
@@ -12,6 +12,7 @@ export function initialState(): ClientState {
     tools: {},
     run: { state: "idle", streaming: false },
     queue: [],
+    dialogs: [],
     workspaces: [],
     btw: [],
   };
@@ -21,7 +22,8 @@ export function initialState(): ClientState {
 export interface EventFrame {
   type: string;
   messageId?: string;
-  message?: RawMessage;
+  /** A message object in message_* frames; a string in the confirm dialog and notify requests. */
+  message?: RawMessage | string;
   assistantMessageEvent?: { type?: string; partial?: RawMessage };
   toolCallId?: string;
   toolName?: string;
@@ -34,6 +36,41 @@ export interface EventFrame {
   recordId?: string;
   delta?: string;
   cwd?: string;
+  // extension_ui_request
+  id?: string;
+  method?: string;
+  title?: string;
+  text?: string;
+  options?: string[];
+  optionDetails?: { description?: string }[];
+  initialIndex?: number;
+  selectionMarker?: "radio" | "checkbox";
+  checkedIndices?: number[];
+  markableCount?: number;
+  placeholder?: string;
+  secret?: boolean;
+  prefill?: string;
+  html?: string;
+  targetId?: string;
+}
+
+/** The dialog an `extension_ui_request` asks for, if its method is one the client answers. */
+export function dialogFrom(f: EventFrame): Dialog | undefined {
+  if (!f.id) return undefined;
+  switch (f.method) {
+    case "form":
+      return typeof f.html === "string" ? { id: f.id, method: "form", html: f.html } : undefined;
+    case "select":
+      return { id: f.id, method: "select", title: f.title ?? "", options: f.options ?? [], details: f.optionDetails?.map((d) => d.description), initialIndex: f.initialIndex, marker: f.selectionMarker, checkedIndices: f.checkedIndices, markableCount: f.markableCount };
+    case "confirm":
+      return { id: f.id, method: "confirm", title: f.title ?? "", message: typeof f.message === "string" ? f.message : "" };
+    case "input":
+      return { id: f.id, method: "input", title: f.title ?? "", placeholder: f.placeholder, secret: f.secret };
+    case "editor":
+      return { id: f.id, method: "editor", title: f.title ?? "", prefill: f.prefill };
+    default:
+      return undefined;
+  }
 }
 
 let turnSeq = 0;
@@ -61,7 +98,7 @@ function setResult(tools: Record<string, ToolCall>, id: string, result: ToolCall
 }
 
 function onMessage(s: ClientState, f: EventFrame, now: number): ClientState {
-  const m = f.message ?? f.assistantMessageEvent?.partial;
+  const m = (typeof f.message === "object" ? f.message : undefined) ?? f.assistantMessageEvent?.partial;
   if (!m) return s;
 
   if (m.role === "user") {
@@ -115,6 +152,11 @@ export function applyFrame(s: ClientState, f: EventFrame, now: number): ClientSt
     case "tool_execution_end": {
       if (!f.toolCallId || s.tools[f.toolCallId]?.result) return s;
       return { ...s, tools: setResult(s.tools, f.toolCallId, { content: f.result?.content ?? [], details: f.result?.details, isError: !!f.isError }) };
+    }
+    case "extension_ui_request": {
+      if (f.method === "cancel") return { ...s, dialogs: s.dialogs.filter((d) => d.id !== f.targetId) }; // omp closed it (timeout, abort)
+      const d = dialogFrom(f);
+      return d && !s.dialogs.some((x) => x.id === d.id) ? { ...s, dialogs: [...s.dialogs, d] } : s;
     }
     case "queue_update":
       return { ...s, queue: [...(f.steering ?? []).map((text) => ({ text, mode: "steer" as const })), ...(f.followUp ?? []).map((text) => ({ text, mode: "followUp" as const }))] };

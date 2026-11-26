@@ -84,6 +84,21 @@ export interface QueuedMessage {
   mode: "steer" | "followUp";
 }
 
+/** A question omp asks the user: the `ask` tool's HTML form, or an extension's select/confirm/input/editor dialog. */
+export type Dialog =
+  | { id: string; method: "form"; html: string }
+  | { id: string; method: "select"; title: string; options: string[]; details?: (string | undefined)[]; initialIndex?: number; marker?: "radio" | "checkbox"; checkedIndices?: number[]; markableCount?: number }
+  | { id: string; method: "confirm"; title: string; message: string }
+  | { id: string; method: "input"; title: string; placeholder?: string; secret?: boolean }
+  | { id: string; method: "editor"; title: string; prefill?: string };
+
+/** What goes back in `extension_ui_response` (the id is added by the client). */
+export type DialogAnswer =
+  | { value: string }
+  | { confirmed: boolean }
+  | { cancelled: true }
+  | { data: Record<string, string | number | string[]> };
+
 export interface ClientState {
   connection: "connecting" | "ready" | "closed";
   /** Where omp runs now / the workspace the UI treats as current (they differ until the bridge restarts omp). */
@@ -103,8 +118,10 @@ export interface ClientState {
   queue: QueuedMessage[];
   workspaces: Workspace[];
   btw: BtwRecord[];
-  /** Text the composer should take into its editor (interrupted turn, removed queue item); `seq` makes repeats distinct. */
-  draftRestore?: { text: string; seq: number };
+  /** Questions waiting for an answer, oldest first; the UI shows the first. */
+  dialogs: Dialog[];
+  /** Text (and images) the composer should take into its editor (interrupted turn, removed queue item); `seq` makes repeats distinct. */
+  draftRestore?: { text: string; images?: ImageRef[]; seq: number };
   toast?: { text: string; seq: number };
 }
 
@@ -131,15 +148,19 @@ export interface ModelPicker {
  */
 export interface Actions {
   /** Idle: `prompt`. Busy: `steer` (delivered before the next model call). Resolves once omp admitted it. */
-  send(text: string): Promise<void>;
+  send(text: string, images?: ImageRef[]): Promise<void>;
   /** `abort`. */
   stop(): Promise<void>;
   /** `abort_and_deliver_queue`: interrupt the running output and continue with the queued messages now. */
   deliverQueueNow(): Promise<void>;
   /** Takes a queued message back into the composer draft (`remove_queued_message`). */
   removeQueued(index: number): Promise<void>;
+  /** Shows a short notice (toast). */
+  notify(text: string): void;
   /** Puts text into the composer editor. */
-  restoreDraft(text: string): void;
+  restoreDraft(text: string, images?: ImageRef[]): void;
+  /** Answers (or cancels) the dialog with this id; omp stops waiting for it. */
+  answerDialog(id: string, answer: DialogAnswer): void;
   newSession(cwd?: string): Promise<void>;
   openSession(path: string, cwd: string): Promise<void>;
   /** Registers a (possibly new) directory as a workspace and opens a new session in it. */

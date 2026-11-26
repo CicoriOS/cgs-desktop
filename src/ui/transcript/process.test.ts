@@ -4,6 +4,14 @@ import { callNames, viewTurn } from "./process";
 
 const call = (id: string, name: string): ToolCall => ({ id, name, args: {}, status: "ok" });
 
+test("an ask call is its own step and is not counted among the process calls", () => {
+  const tools = { a: call("a", "read"), q: call("q", "ask"), b: call("b", "bash") };
+  const turn: Turn = { id: "t", user: { text: "x" }, state: "done", startedAt: 0, assistant: [{ id: "m", items: [{ kind: "tool", callId: "a" }, { kind: "tool", callId: "q" }, { kind: "tool", callId: "b" }] }] };
+  const v = viewTurn(turn, tools);
+  expect(v.steps.map((s) => s.kind)).toEqual(["calls", "ask", "calls"]);
+  expect(v.callCount).toBe(2);
+});
+
 test("thinking and tool calls are process, the tool-free text is the reply", () => {
   const tools = { a: call("a", "read"), b: call("b", "read"), c: call("c", "bash") };
   const turn: Turn = {
