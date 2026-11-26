@@ -1,5 +1,13 @@
 /* Connect page chrome. The session itself is styled by ui/styles. */
 
+/* The device fingerprint is compared by eye on two screens, so it must look the same everywhere: a subset of Noto Color
+   Emoji (OFL, see fonts/OFL.txt) with exactly the symbols the wire table can produce. A system emoji font is the fallback. */
+@font-face {
+  font-family: "CGS Emoji";
+  src: url("./fonts/noto-color-emoji-connect.woff2") format("woff2");
+  font-display: block;
+}
+
 .connect-page {
   min-height: 100vh;
   display: flex;
@@ -99,6 +107,7 @@
 }
 
 .fp-emoji {
+  font-family: "CGS Emoji", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
   font-size: 22px;
   line-height: 1.2;
 }

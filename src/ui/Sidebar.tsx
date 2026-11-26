@@ -52,7 +52,7 @@ export function Sidebar({ onAddWorkspace, onNavigate }: { onAddWorkspace: () => 
   return (
     <aside id="sidebar">
       <div className="brand">
-        <img src="/cgs-logo.svg" alt="" width={30} height={30} />
+        <img src={`${import.meta.env.BASE_URL}cgs-logo.svg`} alt="" width={30} height={30} />
         <span>CGS Connect</span>
       </div>
       {!readOnly && (
