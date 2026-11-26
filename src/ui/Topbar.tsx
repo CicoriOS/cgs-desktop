@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useActions, useClientState } from "./client-context";
 import { FEATURES } from "./features";
-import { ChatBubbleIcon, SidebarLeftIcon, SidebarRightIcon } from "./icons";
+import { ChatBubbleIcon, GaugeIcon, SidebarLeftIcon, SidebarRightIcon } from "./icons";
 import { setLocale, useLocale, useT } from "../i18n";
 
 /** Click the title to rename the session: Enter saves through omp's set_session_name, Esc cancels. omp never overwrites a name set this way. */
@@ -39,7 +39,7 @@ function Title() {
   );
 }
 
-export function Topbar({ onToggleSide, onToggleRight, onToggleBtw, showBtw }: { onToggleSide: () => void; onToggleRight: () => void; onToggleBtw: () => void; showBtw: boolean }) {
+export function Topbar({ onToggleSide, onToggleRight, onToggleBtw, onToggleStats, inSession }: { onToggleSide: () => void; onToggleRight: () => void; onToggleBtw: () => void; onToggleStats: () => void; inSession: boolean }) {
   const t = useT();
   const locale = useLocale();
   return (
@@ -49,10 +49,15 @@ export function Topbar({ onToggleSide, onToggleRight, onToggleBtw, showBtw }: { 
       </button>
       <Title />
       <span className="grow" />
-      {showBtw && (
-        <button type="button" className="icon" title={t("btw.open")} onClick={onToggleBtw}>
-          <ChatBubbleIcon />
-        </button>
+      {inSession && (
+        <>
+          <button type="button" className="icon" title={t("stats.open")} onClick={onToggleStats}>
+            <GaugeIcon />
+          </button>
+          <button type="button" className="icon" title={t("btw.open")} onClick={onToggleBtw}>
+            <ChatBubbleIcon />
+          </button>
+        </>
       )}
       <button type="button" className="lang" title={t("lang.switch")} onClick={() => setLocale(locale === "zh" ? "en" : "zh")}>
         {locale === "zh" ? "EN" : "中"}

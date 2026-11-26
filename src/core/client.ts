@@ -1,6 +1,7 @@
 import { type EventFrame, applyFrame, initialState, newTurnId, ringFor } from "./reducer";
-import { type SessionEntry, turnsFromEntries, turnsFromMessages, turnTailIds } from "./history";
+import { type SessionEntry, activeBranch, turnsFromEntries, turnsFromMessages, turnTailIds } from "./history";
 import type { RawMessage } from "./messages";
+import { buildStats, type SessionTotals, type StatsView, type SubagentSnapshot, type UsageMessage } from "./stats";
 import type { Actions, BtwRecord, Client, ClientState, DialogAnswer, HostApi, ImageRef, ModelPicker, RawLog, RingState, RpcTransport, ThinkingLevel, Turn } from "./types";
 import { getLocale, subscribeLocale, t } from "../i18n";
 
@@ -517,6 +518,25 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
         const r = await rpc<{ records?: BtwRecord[] }>({ type: "get_btw_history" });
         set((s) => ({ ...s, btw: (r.records ?? []).map((x) => ({ id: x.id, question: x.question, answer: x.answer ?? "", status: x.status })) }));
       }),
+    loadStats: async () => {
+      const [totals, entries, subs] = await Promise.all([
+        rpc<SessionTotals>({ type: "get_session_stats" }),
+        rpc<{ entries: SessionEntry[]; leafId?: string | null }>({ type: "get_entries" }),
+        rpc<{ subagents?: SubagentSnapshot[] }>({ type: "get_subagents" }).catch(() => ({ subagents: [] as SubagentSnapshot[] })),
+      ]);
+      const subagents = subs.subagents ?? [];
+      const main = activeBranch(entries.entries, entries.leafId).flatMap((e) => (e.message ? [e.message as UsageMessage] : []));
+      // Only live ones are read from their transcripts: finished runs are already in the task tool result above.
+      const theirs = await Promise.all(
+        subagents.filter((s) => s.status === "running" || s.status === "pending").map((s) =>
+          rpc<{ messages?: UsageMessage[] }>({ type: "get_subagent_messages", subagentId: s.id }).then(
+            (r) => r.messages ?? [],
+            () => [] as UsageMessage[],
+          ),
+        ),
+      );
+      return buildStats(totals, [main, ...theirs], subagents);
+    },
     sendRaw: (json) => void sendFrame(json),
     clearRaw: () => {
       rawFrames.length = 0;

@@ -23,3 +23,17 @@ export function formatDuration(ms: number): string {
 export const baseName = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(" ");
+
+/** 950, 12.3k, 4.56M. */
+export function formatTokens(n: number): string {
+  if (n < 1000) return String(Math.round(n));
+  if (n < 1e6) return `${(n / 1000).toFixed(n < 1e4 ? 2 : 1)}k`;
+  return `${(n / 1e6).toFixed(2)}M`;
+}
+
+/** Cost in the units omp prices the model in (the site's currency for CGS channels): 4 decimals under 1, else 2. */
+export function formatCost(c: number): string {
+  return c < 1 ? c.toFixed(4) : c.toFixed(2);
+}
+
+export const formatPercent = (r: number): string => `${(r * 100).toFixed(r < 0.1 ? 1 : 0)}%`;

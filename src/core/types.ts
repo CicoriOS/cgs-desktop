@@ -1,5 +1,6 @@
 // Shared contract for the web client (ADR 0032). The UI renders omp RPC frames; it never assumes a transport.
 // core/ turns frames into `ClientState` and implements `Actions`; ui/ only reads state and calls actions.
+import type { StatsView } from "./stats";
 
 export type RingState = "idle" | "think" | "work" | "ok" | "fail" | "stop";
 
@@ -176,6 +177,8 @@ export interface Actions {
   btw(question: string): Promise<void>;
   btwCancel(): Promise<void>;
   loadBtw(): Promise<void>;
+  /** Token and cost use per model, cache hit rate, context fill per agent (`get_session_stats`, `get_entries`, `get_subagents`). */
+  loadStats(): Promise<StatsView>;
   /** Sends a hand-written frame (RPC drawer). */
   sendRaw(json: string): void;
   clearRaw(): void;

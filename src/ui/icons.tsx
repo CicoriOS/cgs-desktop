@@ -59,6 +59,13 @@ export const ChatBubbleIcon = () => (
     <path d="M9 11h.01M12 11h.01M15 11h.01" />
   </Icon>
 );
+export const GaugeIcon = () => (
+  <Icon>
+    <path d="M4 17a8 8 0 1 1 16 0" />
+    <path d="M12 17l4-5" />
+    <path d="M12 17h.01" />
+  </Icon>
+);
 export const PlusIcon = () => (
   <Icon>
     <path d="M12 5v14M5 12h14" />
