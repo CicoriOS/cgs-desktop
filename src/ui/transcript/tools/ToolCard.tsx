@@ -1,10 +1,11 @@
-import { type JSX, useEffect, useState } from "react";
+import { type JSX, useEffect, useMemo, useState } from "react";
 import type { RingState, ToolCall } from "../../../core/types";
 import { useClientState } from "../../client-context";
 import { baseName } from "../../format";
 import { Ring } from "../../ring";
 import { addedLines, diffStats, type DiffLine, parseDiff, replacementPreview } from "./diff";
 import { DiffView } from "./DiffView";
+import { highlightHtml, langOf } from "./highlight";
 import { useT } from "../../../i18n";
 
 type Rec = Record<string, unknown>;
@@ -37,6 +38,12 @@ function Pre({ children, label }: { children: string; label?: string }) {
 
 // ---------------------------------------------------------------- per-tool bodies
 
+/** The shell command, highlighted as bash. */
+function CommandPre({ command }: { command: string }) {
+  const html = useMemo(() => highlightHtml(command, "bash"), [command]);
+  return html === undefined ? <pre className="cmd">{`$ ${command}`}</pre> : <pre className="cmd"><span className="ps">$ </span><span dangerouslySetInnerHTML={{ __html: html }} /></pre>;
+}
+
 function BashBody({ call }: { call: ToolCall }) {
   const t = useT();
   const out = resultText(call);
@@ -44,7 +51,7 @@ function BashBody({ call }: { call: ToolCall }) {
   return (
     <>
       <div className="lab">{t("tool.cmd")}</div>
-      <pre className="cmd">{`$ ${str(call.args.command) ?? ""}`}</pre>
+      <CommandPre command={str(call.args.command) ?? ""} />
       {call.result ? <Pre label={`${call.result.isError ? t("tool.err") : t("tool.out")}${typeof ms === "number" ? `  ${ms < 1000 ? t("tool.ms", { n: Math.round(ms) }) : t("tool.sec", { n: (ms / 1000).toFixed(1) })}` : ""}`}>{out || t("tool.noOutput")}</Pre> : <div className="lab">{t("tool.running")}</div>}
     </>
   );
@@ -54,12 +61,12 @@ function ReadBody({ call }: { call: ToolCall }) {
   const t = useT();
   const display = rec(rec(call.result?.details).displayContent);
   const text = str(display.text);
-  if (!call.result) return <div className="lab">{t("tool.reading")}</div>;
-  if (call.result.isError || text === undefined) return <Pre>{resultText(call) || t("tool.empty")}</Pre>;
   const start = typeof display.startLine === "number" ? display.startLine : 1;
   const numbers = Array.isArray(display.lineNumbers) ? (display.lineNumbers as number[]) : undefined;
-  const lines: DiffLine[] = text.split("\n").map((t, i) => ({ kind: "ctx", no: numbers?.[i] ?? start + i, text: t }));
-  return <DiffView lines={lines} />;
+  const lines = useMemo<DiffLine[]>(() => (text === undefined ? [] : text.split("\n").map((line, i) => ({ kind: "ctx", no: numbers?.[i] ?? start + i, text: line }))), [text, start, numbers]);
+  if (!call.result) return <div className="lab">{t("tool.reading")}</div>;
+  if (call.result.isError || text === undefined) return <Pre>{resultText(call) || t("tool.empty")}</Pre>;
+  return <DiffView lines={lines} lang={langOf(str(call.args.path) ?? str(call.args.file_path))} />;
 }
 
 interface FileDiff {
@@ -84,7 +91,7 @@ function editFiles(call: ToolCall): FileDiff[] {
 
 function EditBody({ call }: { call: ToolCall }) {
   const t = useT();
-  const files = editFiles(call);
+  const files = useMemo(() => editFiles(call), [call]);
   const text = resultText(call);
   return (
     <>
@@ -92,7 +99,7 @@ function EditBody({ call }: { call: ToolCall }) {
         <div key={i} className="file">
           {files.length > 1 && <div className="lab">{f.path}</div>}
           {f.note && <div className="errline">{f.note}</div>}
-          <DiffView lines={f.lines} />
+          <DiffView lines={f.lines} lang={langOf(f.path || str(call.args.path))} />
         </div>
       ))}
       {!files.length && (call.result ? <Pre>{text || t("tool.empty")}</Pre> : <div className="lab">{t("tool.applying")}</div>)}
@@ -104,9 +111,10 @@ function EditBody({ call }: { call: ToolCall }) {
 function WriteBody({ call }: { call: ToolCall }) {
   const t = useT();
   const content = str(call.args.content);
+  const lines = useMemo(() => (content === undefined ? [] : addedLines(content)), [content]);
   return (
     <>
-      {content !== undefined ? <DiffView lines={addedLines(content)} /> : <div className="lab">{call.result ? "" : t("tool.writing")}</div>}
+      {content !== undefined ? <DiffView lines={lines} lang={langOf(str(call.args.path) ?? str(call.args.file_path))} /> : <div className="lab">{call.result ? "" : t("tool.writing")}</div>}
       {call.result?.isError && <Pre label={t("tool.err")}>{resultText(call)}</Pre>}
     </>
   );
