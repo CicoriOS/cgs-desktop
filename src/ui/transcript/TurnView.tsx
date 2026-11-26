@@ -1,6 +1,6 @@
 import { memo, type ReactNode, useMemo, useState } from "react";
 import type { RingState, ToolCall, Turn } from "../../core/types";
-import { useActions, useClientState } from "../client-context";
+import { useActions, useClientState, useReadOnly } from "../client-context";
 import { formatDuration } from "../format";
 import { CheckIcon, CopyIcon, ForkIcon } from "../icons";
 import { Ring } from "../ring";
@@ -84,6 +84,7 @@ function StepLine({ step, thinkingNow, live }: { step: Step; thinkingNow: boolea
 export const TurnView = memo(function TurnView({ turn, index, isLast, tools }: { turn: Turn; index: number; isLast: boolean; tools: Record<string, ToolCall> }) {
   const t = useT();
   const actions = useActions();
+  const readOnly = useReadOnly();
   const run = useClientState((s) => s.run);
   const level = useClientState((s) => s.thinking.resolved);
   const view = useMemo(() => viewTurn(turn, tools), [turn, tools]);
@@ -115,7 +116,7 @@ export const TurnView = memo(function TurnView({ turn, index, isLast, tools }: {
             {turn.user.images?.map((im, i) => <img key={i} className="att" alt="" src={`data:${im.mimeType};base64,${im.data}`} />)}
             {turn.user.text}
           </div>
-          {interrupted && !!view.steps.length && (
+          {!readOnly && interrupted && !!view.steps.length && (
             <button type="button" className="edit-btn" onClick={() => actions.restoreDraft(turn.user.text)}>
               {t("turn.edit")}
             </button>
@@ -148,7 +149,7 @@ export const TurnView = memo(function TurnView({ turn, index, isLast, tools }: {
                   {finished && (
                     <div className="actions">
                       <CopyButton text={r.text} />
-                      {last && canFork && (
+                      {last && canFork && !readOnly && (
                         <button type="button" className="act-btn" title={t("turn.fork")} aria-label={t("turn.fork")} onClick={() => actions.fork(index)}>
                           <ForkIcon />
                         </button>

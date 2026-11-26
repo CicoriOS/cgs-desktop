@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { useActions, useClientState } from "./client-context";
+import { useActions, useClientState, useDeviceMark, useReadOnly } from "./client-context";
 import { baseName, cx, relativeTime } from "./format";
 import { ChevronIcon, EditIcon, FolderIcon, FolderPlusIcon, DeviceIcon } from "./icons";
 import { Ring } from "./ring";
-import { useT } from "../i18n";
+import { useLocale, useT } from "../i18n";
 
 const REFRESH_AGE_MS = 30_000;
 
@@ -20,6 +20,9 @@ function useNow(everyMs: number): number {
 export function Sidebar({ onAddWorkspace, onNavigate }: { onAddWorkspace: () => void; onNavigate: () => void }) {
   const t = useT();
   const actions = useActions();
+  const readOnly = useReadOnly();
+  const mark = useDeviceMark();
+  const locale = useLocale();
   const workspaces = useClientState((s) => s.workspaces);
   const children = useClientState((s) => s.children);
   const title = useClientState((s) => s.title);
@@ -52,6 +55,7 @@ export function Sidebar({ onAddWorkspace, onNavigate }: { onAddWorkspace: () => 
         <img src="/cgs-logo.svg" alt="" width={30} height={30} />
         <span>CGS Connect</span>
       </div>
+      {!readOnly && (
       <div className="side-top">
         {hasWorkspace ? (
           <>
@@ -70,6 +74,7 @@ export function Sidebar({ onAddWorkspace, onNavigate }: { onAddWorkspace: () => 
           </button>
         )}
       </div>
+      )}
       <nav id="tree">
         {tree.map((w) => {
           const current = w.cwd === activeCwd;
@@ -110,7 +115,17 @@ export function Sidebar({ onAddWorkspace, onNavigate }: { onAddWorkspace: () => 
           );
         })}
       </nav>
-      {device && <div id="device" title={t("side.device", { name: device })}><DeviceIcon /><span>{device}</span></div>}
+      {device && (
+        <div id="device" title={t("side.device", { name: device })}>
+          <DeviceIcon />
+          <span>{device}</span>
+          {mark && mark.length > 0 && (
+            <span className="fp" title={t("connect.mark.title", { names: mark.map((m) => (locale === "zh" ? m.zh : m.en)).join(" · ") })}>
+              {mark.slice(0, 4).map((m) => m.emoji).join(" ")}
+            </span>
+          )}
+        </div>
+      )}
     </aside>
   );
 }

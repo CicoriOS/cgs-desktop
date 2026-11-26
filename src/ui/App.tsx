@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useT } from "../i18n";
 import { BtwPanel } from "./BtwPanel";
-import { useClientState } from "./client-context";
+import { useClientState, useReadOnly } from "./client-context";
 import { Composer } from "./composer/Composer";
 import { DialogHost } from "./dialogs/DialogHost";
 import { FEATURES } from "./features";
@@ -24,6 +24,7 @@ export function App() {
   const [stats, setStats] = useState(false);
   const [workspaceDialog, setWorkspaceDialog] = useState(false);
   const [rpc, setRpc] = useState(false);
+  const readOnly = useReadOnly();
 
   useEffect(() => {
     document.title = t("app.title");
@@ -39,15 +40,15 @@ export function App() {
           {empty && <div id="empty-hello">{t("empty.hello")}</div>}
           <Transcript />
         </section>
-        <DialogHost />
-        <Composer />
+        {!readOnly && <DialogHost />}
+        {!readOnly && <Composer />}
         {btw && !empty && <BtwPanel onClose={() => setBtw(false)} />}
         {stats && !empty && <StatsPanel onClose={() => setStats(false)} />}
       </main>
       {FEATURES.rightPanel && right && <aside id="right"><div className="placeholder">{t("right.placeholder")}</div></aside>}
       {workspaceDialog && <WorkspaceDialog onClose={() => setWorkspaceDialog(false)} />}
-      <button type="button" id="rpc-pill" title={t("rpc.pill")} onClick={() => setRpc((v) => !v)}>RPC</button>
-      {rpc && <RpcDrawer onClose={() => setRpc(false)} />}
+      {!readOnly && <button type="button" id="rpc-pill" title={t("rpc.pill")} onClick={() => setRpc((v) => !v)}>RPC</button>}
+      {rpc && !readOnly && <RpcDrawer onClose={() => setRpc(false)} />}
       <Toast />
     </div>
   );

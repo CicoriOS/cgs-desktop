@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useActions, useClientState } from "./client-context";
+import { useActions, useClientState, useReadOnly } from "./client-context";
 import { FEATURES } from "./features";
 import { ChatBubbleIcon, GaugeIcon, SidebarLeftIcon, SidebarRightIcon } from "./icons";
 import { setLocale, useLocale, useT } from "../i18n";
@@ -8,6 +8,7 @@ import { setLocale, useLocale, useT } from "../i18n";
 function Title() {
   const actions = useActions();
   const title = useClientState((s) => s.title);
+  const readOnly = useReadOnly();
   const [draft, setDraft] = useState<string>();
 
   const finish = (save: boolean) => {
@@ -15,6 +16,7 @@ function Title() {
     setDraft(undefined);
     if (save && name && name !== title) void actions.renameSession(name);
   };
+  if (readOnly) return <span id="title">{title}</span>;
   if (draft !== undefined) {
     return (
       <input
