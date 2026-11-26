@@ -102,6 +102,8 @@ export type DialogAnswer =
 
 export interface ClientState {
   connection: "connecting" | "ready" | "closed";
+  /** Name of the machine being controlled (from the host; empty when unknown). */
+  device: string;
   /** Workspace and identity of the attached child. */
   activeCwd: string;
   childId?: string;
@@ -210,7 +212,7 @@ export interface ChildStatus {
 
 /** What the host provides beyond omp (session files, workspaces, process ownership). */
 export interface HostApi {
-  info(): Promise<{ cwd: string }>;
+  info(): Promise<{ cwd: string; device?: string }>;
   sessions(): Promise<Workspace[]>;
   complete(typed: string): Promise<{ exists: boolean; entries: string[] }>;
   addWorkspace(cwd: string): Promise<void>;

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useActions, useClientState } from "./client-context";
 import { baseName, cx, relativeTime } from "./format";
-import { ChevronIcon, EditIcon, FolderIcon, FolderPlusIcon } from "./icons";
+import { ChevronIcon, EditIcon, FolderIcon, FolderPlusIcon, DeviceIcon } from "./icons";
 import { Ring } from "./ring";
 import { useT } from "../i18n";
 
@@ -26,6 +26,7 @@ export function Sidebar({ onAddWorkspace, onNavigate }: { onAddWorkspace: () => 
   const activeCwd = useClientState((s) => s.activeCwd);
   const sessionFile = useClientState((s) => s.sessionFile);
   const run = useClientState((s) => s.run);
+  const device = useClientState((s) => s.device);
   const level = useClientState((s) => s.thinking.resolved);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const now = useNow(REFRESH_AGE_MS);
@@ -109,6 +110,7 @@ export function Sidebar({ onAddWorkspace, onNavigate }: { onAddWorkspace: () => 
           );
         })}
       </nav>
+      {device && <div id="device" title={t("side.device", { name: device })}><DeviceIcon /><span>{device}</span></div>}
     </aside>
   );
 }

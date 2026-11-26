@@ -8,7 +8,7 @@
  * Anyone who can reach the port controls the agent: keep HOST on loopback unless the network is trusted.
  *
  * HTTP API (JSON):
- *   GET  /api/info                -> { cwd, agentDir }
+ *   GET  /api/info                -> { cwd, agentDir, device }
  *   GET  /api/sessions            -> { workspaces: [{ cwd, sessions: [{ path, id, title, updatedAt }] }] }   newest first; updatedAt in ms
  *   POST /api/workspace {cwd}     -> { cwd }          creates the directory and remembers it as a (possibly empty) workspace
  *   GET  /api/children            -> { children: ChildStatus[] }
@@ -30,6 +30,8 @@ const command = args.length ? args : ["cgs", "--mode", "rpc-ui"];
 const agentDir = process.env.AGENT_DIR ?? process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".cgs", "agent");
 const workspacesFile = path.join(agentDir, "cgs", "web-workspaces.json");
 const defaultCwd = process.env.WORKDIR ? path.resolve(process.env.WORKDIR) : "";
+/** The machine this bridge (later cgsconnect, ADR 0026) speaks for; the sidebar shows it so the user sees what they control. */
+const device = process.env.DEVICE_NAME || os.hostname();
 const CHILD_LIMIT = 8;
 const IDLE_MS = 15 * 60_000;
 const ATTACH_GRACE_MS = 5_000;
@@ -338,7 +340,7 @@ function complete(typed: string): { exists: boolean; entries: string[] } {
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
 async function api(req: Request, route: string): Promise<Response> {
-  if (route === "/api/info" && req.method === "GET") return json({ cwd: defaultCwd, agentDir });
+  if (route === "/api/info" && req.method === "GET") return json({ cwd: defaultCwd, agentDir, device });
   if (route === "/api/children" && req.method === "GET") {
     return json({ children: [...children.values()].filter((c) => c.ready && !c.stopping).map((c) => c.status) });
   }

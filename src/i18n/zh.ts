@@ -15,6 +15,7 @@ export const zh = {
   "side.newChat": "新对话",
   "side.addWorkspace": "添加工作区",
   "side.noChats": "暂无对话",
+  "side.device": "正在控制的设备:{name}",
   "side.toggle": "收起或展开侧栏",
   "side.toggleRight": "收起或展开右侧栏",
   "side.unseen": "离开期间已完成",
@@ -72,8 +73,6 @@ export const zh = {
   "pop.model": "模型",
   "pop.search": "搜索模型",
   "pop.none": "没有匹配的模型",
-  "model.relay": "中转",
-  "model.direct": "官方",
 
   "level.off": "关闭",
   "level.auto": "自动",

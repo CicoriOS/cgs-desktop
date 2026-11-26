@@ -652,7 +652,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
   const bootstrap = Promise.all([host.info(), host.children(), host.sessions()]).then(
     ([info, children, workspaces]) => {
       if (closed || navigation) return;
-      set((s) => ({ ...s, children, workspaces }));
+      set((s) => ({ ...s, children, workspaces, device: info.device ?? "" }));
       const existing = children.reduce<ChildStatus | undefined>((recent, c) => !recent || c.updatedAt >= recent.updatedAt ? c : recent, undefined);
       const cwd = info.cwd || workspaces[0]?.cwd;
       if (existing) attach(existing);

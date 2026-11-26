@@ -16,6 +16,7 @@ export const en: Record<MessageKey, string> = {
   "side.newChat": "New chat",
   "side.addWorkspace": "Add workspace",
   "side.noChats": "No chats yet",
+  "side.device": "Controlling device: {name}",
   "side.toggle": "Show or hide the sidebar",
   "side.toggleRight": "Show or hide the right panel",
   "side.unseen": "Finished while away",
@@ -73,8 +74,6 @@ export const en: Record<MessageKey, string> = {
   "pop.model": "Model",
   "pop.search": "Search models",
   "pop.none": "No matching models",
-  "model.relay": "Relay",
-  "model.direct": "Direct",
 
   "level.off": "Off",
   "level.auto": "Auto",

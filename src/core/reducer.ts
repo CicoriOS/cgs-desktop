@@ -4,6 +4,7 @@ import type { ClientState, Dialog, RingState, ToolCall, Turn } from "./types";
 export function initialState(): ClientState {
   return {
     connection: "connecting",
+    device: "",
     activeCwd: "",
     title: "",
     thinking: { resolved: "high", configured: "auto" },

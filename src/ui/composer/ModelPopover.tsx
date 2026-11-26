@@ -1,7 +1,6 @@
 import { type CSSProperties, type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ModelPicker, ThinkingLevel } from "../../core/types";
 import { useActions, useClientState } from "../client-context";
-import { providerKind } from "../format";
 import { CheckIcon } from "../icons";
 import { isHot, levelColor, levelName } from "../ring";
 import { useT } from "../../i18n";
@@ -103,14 +102,12 @@ export function ModelPopover({ anchor, onClose }: { anchor: RefObject<HTMLElemen
       <input className="search" placeholder={t("pop.search")} value={query} onChange={(e) => setQuery(e.target.value)} />
       <div>
         {picker?.rows.map((r, i) => {
-          const kind = providerKind(r.provider);
           return (
             <div key={`${r.provider}/${r.id}/${r.role ?? ""}`}>
               {i === picker.recent && picker.recent > 0 && <div className="sep" />}
               <button type="button" className="mrow" onClick={() => void actions.setModel(r.provider, r.id, r.role)}>
                 <span className="n">{r.name || r.id}</span>
                 <span className="p">{r.provider}</span>
-                <span className="provider-badge" data-kind={kind}>{t(`model.${kind}`)}</span>
                 <span className="ck">{r.current && <CheckIcon />}</span>
               </button>
             </div>

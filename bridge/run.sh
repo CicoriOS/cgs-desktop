@@ -15,7 +15,7 @@ exec docker run --rm --network host \
   -v "$CGS_BIN":/usr/local/bin/cgs:ro -v "$CGSCLI":/cgscli:ro -v "$ROOT":/app:ro \
   $HOME_MOUNT -e HOME=/home/t \
   -e PI_CONFIG_DIR=.cgs -e PI_NATIVES_DIR=/home/t/.cgs/natives -e PI_RPC_TITLE=1 -e PI_RPC_EMIT_TITLE=1 \
-  ${CGS_BASE_URL:+-e CGS_BASE_URL="$CGS_BASE_URL"} ${PORT:+-e PORT="$PORT"} ${HOST:+-e HOST="$HOST"} \
+  ${CGS_BASE_URL:+-e CGS_BASE_URL="$CGS_BASE_URL"} ${PORT:+-e PORT="$PORT"} ${HOST:+-e HOST="$HOST"} ${DEVICE_NAME:+-e DEVICE_NAME="$DEVICE_NAME"} \
   -w /tmp --entrypoint sh cgscli-build -c '
     mkdir -p /home/t/.cgs/agent
     PI_CODING_AGENT_DIR=/home/t/.cgs/agent bun /cgscli/scripts/seed-config.ts /cgscli/plugin/omp-extension/index.ts
