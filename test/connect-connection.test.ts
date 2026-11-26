@@ -207,6 +207,18 @@ test("without a console login the page asks to sign in; without the entitlement 
   await until(d, "forbidden");
 });
 
+test("a rate-limited sign-in says so with the time it ends and retries by itself", async () => {
+  const w = await world();
+  w.refreshStatus = 429;
+  const c = connect(w);
+  await c.start();
+  c.password(PASSWORD);
+  await until(c, "limited");
+  expect(c.getSnapshot().until).toBeGreaterThan(Date.now());
+  w.refreshStatus = 200;
+  await until(c, "password");
+});
+
 test("when another browser holds control the page says so, takes over on request, and goes read-only when taken over", async () => {
   const w = await world();
   w.greeting = { k: "busy", by: "Phone" };

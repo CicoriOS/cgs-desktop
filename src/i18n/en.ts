@@ -192,6 +192,8 @@ export const en: Record<MessageKey, string> = {
   "connect.disabled.body": "Run /connect on on the device to turn it on. It will connect automatically once it is on.",
   "connect.offline.title": "Device offline",
   "connect.offline.body": "No omp is running on the device, or it has not reconnected yet. It will connect automatically when it comes online.",
+  "connect.limited.title": "Too many requests",
+  "connect.limited.body": "The server is limiting sign-in requests from this network. The page will try again by itself at {time}.",
   "connect.retry": "Retry",
   "connect.error.title": "Connection failed",
   "connect.password.wrong": "That password is not right. Try again.",

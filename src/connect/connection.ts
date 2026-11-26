@@ -14,7 +14,7 @@ export interface DeviceMark {
   readonly en: string;
 }
 
-export type Phase = "connecting" | "missing" | "login" | "forbidden" | "disabled" | "offline" | "error" | "revoked" | "locked" | "password" | "fingerprint" | "changed" | "busy" | "ready" | "readonly";
+export type Phase = "connecting" | "missing" | "login" | "forbidden" | "disabled" | "offline" | "error" | "limited" | "revoked" | "locked" | "password" | "fingerprint" | "changed" | "busy" | "ready" | "readonly";
 
 export interface RelayState {
   phase: Phase;
@@ -25,6 +25,7 @@ export interface RelayState {
   problem?: string;
   /** Who holds control (busy) or took it (readonly). */
   by?: string;
+  /** When a lock (locked) or a rate limit (limited) ends. */
   until?: number;
 }
 
@@ -58,6 +59,7 @@ const UNKNOWN_CHILD_CODE = 4004;
 const RETRY_MIN_MS = 1000;
 const RETRY_MAX_MS = 30_000;
 const IDLE_RETRY_MS = 10_000;
+const LIMITED_RETRY_MS = 60_000;
 const AUTH_LOCK = "new-api:auth-refresh";
 
 /** A short, human name for this browser: "Chrome on Linux". The user can change it in the password form. */
@@ -94,8 +96,14 @@ function toMux(m: WireMessage): MuxMessage | null {
   }
 }
 
+/** How long a 429 asks the page to wait (`Retry-After` in seconds), else a minute. */
+function retryAfterMs(res: Response): number {
+  const seconds = Number(res.headers.get("retry-after"));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds, 3600) * 1000 : LIMITED_RETRY_MS;
+}
+
 class Failure extends Error {
-  constructor(readonly phase: Phase, readonly detail?: string) {
+  constructor(readonly phase: Phase, readonly detail?: string, readonly retryMs?: number) {
     super(detail ?? phase);
   }
 }
@@ -221,6 +229,7 @@ export class RelayConnection {
     const refresh = async () => {
       const res = await this.#deps.fetch("/api/user/auth/refresh", { method: "POST", credentials: "same-origin" });
       if (res.status === 401 || res.status === 403) throw new Failure("login");
+      if (res.status === 429) throw new Failure("limited", undefined, retryAfterMs(res));
       if (!res.ok) throw new Failure("error", `HTTP ${res.status}`);
       const body = (await res.json()) as { success?: boolean; data?: { access_token?: string } };
       if (!body.success || !body.data?.access_token) throw new Failure("login");
@@ -240,6 +249,7 @@ export class RelayConnection {
     if (res.status === 401) throw new Failure("login");
     if (res.status === 403) throw new Failure("forbidden");
     if (res.status === 404) throw new Failure("missing");
+    if (res.status === 429) throw new Failure("limited", undefined, retryAfterMs(res));
     const body = (await res.json().catch(() => null)) as { success?: boolean; data?: { ticket?: string } } | null;
     if (!res.ok || !body?.success || !body.data?.ticket) throw new Failure("error", `HTTP ${res.status}`);
     return body.data.ticket;
@@ -262,8 +272,13 @@ export class RelayConnection {
 
   #fail(f: Failure): void {
     this.#teardownSocketOnly();
-    this.#set({ phase: f.phase, ...(f.phase === "error" ? { problem: f.detail } : {}) });
+    this.#set({
+      phase: f.phase,
+      ...(f.phase === "error" ? { problem: f.detail } : {}),
+      ...(f.retryMs === undefined ? {} : { until: Date.now() + f.retryMs }),
+    });
     if (f.phase === "offline" || f.phase === "disabled") this.#retryLater(IDLE_RETRY_MS);
+    if (f.phase === "limited") this.#retryLater(f.retryMs ?? LIMITED_RETRY_MS);
   }
 
   #teardownSocketOnly(): void {

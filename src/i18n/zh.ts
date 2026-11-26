@@ -191,6 +191,8 @@ export const zh = {
   "connect.disabled.body": "在设备上运行 /connect on 即可开启,开启后会自动连接。",
   "connect.offline.title": "设备离线",
   "connect.offline.body": "设备上没有正在运行的 omp,或它还没有重新连上。设备上线后会自动连接。",
+  "connect.limited.title": "请求过于频繁",
+  "connect.limited.body": "服务器正在限制来自此网络的登录请求。页面会在 {time} 自动重试。",
   "connect.retry": "重试",
   "connect.error.title": "连接失败",
   "connect.password.wrong": "密码不对,请再试一次。",

@@ -142,6 +142,12 @@ export function StateScreen({ state, relay }: { state: RelayState; relay: RelayC
           <Retry relay={relay} />
         </Notice>
       );
+    case "limited":
+      return (
+        <Notice title={t("connect.limited.title")} body={t("connect.limited.body", { time: untilText(state.until, locale === "zh") })}>
+          <Retry relay={relay} />
+        </Notice>
+      );
     case "error":
       return (
         <Notice title={t("connect.error.title")} body={state.problem ?? t("connect.error.generic")}>
