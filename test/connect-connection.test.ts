@@ -81,6 +81,7 @@ function connect(w: World, device = "7"): RelayConnection {
       const url = String(input);
       const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
       if (url.endsWith("/auth/refresh")) return w.refreshStatus === 200 ? json(200, { success: true, data: { access_token: "tok" } }) : json(w.refreshStatus, { success: false });
+      if (!url.endsWith("/api/remote/ticket")) return json(404, { error: "Invalid URL" });
       return w.ticketStatus === 200 ? json(200, { success: true, data: { ticket: "T" } }) : json(w.ticketStatus, { success: false });
     }) as typeof fetch,
     createSocket: (url) => {
@@ -123,7 +124,7 @@ async function until(c: RelayConnection, phase: Phase): Promise<void> {
 test("first connection: password, fingerprint to confirm, then the host API works end to end", async () => {
   const w = await world();
   w.onFrame = (m, d) => {
-    if (m.k === "req") void d.say({ k: "res", id: m.id, status: 200, body: { cwd: "/w", device: "box" } });
+    if (m.k === "req") void d.say({ k: "res", id: m.id, status: m.method === "POST" ? 201 : 200, body: { cwd: "/w", device: "box" } });
   };
   const c = connect(w);
   await c.start();
@@ -140,6 +141,9 @@ test("first connection: password, fingerprint to confirm, then the host API work
 
   await expect(c.host.info()).resolves.toEqual({ cwd: "/w", device: "box" });
   expect(w.devices[0]!.seen.find((m) => m.k === "req")).toMatchObject({ method: "GET", path: "/api/info" });
+  // A POST whose optional field is undefined (the page's own openChild) must reach the device as plain JSON.
+  await expect(c.host.openChild("/w")).resolves.toMatchObject({ cwd: "/w" });
+  expect(w.devices[0]!.seen.findLast((m) => m.k === "req")).toMatchObject({ method: "POST", path: "/api/children", body: { cwd: "/w" } });
   expect(w.credentials.browsers.map((b) => b.name)).toEqual(["My laptop"]);
 });
 

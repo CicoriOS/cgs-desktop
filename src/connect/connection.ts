@@ -68,7 +68,8 @@ export function marksOf(pin: string): DeviceMark[] {
 
 function toWire(m: MuxMessage): WireMessage | null {
   switch (m.type) {
-    case "req": return m.body === undefined ? { k: "req", id: m.id, method: "GET", path: m.path } : { k: "req", id: m.id, method: "POST", path: m.path, body: m.body };
+    // The body is what the bridge would have sent as JSON: keys holding undefined do not exist there, and the wire refuses them.
+    case "req": return m.body === undefined ? { k: "req", id: m.id, method: "GET", path: m.path } : { k: "req", id: m.id, method: "POST", path: m.path, body: JSON.parse(JSON.stringify(m.body)) };
     case "open": return { k: "open", cid: m.cid, path: m.path };
     case "frame": return { k: "frame", cid: m.cid, text: m.text };
     case "close": return { k: "close", cid: m.cid };
@@ -224,7 +225,7 @@ export class RelayConnection {
 
   async #ticket(): Promise<string> {
     const token = await this.#accessToken();
-    const res = await this.#deps.fetch("/api/device/remote/ticket", {
+    const res = await this.#deps.fetch("/api/remote/ticket", {
       method: "POST",
       credentials: "same-origin",
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
@@ -304,6 +305,7 @@ export class RelayConnection {
 
   #protocolError(e: unknown, generation: number): void {
     if (generation !== this.#generation) return;
+    console.warn("connect: protocol error", e);
     this.#teardownSocketOnly();
     this.#set({ phase: "error", problem: e instanceof WireError ? t("connect.error.protocol") : e instanceof Error ? e.message : String(e) });
   }

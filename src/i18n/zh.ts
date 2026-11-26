@@ -191,7 +191,7 @@ export const zh = {
   "connect.error.title": "连接失败",
   "connect.password.wrong": "密码不对,请再试一次。",
   "connect.error.closed": "与设备的连接已断开。",
-  "connect.error.protocol": "设备发来了这个页面读不懂的内容。",
+  "connect.error.protocol": "有一条消息无法读取或发送,连接已关闭。",
   "connect.error.generic": "发生了未知错误。",
   "connect.revoked.title": "此浏览器的授权已被撤销",
   "connect.revoked.body": "请在设备上用设备密码重新授权这个浏览器。",
