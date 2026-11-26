@@ -207,6 +207,19 @@ test("without a console login the page asks to sign in; without the entitlement 
   await until(d, "forbidden");
 });
 
+test("a child stream is opened at the path naming its child, which is how the device finds it", async () => {
+  const w = await world();
+  const c = connect(w);
+  await c.start();
+  c.password(PASSWORD);
+  await until(c, "fingerprint");
+  c.confirm();
+  await until(c, "ready");
+
+  c.transport("child 1");
+  await vi.waitFor(() => expect(w.devices[0]!.seen.find((m) => m.k === "open")).toMatchObject({ cid: "child 1", path: "/ws?child=child%201" }));
+});
+
 test("a rate-limited sign-in says so with the time it ends and retries by itself", async () => {
   const w = await world();
   w.refreshStatus = 429;
