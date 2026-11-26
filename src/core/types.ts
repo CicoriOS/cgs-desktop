@@ -43,7 +43,7 @@ export interface ImageRef {
 /** Everything between one user message and the end of the reply. */
 export interface Turn {
   id: string;
-  user: { text: string; images?: ImageRef[]; /** session entry id, needed to fork from here */ entryId?: string };
+  user: { text: string; images?: ImageRef[] };
   assistant: AssistantMessage[];
   state: "running" | "done" | "interrupted" | "failed";
   startedAt: number;
@@ -145,8 +145,8 @@ export interface Actions {
   /** Registers a (possibly new) directory as a workspace and opens a new session in it. */
   addWorkspace(cwd: string): Promise<void>;
   renameSession(name: string): Promise<void>;
-  /** `fork` at an entry: the new session holds the path up to and including it and becomes current. */
-  fork(entryId: string): Promise<void>;
+  /** `fork` at the end of a turn (its last assistant message): the new session holds the path up to there and becomes current. */
+  fork(turnIndex: number): Promise<void>;
   setModel(provider: string, modelId: string, role?: string): Promise<void>;
   setThinking(level: ThinkingLevel | "auto"): Promise<void>;
   pickerRows(query?: string): Promise<ModelPicker>;

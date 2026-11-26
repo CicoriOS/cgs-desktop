@@ -1,7 +1,8 @@
 import { type EventFrame, applyFrame, initialState, newTurnId, ringFor } from "./reducer";
-import { type SessionEntry, turnsFromEntries, turnsFromMessages } from "./history";
+import { type SessionEntry, turnsFromEntries, turnsFromMessages, turnTailIds } from "./history";
 import type { RawMessage } from "./messages";
 import type { Actions, BtwRecord, Client, ClientState, HostApi, ModelPicker, RawLog, RingState, RpcTransport, ThinkingLevel, Turn } from "./types";
+import { t } from "../i18n";
 
 const RAW_CAP = 3000;
 const RPC_TIMEOUT_MS = 60_000;
@@ -88,7 +89,7 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
     const p = Promise.withResolvers<T>();
     const timer = setTimeout(() => {
       pending.delete(id);
-      p.reject(new Error(`${cmd.type}：${Math.round(rpcTimeout / 1000)} 秒内没有响应`));
+      p.reject(new Error(t("err.timeout", { cmd: cmd.type, n: Math.round(rpcTimeout / 1000) })));
     }, rpcTimeout);
     pending.set(id, {
       resolve: (v) => (clearTimeout(timer), p.resolve(v as T)),
@@ -97,7 +98,7 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
     if (!sendFrame(JSON.stringify({ ...cmd, id }))) {
       pending.delete(id);
       clearTimeout(timer);
-      p.reject(new Error("未连接"));
+      p.reject(new Error(t("err.notConnected")));
     }
     return p.promise;
   }
@@ -300,7 +301,7 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
         set((s) => ({ ...s, cwd: String(ev.cwd ?? s.cwd) }));
         return;
       case "bridge_exit":
-        toast(`omp 已退出（${String(ev.exitCode)}）`);
+        toast(t("toast.exited", { code: String(ev.exitCode) }));
         return;
       case "agent_start":
         deliveringQueue = false;
@@ -397,9 +398,13 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
       guard(async () => {
         const target = cwd ?? (state.activeCwd || state.cwd);
         await enter(target);
+        const r = await rpc<{ cancelled?: boolean }>({ type: "new_session" });
+        if (r?.cancelled) {
+          toast(t("toast.switchCancelled"));
+          return;
+        }
         set((s) => ({ ...s, activeCwd: target }));
         resetSession();
-        await rpc({ type: "new_session" });
         await refreshState();
         await refreshSessions();
       }),
@@ -407,13 +412,13 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
       guard(async () => {
         if (path === state.sessionFile) return;
         await enter(cwd);
-        set((s) => ({ ...s, activeCwd: cwd }));
-        resetSession();
         const r = await rpc<{ cancelled?: boolean }>({ type: "switch_session", sessionPath: path });
         if (r?.cancelled) {
-          toast("切换已取消");
+          toast(t("toast.switchCancelled"));
           return;
         }
+        set((s) => ({ ...s, activeCwd: cwd }));
+        resetSession();
         await refreshState();
         await loadSession();
       }),
@@ -428,11 +433,14 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
         set((s) => ({ ...s, title: name }));
         await refreshSessions();
       }),
-    fork: (entryId) =>
+    fork: (turnIndex) =>
       guard(async () => {
+        const d = await rpc<{ entries: SessionEntry[]; leafId?: string | null }>({ type: "get_entries" });
+        const entryId = turnTailIds(d.entries, d.leafId)[turnIndex];
+        if (!entryId) throw new Error(t("err.forkTarget"));
         const r = await rpc<{ cancelled?: boolean }>({ type: "fork", entryId });
         if (r?.cancelled) {
-          toast("分叉已取消");
+          toast(t("toast.forkCancelled"));
           return;
         }
         resetSession();

@@ -25,7 +25,7 @@ interface Item {
 
 /**
  * Rebuilds turns from a saved transcript: a user message starts a turn, assistant messages and tool results attach to it.
- * `id` is the session entry id when known (needed to fork from a message).
+ * `id` is the session entry id when known; it becomes the assistant message id.
  */
 export function turnsFromMessages(items: Item[]): { turns: Turn[]; tools: Record<string, ToolCall> } {
   const turns: Turn[] = [];
@@ -39,7 +39,7 @@ export function turnsFromMessages(items: Item[]): { turns: Turn[]; tools: Record
       const images = imagesOf(m.content);
       turns.push({
         id: newTurnId(),
-        user: { text: textOf(m.content), ...(images.length ? { images } : {}), ...(id ? { entryId: id } : {}) },
+        user: { text: textOf(m.content), ...(images.length ? { images } : {}) },
         assistant: [],
         state: "done",
         startedAt: m.timestamp ?? 0,
@@ -73,4 +73,15 @@ export function turnsFromEntries(entries: SessionEntry[], leafId?: string | null
     .filter((e) => e.type === "message" && e.message)
     .map((e) => ({ id: e.id, message: e.message as RawMessage }));
   return turnsFromMessages(items);
+}
+
+/** For each turn of the active branch, the entry a fork should end at: its last assistant message, else the user message. */
+export function turnTailIds(entries: SessionEntry[], leafId?: string | null): string[] {
+  const tails: string[] = [];
+  for (const e of activeBranch(entries, leafId)) {
+    const role = e.type === "message" ? e.message?.role : undefined;
+    if (role === "user") tails.push(e.id);
+    else if (role === "assistant" && tails.length) tails[tails.length - 1] = e.id;
+  }
+  return tails;
 }
