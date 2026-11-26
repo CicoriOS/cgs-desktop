@@ -8,32 +8,20 @@ import { DiffView } from "./DiffView";
 import { highlightHtml, langOf } from "./highlight";
 import { useT } from "../../../i18n";
 
-type Rec = Record<string, unknown>;
-const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
-const rec = (v: unknown): Rec => (v && typeof v === "object" ? (v as Rec) : {});
-const MAX_TEXT = 20_000;
-
-/** Text blocks of a tool result. */
-export function resultText(call: ToolCall): string {
-  const parts = (call.result?.content ?? []) as { type?: string; text?: string }[];
-  return parts.map((p) => (p?.type === "text" ? (p.text ?? "") : "")).join("");
-}
+import { Pre, resultText, TextBody } from "./BodyText";
+import { AstBody, EvalBody, TaskBody, TodoBody, WebBody } from "./ExtraBodies";
+import { list, rec, str } from "./details";
+import { JobsBody, McpBody, mcpLabel, MediaBody, OperationBody } from "./OperationBodies";
+import { type CardKind, toolCardKind } from "./cardKinds";
 
 /** One-line description of what a call does, for the card header. */
 export function argSummary(call: ToolCall): string {
   const a = call.args;
-  const v = a.command ?? a.path ?? a.file_path ?? a.pattern ?? a.url ?? a.query ?? a.intent ?? Object.values(a).find((x) => typeof x === "string");
-  return typeof v === "string" ? v.replace(/\s+/g, " ").slice(0, 140) : "";
-}
-
-function Pre({ children, label }: { children: string; label?: string }) {
-  const t = useT();
-  return (
-    <>
-      {label && <div className="lab">{label}</div>}
-      <pre>{children.length > MAX_TEXT ? `${children.slice(0, MAX_TEXT)}\n${t("tool.truncated")}` : children}</pre>
-    </>
-  );
+  const firstTask = rec(list(a.tasks)[0]);
+  const preferred = call.name === "task" || call.name === "subagent" ? firstTask.name ?? a.name ?? firstTask.task ?? a.task : undefined;
+  const operation = str(a.action ?? a.op);
+  const v = preferred ?? a.command ?? a.path ?? a.file_path ?? a.file ?? a.pattern ?? a.pat ?? a.url ?? a.query ?? a.repo ?? a.intent ?? a.code ?? a.title ?? a.goal ?? a.input;
+  return [operation, str(v) ?? (operation ? undefined : Object.values(a).find((x): x is string => typeof x === "string"))].filter(Boolean).join(" · ").replace(/\s+/g, " ").slice(0, 140);
 }
 
 // ---------------------------------------------------------------- per-tool bodies
@@ -77,7 +65,7 @@ interface FileDiff {
 
 function editFiles(call: ToolCall): FileDiff[] {
   const d = rec(call.result?.details);
-  const per = Array.isArray(d.perFileResults) ? (d.perFileResults as Rec[]) : [];
+  const per = list(d.perFileResults).map(rec);
   if (per.length) {
     return per.map((f) => ({ path: str(f.path) ?? "", lines: parseDiff(str(f.diff) ?? ""), note: f.isError ? (str(f.displayErrorText) ?? str(f.errorText)) : undefined }));
   }
@@ -102,7 +90,14 @@ function EditBody({ call }: { call: ToolCall }) {
           <DiffView lines={f.lines} lang={langOf(f.path || str(call.args.path))} />
         </div>
       ))}
-      {!files.length && (call.result ? <Pre>{text || t("tool.empty")}</Pre> : <div className="lab">{t("tool.applying")}</div>)}
+      {!files.length && <>
+        {typeof call.args.input === "string" && <Pre language="diff">{call.args.input}</Pre>}
+        {list(call.args.edits).map((item, i) => {
+          const edit = rec(item);
+          return <Pre key={i} language="diff" label={[str(edit.op), str(edit.rename)].filter(Boolean).join(" → ")}>{str(edit.diff) ?? ""}</Pre>;
+        })}
+        {call.result ? <Pre label={call.result.isError ? t("tool.err") : undefined}>{text || t("tool.empty")}</Pre> : <div className="lab">{t("tool.applying")}</div>}
+      </>}
       {call.result?.isError && files.length > 0 && text && <Pre label={t("tool.err")}>{text}</Pre>}
     </>
   );
@@ -120,13 +115,6 @@ function WriteBody({ call }: { call: ToolCall }) {
   );
 }
 
-function TextBody({ call }: { call: ToolCall }) {
-  const t = useT();
-  const display = rec(call.result?.details).displayContent;
-  const text = typeof display === "string" ? display : resultText(call);
-  return call.result ? <Pre>{text || t("tool.noResult")}</Pre> : <div className="lab">{t("tool.running")}</div>;
-}
-
 function GenericBody({ call }: { call: ToolCall }) {
   const t = useT();
   return (
@@ -137,19 +125,17 @@ function GenericBody({ call }: { call: ToolCall }) {
   );
 }
 
-const BODY: Record<string, (p: { call: ToolCall }) => JSX.Element> = {
-  bash: BashBody,
-  read: ReadBody,
-  edit: EditBody,
-  write: WriteBody,
-  grep: TextBody,
-  glob: TextBody,
-  find: TextBody,
+const BODY: Record<CardKind, (p: { call: ToolCall }) => JSX.Element> = {
+  bash: BashBody, read: ReadBody, edit: EditBody, write: WriteBody, text: TextBody,
+  eval: EvalBody, task: TaskBody, todo: TodoBody, web: WebBody, ast: AstBody,
+  jobs: JobsBody, operation: OperationBody, media: MediaBody, mcp: McpBody,
+  ask: TextBody, // AskCard is routed separately by the transcript.
+  generic: GenericBody,
 };
 
 /** `+N −M` for edit/write headers. */
 function statChip(call: ToolCall): { added: number; removed: number } | undefined {
-  if (call.name === "edit") {
+  if (toolCardKind(call.name) === "edit") {
     const files = editFiles(call);
     if (!files.length) return undefined;
     return files.reduce((t, f) => {
@@ -180,15 +166,16 @@ export function ToolCard({ call }: { call: ToolCall }) {
     }
   }, [failed, autoOpened]);
 
-  const Body = BODY[call.name] ?? GenericBody;
+  const kind = toolCardKind(call.name);
+  const Body = BODY[kind];
   const stat = statChip(call);
   const path = str(call.args.path) ?? str(call.args.file_path);
-  const summary = call.name === "edit" || call.name === "write" || call.name === "read" ? (path ? baseName(path) : argSummary(call)) : argSummary(call);
+  const summary = path && (kind === "edit" || kind === "write" || kind === "read") ? baseName(path) : argSummary(call);
   return (
-    <details className={`tool${failed ? " err" : ""}`} open={open} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
+    <details className={`tool${failed ? " err" : ""}`} data-card-kind={kind} open={open} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
       <summary title={path ?? undefined}>
         <Ring small state={toolRingState(call, streaming)} level={level} />
-        <span className="name">{call.name}</span>
+        <span className="name">{kind === "mcp" ? mcpLabel(call) : call.name}</span>
         <span className="sum">{summary}</span>
         {stat && (
           <span className="stat">

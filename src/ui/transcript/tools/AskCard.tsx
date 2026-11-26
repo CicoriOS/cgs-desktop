@@ -3,7 +3,7 @@ import type { ToolCall } from "../../../core/types";
 import { useT } from "../../../i18n";
 import { useClientState } from "../../client-context";
 import { Ring } from "../../ring";
-import { resultText } from "./ToolCard";
+import { resultText } from "./BodyText";
 
 interface Answer {
   name?: string;

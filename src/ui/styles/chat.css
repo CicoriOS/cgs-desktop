@@ -165,3 +165,15 @@
 .hljs-meta, .hljs-tag, .hljs-subst { color: var(--hl-meta); }
 .hljs-deletion { color: var(--danger); }
 .hljs-emphasis { font-style: italic; } .hljs-strong { font-weight: 600; }
+
+/* Structured tool bodies */
+.tool .eval-image { display: block; max-width: 100%; max-height: 420px; object-fit: contain; margin: 8px 0; }
+.tool-checklist, .tool-sources { margin: 4px 0; padding-inline-start: 20px; overflow-wrap: anywhere; }
+.tool-checklist { list-style: none; padding-inline-start: 0; }
+.tool-checklist li + li, .tool-sources li + li { margin-top: 4px; }
+.tool-checklist li[data-state="completed"] > span:nth-child(2) { text-decoration: line-through; }
+.tool-checklist small { color: var(--muted); margin-inline-start: 4px; }
+.tool-fields { margin: 4px 0; }
+.tool-fields > div { display: grid; grid-template-columns: minmax(6em, 20%) minmax(0, 1fr); gap: 8px; padding: 4px 0; overflow-wrap: anywhere; }
+.tool-fields dt { color: var(--muted); }
+.tool-fields dd { margin: 0; white-space: pre-wrap; }
