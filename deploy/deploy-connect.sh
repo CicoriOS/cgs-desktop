@@ -95,6 +95,8 @@ location /connect/ {
     try_files $uri /connect/index-connect.html;
     add_header Cache-Control "no-cache" always;
     add_header X-Content-Type-Options "nosniff" always;
+    # ADR 0036: the page talks only to its own origin (/api, /relay). 'wasm-unsafe-eval' for the bundled WebAssembly.
+    add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" always;
 }
 location /connect/assets/ {
     root /var/www/cgs;
