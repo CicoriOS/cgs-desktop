@@ -1,7 +1,7 @@
 import type { MessageKey } from "./zh";
 
 export const en: Record<MessageKey, string> = {
-  "app.title": "cgs",
+  "app.title": "CGS Connect",
   "lang.switch": "语言 / Language",
   "common.close": "Close",
   "common.copy": "Copy",

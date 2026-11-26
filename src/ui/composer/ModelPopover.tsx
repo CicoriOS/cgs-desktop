@@ -13,7 +13,7 @@ function ThinkingSlider({ steps, current, onPick }: { steps: string[]; current: 
   useEffect(() => setValue(at), [at]);
   const last = Math.max(1, steps.length - 1);
   const step = steps[value] ?? "auto";
-  const c1 = step === "auto" ? "#8a8a8a" : levelColor(step);
+  const c1 = levelColor(step);
   const style = { "--t": String(value / last), "--c1": c1, "--c2": `color-mix(in srgb, ${c1} 45%, #fff)` } as CSSProperties;
   return (
     <div className="think">

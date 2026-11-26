@@ -1,6 +1,6 @@
 // Source language. `en.ts` must define the same keys (checked by the type below and by test/i18n.test.ts).
 export const zh = {
-  "app.title": "cgs",
+  "app.title": "CGS Connect",
   "lang.switch": "语言 / Language",
   "common.close": "关闭",
   "common.copy": "复制",

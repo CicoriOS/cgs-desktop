@@ -26,6 +26,9 @@ input, textarea { font: inherit; color: inherit; }
 /* ---- sidebar ---- */
 #sidebar { width: 280px; flex: none; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; transition: margin-left .2s; }
 #app.side-hidden #sidebar { margin-left: -280px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 14px 16px 2px; user-select: none; }
+.brand img { flex: none; }
+.brand span { font-size: 17px; font-weight: 700; letter-spacing: .2px; background: linear-gradient(90deg, #7c5cf0, #b04fc0); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .side-top { display: flex; gap: 6px; padding: 10px; }
 .pill { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; height: 36px; border-radius: 10px; font-size: 13.5px; white-space: nowrap; }
 .side-top .pill:first-child { flex: 3 1 0; }

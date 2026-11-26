@@ -38,6 +38,10 @@ export function Sidebar({ onAddWorkspace, onNavigate }: { onAddWorkspace: () => 
 
   return (
     <aside id="sidebar">
+      <div className="brand">
+        <img src="/cgs-logo.svg" alt="" width={30} height={30} />
+        <span>CGS Connect</span>
+      </div>
       <div className="side-top">
         <button type="button" id="new-chat" className="pill" title={t("side.newChat")} onClick={() => confirmLeave(activeCwd) && (onNavigate(), void actions.newSession())}>
           <EditIcon />
