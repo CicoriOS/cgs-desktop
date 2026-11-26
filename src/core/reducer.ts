@@ -4,7 +4,6 @@ import type { ClientState, Dialog, RingState, ToolCall, Turn } from "./types";
 export function initialState(): ClientState {
   return {
     connection: "connecting",
-    cwd: "",
     activeCwd: "",
     title: "",
     thinking: { resolved: "high", configured: "auto" },
@@ -14,6 +13,7 @@ export function initialState(): ClientState {
     queue: [],
     dialogs: [],
     workspaces: [],
+    children: [],
     btw: [],
   };
 }
@@ -35,7 +35,6 @@ export interface EventFrame {
   record?: { id: string; question: string; answer?: string; status?: string };
   recordId?: string;
   delta?: string;
-  cwd?: string;
   // extension_ui_request
   id?: string;
   method?: string;
@@ -86,14 +85,14 @@ function upsertTools(tools: Record<string, ToolCall>, calls: ToolCall[]): Record
   const next = { ...tools };
   for (const c of calls) {
     const old = next[c.id];
-    next[c.id] = { ...c, status: old?.status ?? "running", result: old?.result, name: c.name || old?.name || "" };
+    next[c.id] = { ...c, status: old?.status ?? "running", result: old?.result, name: c.name || old?.name || "", args: { ...old?.args, ...c.args } };
   }
   return next;
 }
 
-function setResult(tools: Record<string, ToolCall>, id: string, result: ToolCall["result"]): Record<string, ToolCall> {
-  const call = tools[id];
-  if (!call || !result) return tools;
+function setResult(tools: Record<string, ToolCall>, id: string, result: ToolCall["result"], name = ""): Record<string, ToolCall> {
+  if (!result) return tools;
+  const call = tools[id] ?? { id, name, args: {} };
   return { ...tools, [id]: { ...call, result, status: result.isError ? "fail" : "ok" } };
 }
 
@@ -147,11 +146,12 @@ export function applyFrame(s: ClientState, f: EventFrame, now: number): ClientSt
     case "tool_execution_start": {
       if (!f.toolCallId) return s;
       const old = s.tools[f.toolCallId];
-      return { ...s, tools: { ...s.tools, [f.toolCallId]: { id: f.toolCallId, name: f.toolName ?? old?.name ?? "", args: old?.args ?? f.args ?? {}, status: "running", result: old?.result } } };
+      if (old?.result) return s;
+      return { ...s, tools: { ...s.tools, [f.toolCallId]: { id: f.toolCallId, name: f.toolName ?? old?.name ?? "", args: { ...f.args, ...old?.args }, status: "running" } } };
     }
     case "tool_execution_end": {
       if (!f.toolCallId || s.tools[f.toolCallId]?.result) return s;
-      return { ...s, tools: setResult(s.tools, f.toolCallId, { content: f.result?.content ?? [], details: f.result?.details, isError: !!f.isError }) };
+      return { ...s, tools: setResult(s.tools, f.toolCallId, { content: f.result?.content ?? [], details: f.result?.details, isError: !!f.isError }, f.toolName) };
     }
     case "extension_ui_request": {
       if (f.method === "cancel") return { ...s, dialogs: s.dialogs.filter((d) => d.id !== f.targetId) }; // omp closed it (timeout, abort)

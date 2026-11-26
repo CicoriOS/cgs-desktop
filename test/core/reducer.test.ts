@@ -45,3 +45,14 @@ test("ringFor asks for thinking only while thinking streams", () => {
   expect(ringFor({ type: "message_update", assistantMessageEvent: { type: "text_delta" } })).toBe("work");
   expect(ringFor({ type: "turn_end" })).toBeUndefined();
 });
+
+test("a result without its start is preserved when the assistant tool call arrives later", () => {
+  const result = { type: "tool_execution_end", toolCallId: "call", toolName: "bash", result: { content: [{ type: "text", text: "hi" }] } };
+  let s = applyFrame(initialState(), result, 1);
+  const message = { role: "assistant", content: [{ type: "toolCall", id: "call", name: "bash", arguments: { command: "echo hi" } }] };
+  s = applyFrame(s, { type: "message_update", messageId: "live", message }, 2);
+  s = applyFrame(s, { type: "message_end", messageId: "live", message }, 3);
+  expect(s.turns[0]?.assistant).toHaveLength(1);
+  expect(s.tools.call).toMatchObject({ status: "ok", args: { command: "echo hi" }, result: result.result });
+  expect(applyFrame(s, result, 4)).toBe(s);
+});

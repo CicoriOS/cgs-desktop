@@ -1,7 +1,11 @@
-import type { HostApi, RpcTransport, Workspace } from "./types";
+import type { ChildStatus, HostApi, RpcTransport, Workspace } from "./types";
 
-/** WebSocket to the dev bridge: one JSON frame per message each way. Reconnects until closed. */
-export function webSocketTransport(url: string, retryMs = 1500): RpcTransport {
+/** Factory for one child's WebSocket: one JSON frame per message, reconnecting until detached. */
+export function webSocketTransport(url: string, retryMs = 1500) {
+  return (childId: string) => connectChild(`${url}?child=${encodeURIComponent(childId)}`, retryMs);
+}
+
+function connectChild(url: string, retryMs: number): RpcTransport {
   const frameListeners = new Set<(frame: string) => void>();
   const statusListeners = new Set<(s: "connecting" | "ready" | "closed") => void>();
   let ws: WebSocket | undefined;
@@ -20,9 +24,9 @@ export function webSocketTransport(url: string, retryMs = 1500): RpcTransport {
     socket.onmessage = (e) => {
       for (const cb of frameListeners) cb(String(e.data));
     };
-    socket.onclose = () => {
+    socket.onclose = (e) => {
       status("closed");
-      if (!closed) timer = setTimeout(connect, retryMs);
+      if (!closed && e.code !== 4004) timer = setTimeout(connect, retryMs);
     };
   };
   connect();
@@ -60,7 +64,8 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
 export const bridgeHost: HostApi = {
   info: () => call("/api/info"),
   sessions: async () => (await call<{ workspaces: Workspace[] }>("/api/sessions")).workspaces,
+  children: async () => (await call<{ children: ChildStatus[] }>("/api/children")).children,
   complete: (typed) => call(`/api/complete?path=${encodeURIComponent(typed)}`),
   addWorkspace: async (cwd) => void (await call("/api/workspace", { cwd })),
-  enter: (cwd) => call("/api/cwd", { cwd }),
+  openChild: (cwd, sessionPath) => call("/api/children", { cwd, sessionPath }),
 };

@@ -16,7 +16,7 @@ test("the dev bridge forwards its child command when Bun strips the separator", 
       output += chunk.toString();
       if (output.includes("\n")) break;
     }
-    expect(output).toMatch(/rpc-web: http:\/\/127\.0\.0\.1:\d+\s+->\s+bun --version\s+\(cwd /);
+    expect(output).toMatch(/rpc-web: http:\/\/127\.0\.0\.1:\d+\s+->\s+bun --version\b/);
   } finally {
     bridge.kill();
     await closed;

@@ -18,7 +18,7 @@ export const en: Record<MessageKey, string> = {
   "side.noChats": "No chats yet",
   "side.toggle": "Show or hide the sidebar",
   "side.toggleRight": "Show or hide the right panel",
-  "side.confirmLeave": "A task is running in another workspace. Switching restarts omp and stops it. Continue?",
+  "side.unseen": "Finished while away",
   "right.placeholder": "Files and Git changes will appear here",
 
   "ws.aria": "Add workspace",
@@ -142,10 +142,10 @@ export const en: Record<MessageKey, string> = {
   "dur.min": "{m} min {s} s",
 
   "err.notConnected": "Not connected",
+  "err.addWorkspace": "Add a workspace before starting a chat",
   "err.timeout": "{cmd}: no response within {n} s",
   "err.forkTarget": "Cannot find the message to fork from",
   "toast.exited": "omp exited ({code})",
-  "toast.switchCancelled": "Switch cancelled",
   "toast.forkCancelled": "Fork cancelled",
   "form.required": "Required",
   "form.selectOne": "Select at least one",

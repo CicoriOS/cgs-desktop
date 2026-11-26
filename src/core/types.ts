@@ -102,9 +102,9 @@ export type DialogAnswer =
 
 export interface ClientState {
   connection: "connecting" | "ready" | "closed";
-  /** Where omp runs now / the workspace the UI treats as current (they differ until the bridge restarts omp). */
-  cwd: string;
+  /** Workspace and identity of the attached child. */
   activeCwd: string;
+  childId?: string;
   sessionFile?: string;
   title: string;
   model?: ModelRef;
@@ -118,6 +118,7 @@ export interface ClientState {
   /** Messages sent while the agent was busy and not yet delivered (`queue_update`). */
   queue: QueuedMessage[];
   workspaces: Workspace[];
+  children: ChildStatus[];
   btw: BtwRecord[];
   /** Questions waiting for an answer, oldest first; the UI shows the first. */
   dialogs: Dialog[];
@@ -195,14 +196,26 @@ export interface RpcTransport {
   close(): void;
 }
 
-/** What the dev bridge provides beyond omp (session list, workspaces, restarting omp in another cwd). */
+/** Live processes overlaid on the session files listed by the host. */
+export interface ChildStatus {
+  id: string;
+  cwd: string;
+  sessionPath?: string;
+  title?: string;
+  updatedAt: number;
+  ring: "idle" | "work" | "think";
+  level: ThinkingLevel;
+  unseen: boolean;
+}
+
+/** What the host provides beyond omp (session files, workspaces, process ownership). */
 export interface HostApi {
   info(): Promise<{ cwd: string }>;
   sessions(): Promise<Workspace[]>;
   complete(typed: string): Promise<{ exists: boolean; entries: string[] }>;
   addWorkspace(cwd: string): Promise<void>;
-  /** Makes omp run in `cwd`; resolves `restarted` when it had to restart (the transport then sends `bridge_restart`). */
-  enter(cwd: string): Promise<{ cwd: string; restarted: boolean }>;
+  children(): Promise<ChildStatus[]>;
+  openChild(cwd: string, sessionPath?: string): Promise<ChildStatus>;
 }
 
 /** Every frame sent (`out`) and received (`in`), newest last; kept apart from the state so streaming does not re-render the UI twice. */

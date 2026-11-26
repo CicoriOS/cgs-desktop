@@ -2,13 +2,14 @@ import { type EventFrame, applyFrame, initialState, newTurnId, ringFor } from ".
 import { type SessionEntry, activeBranch, turnsFromEntries, turnsFromMessages, turnTailIds } from "./history";
 import type { RawMessage } from "./messages";
 import { buildStats, type SessionTotals, type StatsView, type SubagentSnapshot, type UsageMessage } from "./stats";
-import type { Actions, BtwRecord, Client, ClientState, DialogAnswer, HostApi, ImageRef, ModelPicker, RawLog, RingState, RpcTransport, ThinkingLevel, Turn } from "./types";
+import type { Actions, BtwRecord, ChildStatus, Client, ClientState, DialogAnswer, HostApi, ImageRef, ModelPicker, RawLog, RingState, RpcTransport, ThinkingLevel, ToolCall, Turn } from "./types";
 import { getLocale, subscribeLocale, t } from "../i18n";
 
 const RAW_CAP = 3000;
 const RPC_TIMEOUT_MS = 60_000;
 /** A fast model thinks for a fraction of a second: once the blue thinking ring shows, the next state waits this long. */
 const THINK_HOLD_MS = 1500;
+const CHILD_POLL_MS = 2000;
 
 export interface ClientOptions {
   now?: () => number;
@@ -41,12 +42,14 @@ interface StateData {
   configuredThinkingLevel?: ThinkingLevel | "auto";
   sessionFile?: string;
   isStreaming?: boolean;
+  isSettled?: boolean;
+  queuedMessages?: { steering?: string[]; followUp?: string[] };
 }
 
 const toImageContent = (images: ImageRef[] | undefined) => (images?.length ? { images: images.map((i) => ({ type: "image", mimeType: i.mimeType, data: i.data })) } : {});
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export function createClient(transport: RpcTransport, host: HostApi, opts: ClientOptions = {}): Client {
+export function createClient(connect: (childId: string) => RpcTransport, host: HostApi, opts: ClientOptions = {}): Client {
   const now = opts.now ?? Date.now;
   const holdMs = opts.holdMs ?? THINK_HOLD_MS;
   const rpcTimeout = opts.rpcTimeoutMs ?? RPC_TIMEOUT_MS;
@@ -74,21 +77,24 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
   };
 
   // ------------------------------------------------------------------ rpc
-  const page = Math.random().toString(36).slice(2, 8); // the bridge replays old responses on connect: ids are unique per page load
+  const page = Math.random().toString(36).slice(2, 8); // ids distinguish responses across tabs sharing a child
   let seq = 0;
   const pending = new Map<string, Pending>();
-  let replaying = true;
-  const replayForms = new Map<string, EventFrame>();
-  let ready = Promise.withResolvers<void>();
-  let restarting = false;
+  let transport: RpcTransport | undefined;
+  let unsubscribeTransport: (() => void) | undefined;
+  let epoch = 0;
+  let navigation = 0;
+  let closed = false;
+  let hydrating = false;
+  let snapshot: (EventFrame & { ring?: ChildStatus["ring"]; level?: ThinkingLevel; partial?: EventFrame; dialogs?: EventFrame[]; queue?: EventFrame }) | undefined;
 
   function sendFrame(text: string): boolean {
-    if (!transport.send(text)) return false;
+    if (!transport?.send(text)) return false;
     rawPush("out", text);
     return true;
   }
 
-  function rpc<T = unknown>(cmd: { type: string; [k: string]: unknown }): Promise<T> {
+  function rpc<T = unknown>(cmd: { type: string; [k: string]: unknown }, apply?: (data: T) => void): Promise<T> {
     const id = `${page}-${++seq}`;
     const p = Promise.withResolvers<T>();
     const timer = setTimeout(() => {
@@ -96,7 +102,10 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
       p.reject(new Error(t("err.timeout", { cmd: cmd.type, n: Math.round(rpcTimeout / 1000) })));
     }, rpcTimeout);
     pending.set(id, {
-      resolve: (v) => (clearTimeout(timer), p.resolve(v as T)),
+      resolve: (v) => {
+        clearTimeout(timer);
+        try { apply?.(v as T); p.resolve(v as T); } catch (e) { p.reject(e); }
+      },
       reject: (e) => (clearTimeout(timer), p.reject(e)),
     });
     if (!sendFrame(JSON.stringify({ ...cmd, id }))) {
@@ -112,10 +121,11 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
 
   /** Runs a mutating action: failures become a toast instead of a rejection. */
   async function guard(fn: () => Promise<void>): Promise<void> {
+    const current = epoch;
     try {
       await fn();
     } catch (e) {
-      toast(errorMessage(e));
+      if (current === epoch && !closed) toast(errorMessage(e));
     }
   }
 
@@ -219,35 +229,56 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
       model: st.model ? { provider: st.model.provider, id: st.model.id, name: st.model.name ?? st.model.id } : s.model,
       thinking: { resolved: st.thinkingLevel ?? s.thinking.resolved, configured: st.configuredThinkingLevel ?? s.thinking.configured },
       sessionFile: st.sessionFile ?? s.sessionFile,
-      run: { ...s.run, streaming: !!st.isStreaming },
+      run: { ...s.run, streaming: !(st.isSettled ?? !st.isStreaming) },
     }));
-    if (st.isStreaming && state.run.state === "idle") requestRing("work");
+    if (state.run.streaming && state.run.state === "idle") requestRing("work");
   }
 
   async function refreshState(): Promise<void> {
+    const current = epoch;
     try {
-      applyState(await rpc<StateData>({ type: "get_state" }));
+      const st = await rpc<StateData>({ type: "get_state" });
+      if (current === epoch) applyState(st);
     } catch {
       /* a later frame or action reports a real outage */
     }
   }
 
   function syncTitleLanguage(): void {
-    if (state.connection !== "ready" || restarting) return;
+    if (!transport || (!hydrating && state.connection !== "ready")) return;
     const language = getLocale() === "zh" ? "Chinese (Simplified)" : "English";
     // Older omp versions don't recognize this optional command.
     void rpc({ type: "set_title_language", language }).catch(() => {});
   }
 
+  let listRequest = 0;
   async function refreshSessions(): Promise<void> {
+    const request = ++listRequest;
     try {
       const workspaces = await host.sessions();
+      if (closed || request !== listRequest) return;
       set((s) => {
         const cur = workspaces.flatMap((w) => w.sessions).find((x) => x.path === s.sessionFile);
         return { ...s, workspaces, title: cur?.title ?? s.title };
       });
     } catch (e) {
-      toast(errorMessage(e));
+      if (!closed && request === listRequest) toast(errorMessage(e));
+    }
+  }
+
+  let statusRequest = 0;
+  async function refreshChildren(): Promise<void> {
+    const request = ++statusRequest;
+    try {
+      const children = await host.children();
+      if (closed || request !== statusRequest) return;
+      const previous = state.children;
+      set((s) => ({ ...s, children }));
+      if (children.length !== previous.length || children.some((c, i) => c.updatedAt !== previous[i]?.updatedAt || c.id !== previous[i]?.id)) {
+        void refreshSessions();
+      }
+    } catch {
+      // Polling may fail while the bridge is offline; the active socket reports its own status.
     }
   }
 
@@ -256,37 +287,112 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
     hold = undefined;
     runEnded = false;
     endInfo = undefined;
-    set((s) => ({ ...s, turns: [], tools: {}, queue: [], btw: [], title: "", run: { state: "idle", streaming: false } }));
+    deliveringQueue = false;
+    set((s) => ({ ...s, turns: [], tools: {}, queue: [], dialogs: [], btw: [], title: "", run: { state: "idle", streaming: false } }));
   }
 
-  async function loadSession(): Promise<void> {
+  async function hydrate(): Promise<void> {
+    const current = epoch;
+    hydrating = true;
+    snapshot = undefined;
     try {
-      let built: ReturnType<typeof turnsFromEntries>;
+      const st = await rpc<StateData>({ type: "get_state" });
+      if (current !== epoch) return;
+      applyState(st);
+      const applyHistory = (built: { turns: Turn[]; tools: Record<string, ToolCall> }) => {
+        const nowMs = now();
+        const { ring, level, partial, dialogs, queue } = snapshot ?? {};
+        const streaming = ring ? ring !== "idle" : state.run.streaming;
+        const last = built.turns.at(-1);
+        if (last && streaming) {
+          last.state = "running";
+          for (const a of last.assistant) for (const item of a.items) {
+            const tool = item.kind === "tool" ? built.tools[item.callId] : undefined;
+            if (tool && !tool.result) tool.status = "running";
+          }
+        }
+        set((s) => {
+          let next: ClientState = {
+            ...s, ...built, title: built.turns[0]?.user.text.slice(0, 60) || s.title,
+            run: { streaming, state: ring ?? (streaming ? "work" : "idle") },
+            thinking: { ...s.thinking, resolved: level ?? s.thinking.resolved },
+            dialogs: [],
+          };
+          if (queue || st.queuedMessages) next = applyFrame(next, queue ?? { type: "queue_update", ...st.queuedMessages }, nowMs);
+          if (partial) next = applyFrame(next, partial, nowMs);
+          for (const dialog of dialogs ?? []) next = applyFrame(next, dialog, nowMs);
+          return { ...next, connection: "ready" };
+        });
+        hydrating = false;
+        snapshot = undefined;
+      };
+      // Apply on the response frame itself, before any subsequent live event. Earlier persisted events are in the entries.
       try {
-        const d = await rpc<{ entries: SessionEntry[]; leafId?: string | null }>({ type: "get_entries" });
-        built = turnsFromEntries(d.entries, d.leafId);
-      } catch {
-        const d = await rpc<{ messages?: RawMessage[] } | RawMessage[]>({ type: "get_messages" });
-        built = turnsFromMessages((Array.isArray(d) ? d : (d.messages ?? [])).map((message) => ({ message })));
+        await rpc<{ entries: SessionEntry[]; leafId?: string | null }>({ type: "get_entries", bridgeSnapshot: true },
+          (d) => applyHistory(turnsFromEntries(d.entries, d.leafId)));
+      } catch (e) {
+        if (current !== epoch) return;
+        await rpc<{ messages?: RawMessage[] } | RawMessage[]>({ type: "get_messages", bridgeSnapshot: true },
+          (d) => applyHistory(turnsFromMessages((Array.isArray(d) ? d : (d.messages ?? [])).map((message) => ({ message })))));
       }
-      set((s) => {
-        const turns = built.turns.slice();
-        const last = turns.at(-1);
-        if (last && s.run.streaming) turns[turns.length - 1] = { ...last, state: "running" };
-        return { ...s, turns, tools: built.tools, title: turns[0]?.user.text.slice(0, 60) ?? "" };
-      });
     } catch (e) {
+      if (current !== epoch) return;
+      hydrating = false;
+      set((s) => ({ ...s, connection: "closed" }));
       toast(errorMessage(e));
     }
-    await refreshSessions();
-    if (state.run.streaming) requestRing("work");
+    if (current === epoch) void refreshSessions();
   }
 
-  async function enter(cwd: string): Promise<void> {
-    if (cwd === state.cwd) return;
-    const r = await host.enter(cwd);
-    set((s) => ({ ...s, cwd: r.cwd }));
-    if (r.restarted) await ready.promise;
+  function rejectPending(): void {
+    for (const p of pending.values()) p.reject(new Error(t("err.notConnected")));
+    pending.clear();
+  }
+
+  function detach(): void {
+    ++epoch;
+    rejectPending();
+    unsubscribeTransport?.();
+    unsubscribeTransport = undefined;
+    transport?.close();
+    transport = undefined;
+  }
+
+  function attach(child: ChildStatus): void {
+    if (state.childId === child.id && state.connection !== "closed") return;
+    detach();
+    resetSession();
+    hydrating = true;
+    set((s) => ({
+      ...s, childId: child.id, activeCwd: child.cwd, sessionFile: child.sessionPath, connection: "connecting",
+      model: undefined, draftRestore: undefined, title: child.title ?? "", thinking: { resolved: child.level, configured: "auto" },
+      children: [...s.children.filter((c) => c.id !== child.id), { ...child, unseen: false }],
+    }));
+    transport = connect(child.id);
+    const offFrame = transport.onFrame(onFrame);
+    const offStatus = transport.onStatus((status) => {
+      if (status !== "ready") {
+        ++epoch;
+        rejectPending();
+        set((s) => ({ ...s, connection: status }));
+        return;
+      }
+      resetSession();
+      hydrating = true;
+      syncTitleLanguage();
+      void hydrate();
+    });
+    unsubscribeTransport = () => { offFrame(); offStatus(); };
+  }
+
+  async function navigate(cwd: string, path?: string): Promise<void> {
+    const request = ++navigation;
+    try {
+      const child = await host.openChild(cwd, path);
+      if (request === navigation && !closed) attach(child);
+    } catch (e) {
+      if (request === navigation && !closed) toast(errorMessage(e));
+    }
   }
 
   // ------------------------------------------------------------------ frames
@@ -308,29 +414,16 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
       return;
     }
     const ev = f as EventFrame & Record<string, unknown>;
-    if (ev.type === "ready") {
-      ready.resolve();
-      if (restarting) {
-        restarting = false;
-        syncTitleLanguage();
-      }
-    }
-    if (replaying) {
-      // Backlog from before this page connected: the chat is rebuilt from get_state and the session file. A form still waiting for
-      // an answer is the exception (the ask tool stays blocked on it): keep the forms the backlog neither cancelled nor finished.
-      if (ev.type === "extension_ui_request" && ev.method === "form" && ev.id) replayForms.set(ev.id, ev);
-      else if (ev.type === "extension_ui_request" && ev.method === "cancel" && ev.targetId) replayForms.delete(ev.targetId);
-      else if (ev.type === "tool_execution_end" && ev.toolName === "ask") replayForms.clear();
+    if (ev.type === "bridge_snapshot") {
+      if (hydrating) snapshot = ev;
       return;
     }
+    if (hydrating && ev.type !== "bridge_exit") return;
     switch (ev.type) {
-      case "bridge_restart":
-        ready = Promise.withResolvers<void>();
-        restarting = true;
-        resetSession();
-        set((s) => ({ ...s, cwd: String(ev.cwd ?? s.cwd) }));
-        return;
       case "bridge_exit":
+        clearTimeout(hold?.timer);
+        hold = undefined;
+        set((s) => ({ ...s, run: { state: "idle", streaming: false } }));
         toast(t("toast.exited", { code: String(ev.exitCode) }));
         return;
       case "agent_start":
@@ -362,58 +455,46 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
   }
 
   const unsubscribeLocale = subscribeLocale(syncTitleLanguage);
-  transport.onFrame(onFrame);
-  transport.onStatus((status) => {
-    set((s) => ({ ...s, connection: status }));
-    if (status === "closed") {
-      for (const p of pending.values()) p.reject(new Error("disconnected"));
-      pending.clear();
-      replaying = true;
-      restarting = false;
-      return;
-    }
-    if (status !== "ready") return;
-    replaying = true;
-    syncTitleLanguage();
-    void (async () => {
-      await refreshState();
-      replaying = false;
-      if (state.run.streaming) for (const f of replayForms.values()) set((s) => applyFrame(s, f, now()));
-      replayForms.clear();
-      await loadSession();
-    })();
-  });
 
   // ------------------------------------------------------------------ actions
   const actions: Actions = {
     async send(text, images) {
-      const t = text.trim();
-      if (!t && !images?.length) return;
+      const textTrimmed = text.trim();
+      if (!textTrimmed && !images?.length) return;
+      if (state.connection !== "ready") {
+        restoreDraft(textTrimmed, images);
+        toast(t(!state.activeCwd && !state.workspaces.length ? "err.addWorkspace" : "err.notConnected"));
+        return;
+      }
+      const current = epoch;
       if (state.run.streaming) {
         try {
-          await rpc({ type: "steer", message: t, ...toImageContent(images) });
+          await rpc({ type: "steer", message: textTrimmed, ...toImageContent(images) });
         } catch (e) {
-          restoreDraft(t, images);
+          if (epoch !== current) return;
+          restoreDraft(textTrimmed, images);
           toast(errorMessage(e));
         }
         return;
       }
-      const turn: Turn = { id: newTurnId(), user: { text: t, ...(images?.length ? { images } : {}) }, assistant: [], state: "running", startedAt: now(), pending: true };
+      const turn: Turn = { id: newTurnId(), user: { text: textTrimmed, ...(images?.length ? { images } : {}) }, assistant: [], state: "running", startedAt: now(), pending: true };
       runEnded = false;
       endInfo = undefined;
-      set((s) => ({ ...s, turns: [...s.turns, turn], title: s.title || t.slice(0, 60) || "…", run: { ...s.run, streaming: true } }));
+      set((s) => ({ ...s, turns: [...s.turns, turn], title: s.title || textTrimmed.slice(0, 60) || "…", run: { ...s.run, streaming: true } }));
       requestRing("work");
       try {
-        const r = await rpc<{ agentInvoked?: boolean }>({ type: "prompt", message: t, ...toImageContent(images) });
+        const r = await rpc<{ agentInvoked?: boolean }>({ type: "prompt", message: textTrimmed, ...toImageContent(images) });
+        if (epoch !== current) return;
         if (r?.agentInvoked === false) {
           // handled locally (a slash command): no model turn follows, the message stays
           set((s) => ({ ...s, turns: s.turns.map((x) => (x.id === turn.id ? { ...x, pending: false, state: "done" } : x)), run: { ...s.run, streaming: false } }));
           requestRing("idle");
         }
       } catch (e) {
+        if (epoch !== current) return;
         set((s) => ({ ...s, turns: s.turns.filter((x) => x.id !== turn.id), run: { ...s.run, streaming: false } }));
         requestRing("idle");
-        restoreDraft(t, images);
+        restoreDraft(textTrimmed, images);
         toast(errorMessage(e));
       }
     },
@@ -421,11 +502,13 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
     deliverQueueNow: () =>
       guard(async () => {
         deliveringQueue = true;
+        const current = epoch;
         try {
           const r = await rpc<{ aborted?: boolean }>({ type: "abort_and_deliver_queue" });
+          if (epoch !== current) return;
           if (!r?.aborted) deliveringQueue = false; // nothing was queued or running: no aborted result will follow
         } catch (e) {
-          deliveringQueue = false;
+          if (epoch === current) deliveringQueue = false;
           throw e;
         }
       }),
@@ -442,37 +525,17 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
       sendFrame(JSON.stringify({ type: "extension_ui_response", id, ...answer }));
       set((s) => ({ ...s, dialogs: s.dialogs.filter((d) => d.id !== id) }));
     },
-    newSession: (cwd) =>
-      guard(async () => {
-        const target = cwd ?? (state.activeCwd || state.cwd);
-        await enter(target);
-        const r = await rpc<{ cancelled?: boolean }>({ type: "new_session" });
-        if (r?.cancelled) {
-          toast(t("toast.switchCancelled"));
-          return;
-        }
-        set((s) => ({ ...s, activeCwd: target }));
-        resetSession();
-        await refreshState();
-        await refreshSessions();
-      }),
-    openSession: (path, cwd) =>
-      guard(async () => {
-        if (path === state.sessionFile) return;
-        await enter(cwd);
-        const r = await rpc<{ cancelled?: boolean }>({ type: "switch_session", sessionPath: path });
-        if (r?.cancelled) {
-          toast(t("toast.switchCancelled"));
-          return;
-        }
-        set((s) => ({ ...s, activeCwd: cwd }));
-        resetSession();
-        await refreshState();
-        await loadSession();
-      }),
+    newSession: async (cwd) => {
+      const target = cwd || state.activeCwd || state.workspaces[0]?.cwd;
+      if (target) await navigate(target);
+    },
+    openSession: async (path, cwd) => {
+      if (path !== state.sessionFile || state.connection === "closed") await navigate(cwd, path);
+    },
     addWorkspace: (cwd) =>
       guard(async () => {
         await host.addWorkspace(cwd);
+        void refreshSessions();
         await actions.newSession(cwd);
       }),
     renameSession: (name) =>
@@ -492,8 +555,7 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
           return;
         }
         resetSession();
-        await refreshState();
-        await loadSession();
+        await hydrate();
       }),
     setModel: (provider, modelId, role) =>
       guard(async () => {
@@ -546,9 +608,25 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
     completePath: (typed) => host.complete(typed),
   };
 
-  void host.info().then(
-    (i) => set((s) => ({ ...s, cwd: i.cwd, activeCwd: s.activeCwd || i.cwd })),
-    (e) => toast(errorMessage(e)),
+  const poll = setInterval(() => void refreshChildren(), CHILD_POLL_MS);
+  void Promise.all([host.info(), host.children(), host.sessions()]).then(
+    ([info, children, workspaces]) => {
+      if (closed || navigation) return;
+      set((s) => ({ ...s, children, workspaces }));
+      const existing = children.reduce<ChildStatus | undefined>((recent, c) => !recent || c.updatedAt >= recent.updatedAt ? c : recent, undefined);
+      const cwd = info.cwd || workspaces[0]?.cwd;
+      if (existing) attach(existing);
+      else if (cwd) {
+        set((s) => ({ ...s, activeCwd: cwd }));
+        void navigate(cwd);
+      } else set((s) => ({ ...s, connection: "closed" }));
+    },
+    (e) => {
+      if (!closed && !navigation) {
+        set((s) => ({ ...s, connection: "closed" }));
+        toast(errorMessage(e));
+      }
+    },
   );
 
   return {
@@ -560,8 +638,11 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
     actions,
     raw,
     close: () => {
+      closed = true;
+      clearInterval(poll);
+      clearTimeout(hold?.timer);
       unsubscribeLocale();
-      transport.close();
+      detach();
     },
   };
 }

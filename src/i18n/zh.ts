@@ -17,7 +17,7 @@ export const zh = {
   "side.noChats": "暂无对话",
   "side.toggle": "收起或展开侧栏",
   "side.toggleRight": "收起或展开右侧栏",
-  "side.confirmLeave": "另一个工作区里有任务正在运行。切换会重启 omp 并中止它，继续吗？",
+  "side.unseen": "离开期间已完成",
   "right.placeholder": "文件和 Git 变更会显示在这里",
 
   "ws.aria": "添加工作区",
@@ -141,10 +141,10 @@ export const zh = {
   "dur.min": "{m} 分 {s} 秒",
 
   "err.notConnected": "未连接",
+  "err.addWorkspace": "开始对话前请先添加工作区",
   "err.timeout": "{cmd}：{n} 秒内没有响应",
   "err.forkTarget": "找不到要分叉的消息",
   "toast.exited": "omp 已退出（{code}）",
-  "toast.switchCancelled": "切换已取消",
   "toast.forkCancelled": "分叉已取消",
   "form.required": "必填",
   "form.selectOne": "至少选一项",

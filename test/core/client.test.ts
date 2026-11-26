@@ -1,11 +1,16 @@
-import { expect, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { createClient } from "../../src/core/client";
 import { getLocale, setLocale } from "../../src/i18n";
-import { fakeHost, fakeTransport, tick } from "./fake";
+import { childA, fakeHost, fakeTransport, tick } from "./fake";
+
+const clients = new Set<{ close(): void }>();
+afterEach(() => { for (const c of clients) c.close(); clients.clear(); });
 
 async function connected(holdMs = 0) {
   const t = fakeTransport();
-  const c = createClient(t.transport, fakeHost, { holdMs });
+  const c = createClient(() => t.transport, fakeHost, { holdMs });
+  clients.add(c);
+  await tick();
   t.open();
   await tick();
   t.respond("set_title_language");
@@ -16,16 +21,18 @@ async function connected(holdMs = 0) {
   return { t, c };
 }
 
-test("title language follows the UI on ready, locale change, and agent restart without surfacing unsupported-command errors", async () => {
+test("title language follows the UI on each attachment and locale change without surfacing unsupported-command errors", async () => {
   const original = getLocale();
   const t = fakeTransport();
-  const c = createClient(t.transport, fakeHost);
+  const c = createClient(() => t.transport, fakeHost);
+  clients.add(c);
+  await tick();
   const languages = () => t.sent.filter((f) => f.type === "set_title_language").map((f) => f.language);
   try {
     setLocale("zh");
     expect(languages()).toEqual([]);
     t.open();
-    t.push({ type: "ready" }); // omp's ready frame (possibly replayed) doesn't send the command twice
+    t.push({ type: "ready" }); // the WebSocket ready callback sends the command only once
     expect(languages()).toEqual(["Chinese (Simplified)"]);
     t.fail("set_title_language", "Unknown command");
     t.respond("get_state", {});
@@ -37,9 +44,7 @@ test("title language follows the UI on ready, locale change, and agent restart w
     setLocale("en");
     expect(languages()).toEqual(["Chinese (Simplified)", "English"]);
     t.respond("set_title_language");
-    t.push({ type: "bridge_restart", cwd: "/other" });
-    expect(languages()).toHaveLength(2);
-    t.push({ type: "ready" });
+    t.open(); // new socket connection to the same child
     expect(languages()).toEqual(["Chinese (Simplified)", "English", "English"]);
     t.respond("set_title_language");
   } finally {
@@ -206,20 +211,20 @@ test("notify shows a toast and set_editor_text fills the draft; neither opens a 
   expect(c.getState().dialogs).toEqual([]);
 });
 
-test("a page that connects while the ask tool waits gets the form back from the backlog", async () => {
+test("attaching while the ask tool waits restores its pending form from the snapshot", async () => {
   const t = fakeTransport();
-  const c = createClient(t.transport, fakeHost, { holdMs: 0 });
+  const c = createClient(() => t.transport, fakeHost, { holdMs: 0 });
+  clients.add(c);
+  await tick();
   t.open();
   t.respond("set_title_language");
   await tick();
-  // backlog replayed before get_state answers: one form still waiting, one cancelled, one finished by the tool
   t.push({ type: "extension_ui_request", id: "old", method: "form", html: "<form>a</form>" });
-  t.push({ type: "extension_ui_request", id: "x", method: "cancel", targetId: "old" });
-  t.push({ type: "extension_ui_request", id: "live", method: "form", html: "<form>b</form>" });
   t.respond("get_state", { isStreaming: true, sessionFile: "/s.jsonl" });
   await tick();
-  expect(c.getState().dialogs.map((d) => d.id)).toEqual(["live"]);
+  t.push({ type: "bridge_snapshot", ring: "work", dialogs: [{ type: "extension_ui_request", id: "live", method: "form", html: "<form>b</form>" }] });
   t.respond("get_entries", { entries: [], leafId: null });
+  expect(c.getState().dialogs.map((d) => d.id)).toEqual(["live"]);
 });
 
 test("images ride along with prompt and steer, and show in the optimistic message", async () => {
@@ -235,4 +240,68 @@ test("images ride along with prompt and steer, and show in the optimistic messag
   expect(t.sent.at(-1)).toMatchObject({ type: "steer", message: "", images: [{ type: "image" }] });
   t.respond("steer");
   await steering;
+});
+
+test("New chat uses the active workspace, detaches without aborting, and reattaches to a running tool", async () => {
+  const a = fakeTransport();
+  const b = fakeTransport();
+  const again = fakeTransport();
+  const opened: unknown[] = [];
+  const aChild = { ...childA, cwd: "/active" };
+  let first = true;
+  const c = createClient((id) => id === "b" ? b.transport : (first ? (first = false, a.transport) : again.transport), {
+    ...fakeHost,
+    children: async () => [aChild],
+    sessions: async () => [{ cwd: "/most-recent-workspace", sessions: [] }, { cwd: "/active", sessions: [] }],
+    openChild: async (cwd, file) => {
+      opened.push([cwd, file]);
+      return file ? aChild : { ...aChild, id: "b", sessionPath: "/b.jsonl" };
+    },
+  }, { holdMs: 0 });
+  clients.add(c);
+  await tick();
+  a.open();
+  a.respond("set_title_language");
+  a.respond("get_state", { isStreaming: false, sessionFile: "/s.jsonl" });
+  await tick();
+  a.respond("get_entries", { entries: [] });
+  const send = c.actions.send("Run the long command");
+  a.push({ type: "agent_start" });
+
+  await c.actions.newSession();
+  expect(opened).toEqual([["/active", undefined]]);
+  expect(a.isClosed()).toBe(true);
+  expect(a.sent.map((f) => f.type)).not.toContain("abort");
+  expect(c.getState()).toMatchObject({ childId: "b", turns: [], run: { streaming: false } });
+  await send; // the detached prompt's admission response must not clear B's state or restore a draft there
+  expect(c.getState().draftRestore).toBeUndefined();
+  b.open();
+  b.respond("set_title_language");
+  b.respond("get_state", {});
+  await tick();
+  b.respond("get_entries", { entries: [] });
+
+  await c.actions.openSession("/s.jsonl", "/active");
+  expect(opened.at(-1)).toEqual(["/active", "/s.jsonl"]);
+  expect(b.isClosed()).toBe(true);
+  again.open();
+  again.respond("set_title_language");
+  again.respond("get_state", { isStreaming: true });
+  await tick();
+  const user = { role: "user", content: "Run the long command" };
+  const assistant = { role: "assistant", content: [{ type: "toolCall", id: "call", name: "bash", arguments: { command: "sleep 20" } }] };
+  again.push({ type: "message_start", message: user }); // already included in the snapshot; must not create another turn
+  again.push({ type: "bridge_snapshot", ring: "work" });
+  again.respond("get_entries", { entries: [
+    { id: "u", parentId: null, type: "message", message: user },
+    { id: "a", parentId: "u", type: "message", message: assistant },
+  ] });
+  expect(c.getState().tools.call?.status).toBe("running");
+  again.push({ type: "tool_execution_end", toolCallId: "call", toolName: "bash", result: { content: [{ type: "text", text: "done" }] } });
+  again.push({ type: "message_update", messageId: "live", message: { role: "assistant", content: [{ type: "text", text: "d" }] } });
+  again.push({ type: "message_end", messageId: "live", message: { role: "assistant", content: [{ type: "text", text: "done" }] } });
+  again.push({ type: "session_settled" });
+  expect(c.getState().tools.call).toMatchObject({ status: "ok", args: { command: "sleep 20" } });
+  expect(c.getState().turns).toHaveLength(1);
+  expect(c.getState().turns[0]).toMatchObject({ state: "done", assistant: [{ id: "a" }, { id: "live", items: [{ text: "done" }] }] });
 });
