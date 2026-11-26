@@ -53,6 +53,44 @@ test("title language follows the UI on each attachment and locale change without
   }
 });
 
+test.each([false, true])("send from an empty workspace waits for the fresh child (New chat: %s)", async (newChat) => {
+  const socket = fakeTransport();
+  const child = Promise.withResolvers<typeof childA>();
+  const opened: string[] = [];
+  const c = createClient(() => socket.transport, {
+    ...fakeHost,
+    info: async () => ({ cwd: "" }),
+    sessions: async () => [{ cwd: "/remembered", sessions: [] }],
+    children: async () => [],
+    openChild: (cwd) => {
+      opened.push(cwd);
+      return child.promise;
+    },
+  });
+  clients.add(c);
+  if (newChat) {
+    await tick();
+    void c.actions.newSession();
+  }
+  const send = c.actions.send("first prompt");
+  await tick();
+  expect(opened).toEqual(newChat ? ["/remembered", "/remembered"] : ["/remembered"]);
+  expect(socket.sent).toEqual([]);
+  child.resolve({ ...childA, cwd: "/remembered" });
+  await tick();
+  socket.open();
+  socket.respond("set_title_language");
+  socket.respond("get_state", {});
+  await tick();
+  expect(socket.sent.some((frame) => frame.type === "prompt")).toBe(false);
+  socket.respond("get_entries", { entries: [] });
+  await tick();
+  expect(socket.sent.filter((frame) => frame.type === "prompt")).toMatchObject([{ message: "first prompt" }]);
+  socket.respond("prompt", { agentInvoked: true });
+  await send;
+  expect(c.getState().toast).toBeUndefined();
+});
+
 test("idle send shows the message at once and sends prompt; the echo does not duplicate it", async () => {
   const { t, c } = await connected();
   const sending = c.actions.send(" 你好 ");

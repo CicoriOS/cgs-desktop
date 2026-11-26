@@ -84,6 +84,8 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
   let unsubscribeTransport: (() => void) | undefined;
   let epoch = 0;
   let navigation = 0;
+  let opening: Promise<boolean> | undefined;
+  let attached: PromiseWithResolvers<boolean> | undefined;
   let closed = false;
   let hydrating = false;
   let snapshot: (EventFrame & { ring?: ChildStatus["ring"]; level?: ThinkingLevel; partial?: EventFrame; dialogs?: EventFrame[]; queue?: EventFrame }) | undefined;
@@ -325,6 +327,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
         });
         hydrating = false;
         snapshot = undefined;
+        attached?.resolve(true);
       };
       // Apply on the response frame itself, before any subsequent live event. Earlier persisted events are in the entries.
       try {
@@ -339,6 +342,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
       if (current !== epoch) return;
       hydrating = false;
       set((s) => ({ ...s, connection: "closed" }));
+      attached?.resolve(false);
       toast(errorMessage(e));
     }
     if (current === epoch) void refreshSessions();
@@ -351,6 +355,8 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
 
   function detach(): void {
     ++epoch;
+    attached?.resolve(false);
+    attached = undefined;
     rejectPending();
     unsubscribeTransport?.();
     unsubscribeTransport = undefined;
@@ -363,6 +369,10 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     detach();
     resetSession();
     hydrating = true;
+    attached = Promise.withResolvers<boolean>();
+    const ready = attached;
+    const timer = setTimeout(() => ready.resolve(false), rpcTimeout);
+    void ready.promise.then(() => clearTimeout(timer));
     set((s) => ({
       ...s, childId: child.id, activeCwd: child.cwd, sessionFile: child.sessionPath, connection: "connecting",
       model: undefined, draftRestore: undefined, title: child.title ?? "", thinking: { resolved: child.level, configured: "auto" },
@@ -374,6 +384,8 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
       if (status !== "ready") {
         ++epoch;
         rejectPending();
+        if (status === "closed") attached?.resolve(false);
+        else attached = Promise.withResolvers<boolean>();
         set((s) => ({ ...s, connection: status }));
         return;
       }
@@ -385,14 +397,41 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     unsubscribeTransport = () => { offFrame(); offStatus(); };
   }
 
-  async function navigate(cwd: string, path?: string): Promise<void> {
+  function navigate(cwd: string, path?: string): Promise<boolean> {
     const request = ++navigation;
-    try {
-      const child = await host.openChild(cwd, path);
-      if (request === navigation && !closed) attach(child);
-    } catch (e) {
+    const pending = host.openChild(cwd, path).then((child) => {
+      if (request !== navigation || closed) return false;
+      attach(child);
+      return true;
+    }, (e) => {
       if (request === navigation && !closed) toast(errorMessage(e));
+      return false;
+    });
+    opening = pending;
+    void pending.then(() => { if (opening === pending) opening = undefined; });
+    return pending;
+  }
+
+  // A quick send must wait for the requested child, not land in the previous attachment.
+  async function prepareSend(): Promise<boolean> {
+    if (!navigation && !state.childId) await bootstrap;
+    if (closed) return false;
+    if (!opening && !state.childId) {
+      const cwd = state.activeCwd || state.workspaces[0]?.cwd;
+      if (cwd) void navigate(cwd);
+      else {
+        toast(t("err.addWorkspace"));
+        return false;
+      }
     }
+    const request = navigation;
+    if (opening && !await opening) return false;
+    if (request !== navigation || closed) return false;
+    if (state.connection === "ready") return true;
+    const ready = await attached?.promise;
+    if (request !== navigation || closed) return false;
+    if (!ready) toast(t("err.notConnected"));
+    return !!ready;
   }
 
   // ------------------------------------------------------------------ frames
@@ -461,10 +500,11 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     async send(text, images) {
       const textTrimmed = text.trim();
       if (!textTrimmed && !images?.length) return;
-      if (state.connection !== "ready") {
-        restoreDraft(textTrimmed, images);
-        toast(t(!state.activeCwd && !state.workspaces.length ? "err.addWorkspace" : "err.notConnected"));
-        return;
+      if (opening || state.connection !== "ready") {
+        if (!await prepareSend()) {
+          if (!closed) restoreDraft(textTrimmed, images);
+          return;
+        }
       }
       const current = epoch;
       if (state.run.streaming) {
@@ -609,7 +649,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
   };
 
   const poll = setInterval(() => void refreshChildren(), CHILD_POLL_MS);
-  void Promise.all([host.info(), host.children(), host.sessions()]).then(
+  const bootstrap = Promise.all([host.info(), host.children(), host.sessions()]).then(
     ([info, children, workspaces]) => {
       if (closed || navigation) return;
       set((s) => ({ ...s, children, workspaces }));

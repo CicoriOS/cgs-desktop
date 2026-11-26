@@ -216,6 +216,8 @@ async function startChild(cwd: string, sessionPath?: string): Promise<ChildStatu
     // A concurrent request may have claimed the slot while we waited.
     return startChild(cwd, sessionPath);
   }
+  // Remembered workspaces may be on ephemeral storage (e.g. /tmp in a new bridge container).
+  fs.mkdirSync(cwd, { recursive: true });
   const child = spawn(cwd, sessionPath);
   try {
     if (sessionPath && (await rpc(child, "switch_session", { sessionPath }))?.cancelled) throw new ApiError("Switch cancelled", 409);
