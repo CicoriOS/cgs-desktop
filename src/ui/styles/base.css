@@ -129,7 +129,7 @@ input, textarea { font: inherit; color: inherit; }
 .sl .sand::before { background-image: radial-gradient(circle, #fff 0 1.1px, rgba(255, 255, 255, .35) 1.8px, transparent 3px); background-size: 41px 23px; background-position: 6px 3px; animation: glint 1.9s ease-in-out infinite; }
 .sl .sand::after { background-image: radial-gradient(circle, #fff 0 .9px, rgba(255, 255, 255, .3) 1.6px, transparent 2.8px); background-size: 29px 21px; background-position: 17px 9px; animation: glint 2.3s ease-in-out .7s infinite; }
 .sl.hot .sand { animation-duration: 1.2s; } .sl.hot .sand::before { animation-duration: .95s; } .sl.hot .sand::after { animation-duration: 1.15s; }
-@keyframes sand-drift { to { background-position: 46px 17px, 52px 22px, 62px 19px, 0 0; } }
+@keyframes sand-drift { to { background-position: 46px 0, 57px 4px, 71px 2px, 0 0; } }
 @keyframes glint { 0%, 100% { opacity: 0; } 45% { opacity: 1; } 60% { opacity: .25; } }
 .sl input { -webkit-appearance: none; appearance: none; position: absolute; top: 0; bottom: 0; left: 1px; width: calc(100% - 2px); margin: 0; background: transparent; cursor: pointer; z-index: 1; }
 .sl input::-webkit-slider-runnable-track { background: transparent; height: 24px; }
