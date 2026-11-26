@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ToolCall } from "../../../core/types";
 import { useT } from "../../../i18n";
 import { useClientState } from "../../client-context";
@@ -16,19 +17,25 @@ function answersOf(call: ToolCall): Answer[] {
   return Array.isArray(d?.answers) ? d.answers : [];
 }
 
-/** The ask tool as a conversation piece: what the model asked and what the user answered. */
-export function AskCard({ call }: { call: ToolCall }) {
+/**
+ * The ask tool as a conversation piece: what the model asked and what the user answered. Open while the turn is live (the question
+ * is being answered or was just answered); a finished turn, and any session rebuilt from history, shows one folded line.
+ */
+export function AskCard({ call, live }: { call: ToolCall; live: boolean }) {
+  const [manual, setManual] = useState<boolean>();
+  const open = manual ?? live;
   const t = useT();
   const streaming = useClientState((s) => s.run.streaming);
   const level = useClientState((s) => s.thinking.resolved);
   const answers = answersOf(call);
   const state = call.status === "fail" ? "fail" : call.status === "ok" ? "ok" : streaming ? "work" : "idle";
   return (
-    <div className={`ask-card${call.status === "fail" ? " err" : ""}`}>
-      <div className="ask-head">
+    <details className={`ask-card${call.status === "fail" ? " err" : ""}`} open={open} onToggle={(e) => setManual((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary className="ask-head">
         <Ring small state={state} level={level} />
         <span>{t("ask.title")}</span>
-      </div>
+        {answers.length > 0 && <span className="muted">{t("ask.count", { n: answers.length })}</span>}
+      </summary>
       {!call.result && <div className="ask-wait">{t("ask.waiting")}</div>}
       {call.result && answers.length > 0 && (
         <dl>
@@ -41,6 +48,6 @@ export function AskCard({ call }: { call: ToolCall }) {
         </dl>
       )}
       {call.result && answers.length === 0 && <pre className="ask-raw">{resultText(call) || t("tool.empty")}</pre>}
-    </div>
+    </details>
   );
 }

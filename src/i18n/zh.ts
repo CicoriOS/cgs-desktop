@@ -141,6 +141,7 @@ export const zh = {
   "ask.waiting": "等待你回答…",
   "ask.noAnswer": "（未作答）",
   "attach.tooBig": "图片总大小超过一次能发送的上限",
+  "ask.count": "{n} 个问题",
 } as const;
 
 export type MessageKey = keyof typeof zh;

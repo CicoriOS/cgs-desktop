@@ -135,7 +135,10 @@
 /* ---- the ask tool as a Q&A card ---- */
 .ask-card { margin: 8px 0; border: 1px solid var(--line); border-radius: 14px; background: #fafcff; padding: 8px 14px 10px; }
 .ask-card.err { border-color: #f0c5c1; }
-.ask-head { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; padding: 2px 0 4px; }
+.ask-head { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; padding: 2px 0 4px; cursor: pointer; list-style: none; }
+.ask-head::-webkit-details-marker { display: none; }
+.ask-head::after { content: "›"; margin-left: auto; transition: transform .15s; }
+.ask-card[open] > .ask-head::after { transform: rotate(90deg); }
 .ask-wait { color: var(--faint); font-size: 13px; padding: 2px 0; }
 .ask-card dl { margin: 0; }
 .ask-qa { padding: 6px 0; border-top: 1px solid #eef1f6; }

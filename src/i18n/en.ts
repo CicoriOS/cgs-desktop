@@ -142,4 +142,5 @@ export const en: Record<MessageKey, string> = {
   "ask.waiting": "Waiting for your answer…",
   "ask.noAnswer": "(not answered)",
   "attach.tooBig": "The pictures together are too large to send at once",
+  "ask.count": "{n} questions",
 };

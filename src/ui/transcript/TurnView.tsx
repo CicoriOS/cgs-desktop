@@ -64,9 +64,9 @@ function CallChain({ calls }: { calls: ToolCall[] }) {
   );
 }
 
-function StepLine({ step, thinkingNow }: { step: Step; thinkingNow: boolean }) {
+function StepLine({ step, thinkingNow, live }: { step: Step; thinkingNow: boolean; live: boolean }) {
   const t = useT();
-  if (step.kind === "ask") return <AskCard call={step.call} />;
+  if (step.kind === "ask") return <AskCard call={step.call} live={live} />;
   if (step.kind === "calls") return <CallChain calls={step.calls} />;
   if (step.kind === "note")
     return (
@@ -102,7 +102,7 @@ export const TurnView = memo(function TurnView({ turn, index, isLast, tools }: {
   if (view.callCount) parts.push(t("turn.calls", { n: view.callCount }));
   const failedCall = view.steps.some((s) => s.kind === "calls" && s.calls.some((c) => c.status === "fail"));
   const lastStep = view.steps.length - 1;
-  const line = (s: Step, i: number) => <StepLine key={i} step={s} thinkingNow={!hasReply && live && isLast && run.state === "think" && i === lastStep} />;
+  const line = (s: Step, i: number) => <StepLine key={i} step={s} live={live} thinkingNow={!hasReply && live && isLast && run.state === "think" && i === lastStep} />;
   const processSteps = view.steps.flatMap((s, i) => (hasReply && s.kind === "ask" ? [] : [line(s, i)]));
   // Once the reply starts the process folds, but the questions asked and their answers stay in view above it.
   const keptAsks = hasReply ? view.steps.flatMap((s, i) => (s.kind === "ask" ? [line(s, i)] : [])) : [];
