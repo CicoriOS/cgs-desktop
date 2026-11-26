@@ -21,6 +21,7 @@ function ThinkingSlider({ steps, current, onPick }: { steps: string[]; current: 
         {t("pop.effort")}<b>{levelName(step)}</b>
       </div>
       <div className={`sl${isHot(step) ? " hot" : ""}`} style={style}>
+        <span className="sand" aria-hidden />
         <input type="range" min={0} max={steps.length - 1} step={1} value={value} aria-label={t("pop.thinking")} onChange={(e) => setValue(Number(e.target.value))} onPointerUp={() => onPick(steps[value] ?? "auto")} onKeyUp={() => onPick(steps[value] ?? "auto")} />
         <div className="ticks">
           {steps.map((l, i) => (

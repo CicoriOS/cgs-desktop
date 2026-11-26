@@ -97,7 +97,7 @@ input, textarea { font: inherit; color: inherit; }
 .ring[data-s="stop"] { --c: transparent; border-color: #c9c9c9; }
 @keyframes breathe { 0%, 100% { box-shadow: 0 0 2px 0 var(--c); opacity: .72; } 50% { box-shadow: 0 0 10px 3px var(--c); opacity: 1; } }
 @keyframes breathe-w { 0%, 100% { box-shadow: 0 0 0 1px rgba(0, 0, 0, .16), 0 0 2px 0 rgba(120, 120, 120, .35); opacity: .8; } 50% { box-shadow: 0 0 0 1px rgba(0, 0, 0, .2), 0 0 11px 4px rgba(150, 150, 150, .55); opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .ring { animation: none !important; } .sl::after { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .ring { animation: none !important; } .sl::after, .sl .sand, .sl .sand::before, .sl .sand::after { animation: none; } }
 
 /* ---- model / thinking popover ---- */
 #popover { position: fixed; width: 330px; max-height: min(60vh, 520px); overflow-y: auto; background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 8px 30px rgba(0, 0, 0, .14); padding: 8px; z-index: 20; }
@@ -120,6 +120,17 @@ input, textarea { font: inherit; color: inherit; }
 .sl::after { width: calc(var(--t) * (100% - 20px) + 20px); background: linear-gradient(90deg, var(--c1), var(--c2), var(--c1)) 0 0 / 200% 100%; animation: flow 1.8s linear infinite; transition: width .12s; }
 .sl.hot::after { animation-duration: .9s; }
 @keyframes flow { to { background-position: -200% 0; } }
+/* glitter poured into the track: three grain layers drift at different speeds, two sparkle layers blink out of step */
+.sl .sand { position: absolute; z-index: 1; left: 0; top: 2px; height: 20px; width: calc(var(--t) * (100% - 20px) + 20px); border-radius: 10px; overflow: hidden; pointer-events: none; transition: width .12s;
+  background-image: radial-gradient(circle, #fff 0 .9px, transparent 1.5px), radial-gradient(circle, rgba(255, 255, 255, .85) 0 .7px, transparent 1.2px), radial-gradient(circle, rgba(255, 255, 255, .75) 0 1.2px, transparent 2px), linear-gradient(90deg, transparent 72%, rgba(255, 255, 255, .38));
+  background-size: 23px 17px, 13px 11px, 31px 19px, 100% 100%; background-position: 0 0, 5px 4px, 9px 2px, 0 0; background-repeat: repeat, repeat, repeat, no-repeat;
+  animation: sand-drift 2.4s linear infinite; }
+.sl .sand::before, .sl .sand::after { content: ""; position: absolute; inset: 0; background-repeat: repeat; opacity: 0; mix-blend-mode: screen; }
+.sl .sand::before { background-image: radial-gradient(circle, #fff 0 1.1px, rgba(255, 255, 255, .35) 1.8px, transparent 3px); background-size: 41px 23px; background-position: 6px 3px; animation: glint 1.9s ease-in-out infinite; }
+.sl .sand::after { background-image: radial-gradient(circle, #fff 0 .9px, rgba(255, 255, 255, .3) 1.6px, transparent 2.8px); background-size: 29px 21px; background-position: 17px 9px; animation: glint 2.3s ease-in-out .7s infinite; }
+.sl.hot .sand { animation-duration: 1.2s; } .sl.hot .sand::before { animation-duration: .95s; } .sl.hot .sand::after { animation-duration: 1.15s; }
+@keyframes sand-drift { to { background-position: 46px 17px, 52px 22px, 62px 19px, 0 0; } }
+@keyframes glint { 0%, 100% { opacity: 0; } 45% { opacity: 1; } 60% { opacity: .25; } }
 .sl input { -webkit-appearance: none; appearance: none; position: absolute; top: 0; bottom: 0; left: 1px; width: calc(100% - 2px); margin: 0; background: transparent; cursor: pointer; z-index: 1; }
 .sl input::-webkit-slider-runnable-track { background: transparent; height: 24px; }
 .sl input::-moz-range-track { background: transparent; height: 24px; }
