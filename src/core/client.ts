@@ -165,11 +165,11 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
         continue;
       }
       const started = t.assistant.some((a) => a.items.length > 0);
-      if (!started && !deliveringQueue) {
+      if (!started) {
         restore = t.user.text;
         continue;
       }
-      out.push({ ...t, pending: false, state: deliveringQueue ? "done" : status === "error" ? "failed" : "interrupted", errorText: message });
+      out.push({ ...t, pending: false, state: status === "error" ? "failed" : "interrupted", errorText: message });
     }
     return { turns: out, restore };
   }
@@ -187,8 +187,7 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
       return { ...s, turns: r.turns, run: { ...s.run, streaming: false } };
     });
     if (restore !== undefined) restoreDraft(restore);
-    if (info?.message && info.status !== "completed" && !deliveringQueue) toast(info.message);
-    deliveringQueue = false;
+    if (info?.message && info.status !== "completed") toast(info.message);
     runEnded = true;
     endInfo = undefined;
     requestRing("idle");
@@ -197,6 +196,12 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
   }
 
   function onPromptResult(f: PromptResult): void {
+    // Deliver-now cuts the running prompt short and continues with the queue in the same run (agent_end, agent_start, then this
+    // `aborted` result): the run is not over, the session_settled that ends the continuation settles it.
+    if (deliveringQueue && f.status === "aborted") {
+      deliveringQueue = false;
+      return;
+    }
     runEnded = true;
     endInfo = { status: f.status, message: f.error?.message };
     requestRing(f.status === "error" ? "fail" : "idle");
@@ -304,7 +309,6 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
         toast(t("toast.exited", { code: String(ev.exitCode) }));
         return;
       case "agent_start":
-        deliveringQueue = false;
         set((s) => applyFrame(s, ev, now()));
         startRun();
         return;
@@ -384,7 +388,13 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
     deliverQueueNow: () =>
       guard(async () => {
         deliveringQueue = true;
-        await rpc({ type: "abort_and_deliver_queue" });
+        try {
+          const r = await rpc<{ aborted?: boolean }>({ type: "abort_and_deliver_queue" });
+          if (!r?.aborted) deliveringQueue = false; // nothing was queued or running: no aborted result will follow
+        } catch (e) {
+          deliveringQueue = false;
+          throw e;
+        }
       }),
     removeQueued: (index) =>
       guard(async () => {

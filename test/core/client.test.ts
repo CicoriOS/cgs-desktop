@@ -71,17 +71,39 @@ test("an interrupted turn that already produced work stays and is marked", async
   expect(c.getState().draftRestore).toBeUndefined();
 });
 
-test("delivering the queue now aborts and keeps the cut-off turn without restoring its text", async () => {
+test("deliver-now continues the run with the queue: the aborted result of the cut prompt is ignored, session_settled ends it", async () => {
+  // Frame order captured from omp: agent_end, agent_start, the queued user message, then prompt_result(aborted, sessionSettled:false).
   const { t, c } = await connected();
   t.push({ type: "agent_start" });
   t.push({ type: "message_start", message: { role: "user", content: "first" } });
+  t.push({ type: "queue_update", steering: ["用英文回答"], followUp: [] });
   const d = c.actions.deliverQueueNow();
   expect(t.sent.at(-1)).toMatchObject({ type: "abort_and_deliver_queue" });
   t.respond("abort_and_deliver_queue", { aborted: true });
   await d;
-  t.push({ type: "prompt_result", status: "aborted", sessionSettled: true });
-  expect(c.getState().turns).toMatchObject([{ user: { text: "first" }, state: "done" }]);
+  t.push({ type: "agent_start" });
+  t.push({ type: "message_start", message: { role: "user", content: "用英文回答" } });
+  t.push({ type: "queue_update", steering: [], followUp: [] });
+  t.push({ type: "prompt_result", status: "aborted", sessionSettled: false });
+  expect(c.getState().run.streaming).toBe(true);
+  expect(c.getState().turns.map((x) => [x.user.text, x.state])).toEqual([["first", "done"], ["用英文回答", "running"]]);
+  t.push({ type: "message_update", messageId: "m2", message: { role: "assistant", content: [{ type: "text", text: "done" }] }, assistantMessageEvent: { type: "text_delta" } });
+  t.push({ type: "session_settled" });
+  expect(c.getState().turns.map((x) => x.state)).toEqual(["done", "done"]);
   expect(c.getState().draftRestore).toBeUndefined();
+  expect(c.getState().toast).toBeUndefined();
+});
+
+test("a later real abort is not swallowed when deliver-now found nothing to deliver", async () => {
+  const { t, c } = await connected();
+  t.push({ type: "agent_start" });
+  t.push({ type: "message_start", message: { role: "user", content: "first" } });
+  const d = c.actions.deliverQueueNow();
+  t.respond("abort_and_deliver_queue", { aborted: false });
+  await d;
+  t.push({ type: "message_update", messageId: "m", message: { role: "assistant", content: [{ type: "text", text: "x" }] }, assistantMessageEvent: { type: "text_delta" } });
+  t.push({ type: "prompt_result", status: "aborted", sessionSettled: true });
+  expect(c.getState().turns).toMatchObject([{ state: "interrupted" }]);
 });
 
 test("the thinking ring stays visible for the hold time before the next state", async () => {
