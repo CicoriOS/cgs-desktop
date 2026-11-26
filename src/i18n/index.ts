@@ -42,10 +42,10 @@ export function t(key: MessageKey, params?: Record<string, string | number>): st
   return params ? text.replace(/\{(\w+)\}/g, (m, name: string) => (name in params ? String(params[name]) : m)) : text;
 }
 
-const subscribe = (cb: () => void) => (listeners.add(cb), () => listeners.delete(cb));
+export const subscribeLocale = (cb: () => void) => (listeners.add(cb), () => listeners.delete(cb));
 
 export function useLocale(): Locale {
-  return useSyncExternalStore(subscribe, getLocale);
+  return useSyncExternalStore(subscribeLocale, getLocale);
 }
 
 /** `t` bound to a subscription: the calling component re-renders when the language changes. */

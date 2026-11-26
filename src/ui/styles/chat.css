@@ -132,6 +132,10 @@
 #composer-wrap.dragging #composer { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(47, 111, 219, .15); }
 @media (max-width: 760px) { .dlg-wrap { padding: 0 12px 8px; } }
 
+/* ---- model providers ---- */
+.provider-badge { flex: none; padding: 1px 6px; border-radius: 999px; background: var(--hover); color: var(--muted); font-size: 11px; white-space: nowrap; }
+.provider-badge[data-kind="relay"] { background: color-mix(in srgb, var(--accent) 10%, var(--bg)); color: var(--accent); }
+
 /* ---- the ask tool as a Q&A card ---- */
 .ask-card { margin: 8px 0; border: 1px solid var(--line); border-radius: 14px; background: #fafcff; padding: 8px 14px 10px; }
 .ask-card.err { border-color: #f0c5c1; }

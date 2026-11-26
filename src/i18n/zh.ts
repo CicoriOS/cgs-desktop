@@ -54,6 +54,8 @@ export const zh = {
   "pop.model": "模型",
   "pop.search": "搜索模型",
   "pop.none": "没有匹配的模型",
+  "model.relay": "中转",
+  "model.direct": "官方",
 
   "level.off": "关闭",
   "level.auto": "自动",

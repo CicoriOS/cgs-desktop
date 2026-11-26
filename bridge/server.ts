@@ -20,8 +20,10 @@ import os from "node:os";
 import path from "node:path";
 
 const dist = path.resolve(process.env.DIST ?? path.join(import.meta.dir, "..", "dist"));
-const cut = process.argv.indexOf("--");
-const command = cut >= 0 && process.argv.length > cut + 1 ? process.argv.slice(cut + 1) : ["cgs", "--mode", "rpc-ui"];
+// Bun strips the `--` separator from script arguments; also accept it if the runtime preserves it.
+const args = process.argv.slice(2);
+if (args[0] === "--") args.shift();
+const command = args.length ? args : ["cgs", "--mode", "rpc-ui"];
 const agentDir = process.env.AGENT_DIR ?? process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".cgs", "agent");
 const workspacesFile = path.join(agentDir, "cgs", "web-workspaces.json");
 /** Frames kept for pages that connect late or reload. */

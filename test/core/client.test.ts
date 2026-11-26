@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { createClient } from "../../src/core/client";
+import { getLocale, setLocale } from "../../src/i18n";
 import { fakeHost, fakeTransport, tick } from "./fake";
 
 async function connected(holdMs = 0) {
@@ -7,12 +8,45 @@ async function connected(holdMs = 0) {
   const c = createClient(t.transport, fakeHost, { holdMs });
   t.open();
   await tick();
+  t.respond("set_title_language");
   t.respond("get_state", { model: { provider: "p", id: "m", name: "M" }, thinkingLevel: "high", configuredThinkingLevel: "auto", sessionFile: "/s.jsonl", isStreaming: false });
   await tick();
   t.respond("get_entries", { entries: [], leafId: null });
   await tick();
   return { t, c };
 }
+
+test("title language follows the UI on ready, locale change, and agent restart without surfacing unsupported-command errors", async () => {
+  const original = getLocale();
+  const t = fakeTransport();
+  const c = createClient(t.transport, fakeHost);
+  const languages = () => t.sent.filter((f) => f.type === "set_title_language").map((f) => f.language);
+  try {
+    setLocale("zh");
+    expect(languages()).toEqual([]);
+    t.open();
+    t.push({ type: "ready" }); // omp's ready frame (possibly replayed) doesn't send the command twice
+    expect(languages()).toEqual(["Chinese (Simplified)"]);
+    t.fail("set_title_language", "Unknown command");
+    t.respond("get_state", {});
+    await tick();
+    t.respond("get_entries", { entries: [] });
+    await tick();
+    expect(c.getState().toast).toBeUndefined();
+
+    setLocale("en");
+    expect(languages()).toEqual(["Chinese (Simplified)", "English"]);
+    t.respond("set_title_language");
+    t.push({ type: "bridge_restart", cwd: "/other" });
+    expect(languages()).toHaveLength(2);
+    t.push({ type: "ready" });
+    expect(languages()).toEqual(["Chinese (Simplified)", "English", "English"]);
+    t.respond("set_title_language");
+  } finally {
+    c.close();
+    setLocale(original);
+  }
+});
 
 test("idle send shows the message at once and sends prompt; the echo does not duplicate it", async () => {
   const { t, c } = await connected();
@@ -140,6 +174,29 @@ test("an ask form becomes a dialog; answering sends extension_ui_response and cl
   expect(c.getState().dialogs).toEqual([]);
 });
 
+test("slash-command dialogs send the replies omp expects without a model turn", async () => {
+  const { t, c } = await connected();
+  const prompt = c.actions.send("/dialog-verification");
+  const dialogs = [
+    [{ method: "confirm", title: "Confirm verification", message: "Approve?" }, { confirmed: true }],
+    [{ method: "select", title: "Select verification", options: ["Alpha", "Beta"] }, { value: "Beta" }],
+    [{ method: "input", title: "Input verification", placeholder: "Single-line placeholder" }, { value: "verified input" }],
+    [{ method: "editor", title: "Editor verification", prefill: "First line\nSecond line" }, { value: "Edited line one\nEdited line two" }],
+  ] as const;
+  for (const [request, answer] of dialogs) {
+    const id = `dialog-${request.method}`;
+    t.push({ type: "extension_ui_request", id, ...request });
+    expect(c.getState().dialogs).toMatchObject([{ id, ...request }]);
+    c.actions.answerDialog(id, answer);
+    expect(t.sent.at(-1)).toEqual({ type: "extension_ui_response", id, ...answer });
+    expect(c.getState().dialogs).toEqual([]);
+  }
+  t.respond("prompt", { agentInvoked: false });
+  await prompt;
+  expect(c.getState().run.streaming).toBe(false);
+  c.close();
+});
+
 test("notify shows a toast and set_editor_text fills the draft; neither opens a dialog", async () => {
   const { t, c } = await connected();
   t.push({ type: "extension_ui_request", id: "n1", method: "notify", message: "heads up" });
@@ -153,6 +210,7 @@ test("a page that connects while the ask tool waits gets the form back from the 
   const t = fakeTransport();
   const c = createClient(t.transport, fakeHost, { holdMs: 0 });
   t.open();
+  t.respond("set_title_language");
   await tick();
   // backlog replayed before get_state answers: one form still waiting, one cancelled, one finished by the tool
   t.push({ type: "extension_ui_request", id: "old", method: "form", html: "<form>a</form>" });

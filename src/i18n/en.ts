@@ -55,6 +55,8 @@ export const en: Record<MessageKey, string> = {
   "pop.model": "Model",
   "pop.search": "Search models",
   "pop.none": "No matching models",
+  "model.relay": "Relay",
+  "model.direct": "Direct",
 
   "level.off": "Off",
   "level.auto": "Auto",

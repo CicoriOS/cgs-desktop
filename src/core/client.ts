@@ -2,7 +2,7 @@ import { type EventFrame, applyFrame, initialState, newTurnId, ringFor } from ".
 import { type SessionEntry, turnsFromEntries, turnsFromMessages, turnTailIds } from "./history";
 import type { RawMessage } from "./messages";
 import type { Actions, BtwRecord, Client, ClientState, DialogAnswer, HostApi, ImageRef, ModelPicker, RawLog, RingState, RpcTransport, ThinkingLevel, Turn } from "./types";
-import { t } from "../i18n";
+import { getLocale, subscribeLocale, t } from "../i18n";
 
 const RAW_CAP = 3000;
 const RPC_TIMEOUT_MS = 60_000;
@@ -79,6 +79,7 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
   let replaying = true;
   const replayForms = new Map<string, EventFrame>();
   let ready = Promise.withResolvers<void>();
+  let restarting = false;
 
   function sendFrame(text: string): boolean {
     if (!transport.send(text)) return false;
@@ -230,6 +231,13 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
     }
   }
 
+  function syncTitleLanguage(): void {
+    if (state.connection !== "ready" || restarting) return;
+    const language = getLocale() === "zh" ? "Chinese (Simplified)" : "English";
+    // Older omp versions don't recognize this optional command.
+    void rpc({ type: "set_title_language", language }).catch(() => {});
+  }
+
   async function refreshSessions(): Promise<void> {
     try {
       const workspaces = await host.sessions();
@@ -299,7 +307,13 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
       return;
     }
     const ev = f as EventFrame & Record<string, unknown>;
-    if (ev.type === "ready") ready.resolve();
+    if (ev.type === "ready") {
+      ready.resolve();
+      if (restarting) {
+        restarting = false;
+        syncTitleLanguage();
+      }
+    }
     if (replaying) {
       // Backlog from before this page connected: the chat is rebuilt from get_state and the session file. A form still waiting for
       // an answer is the exception (the ask tool stays blocked on it): keep the forms the backlog neither cancelled nor finished.
@@ -311,6 +325,7 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
     switch (ev.type) {
       case "bridge_restart":
         ready = Promise.withResolvers<void>();
+        restarting = true;
         resetSession();
         set((s) => ({ ...s, cwd: String(ev.cwd ?? s.cwd) }));
         return;
@@ -345,6 +360,7 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
     if (ring && state.run.streaming && !runEnded) requestRing(ring);
   }
 
+  const unsubscribeLocale = subscribeLocale(syncTitleLanguage);
   transport.onFrame(onFrame);
   transport.onStatus((status) => {
     set((s) => ({ ...s, connection: status }));
@@ -352,10 +368,12 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
       for (const p of pending.values()) p.reject(new Error("disconnected"));
       pending.clear();
       replaying = true;
+      restarting = false;
       return;
     }
     if (status !== "ready") return;
     replaying = true;
+    syncTitleLanguage();
     void (async () => {
       await refreshState();
       replaying = false;
@@ -521,6 +539,9 @@ export function createClient(transport: RpcTransport, host: HostApi, opts: Clien
     },
     actions,
     raw,
-    close: () => transport.close(),
+    close: () => {
+      unsubscribeLocale();
+      transport.close();
+    },
   };
 }

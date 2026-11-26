@@ -4,6 +4,7 @@ import { useT } from "../../i18n";
 import { FRAME_BUDGET_CHARS, imageFiles, MAX_IMAGES, MIN_IMAGE_CHARS, prepareImage } from "../attachments";
 import { useActions, useClientState } from "../client-context";
 import { FEATURES } from "../features";
+import { providerKind } from "../format";
 import { ArrowUpIcon, BoltIcon, CloseIcon, PlusIcon, StopIcon } from "../icons";
 import { Ring } from "../ring";
 import { ModelPopover } from "./ModelPopover";
@@ -22,6 +23,8 @@ export function Composer() {
   const queue = useClientState((s) => s.queue);
   const ringState = useClientState((s) => s.run.state);
   const level = useClientState((s) => s.thinking.resolved);
+  const model = useClientState((s) => s.model);
+  const modelTooltip = model ? `${model.name} · ${model.provider} · ${t(`model.${providerKind(model.provider)}`)}` : t("composer.model");
   const restore = useClientState((s) => s.draftRestore);
 
   const [text, setText] = useState("");
@@ -181,7 +184,7 @@ export function Composer() {
             }
           }}
         />
-        <button ref={ringBtn} type="button" className="icon" aria-haspopup="dialog" title={t("composer.model")} onClick={(e) => (e.stopPropagation(), setPopover((v) => !v))}>
+        <button ref={ringBtn} type="button" className="icon" aria-haspopup="dialog" title={modelTooltip} onClick={(e) => (e.stopPropagation(), setPopover((v) => !v))}>
           <Ring state={ringState} level={level} />
         </button>
         <button type="submit" id="send" data-mode={mode} title={BUTTON.title} aria-label={BUTTON.title} disabled={mode === "send" && !hasInput}>

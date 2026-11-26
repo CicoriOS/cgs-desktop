@@ -1,5 +1,10 @@
 import { t } from "../i18n";
 
+/** CGS-prefixed providers relay requests; other providers connect directly. */
+export function providerKind(provider: string): "relay" | "direct" {
+  return provider.startsWith("cgs-") ? "relay" : "direct";
+}
+
 /** "just now", "5 min", "3 h", "2 d", "1 mo" (or the Chinese forms). */
 export function relativeTime(ms: number, now = Date.now()): string {
   const s = Math.max(0, (now - ms) / 1000);
