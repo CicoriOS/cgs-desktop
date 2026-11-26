@@ -70,7 +70,8 @@ function toWire(m: MuxMessage): WireMessage | null {
   switch (m.type) {
     // The body is what the bridge would have sent as JSON: keys holding undefined do not exist there, and the wire refuses them.
     case "req": return m.body === undefined ? { k: "req", id: m.id, method: "GET", path: m.path } : { k: "req", id: m.id, method: "POST", path: m.path, body: JSON.parse(JSON.stringify(m.body)) };
-    case "open": return { k: "open", cid: m.cid, path: m.path };
+    // The device attaches a stream to the child named in the path, as the bridge does for `/ws?child=<id>`.
+    case "open": return { k: "open", cid: m.cid, path: `${m.path}?child=${encodeURIComponent(m.cid)}` };
     case "frame": return { k: "frame", cid: m.cid, text: m.text };
     case "close": return { k: "close", cid: m.cid };
     default: return null;
