@@ -14,6 +14,8 @@ export const TOOL_CARD_KINDS: Readonly<Record<string, CardKind>> = {
   manage_skill: "operation", skill: "operation", read_skill: "operation", notebook: "operation",
   notebook_read: "read", notebook_edit: "edit", plan: "operation", exit_plan: "operation", exit_plan_mode: "operation",
   propose: "operation", resolve: "operation", reject: "operation", goal: "operation", yield: "operation",
+  report_issue: "operation", analyze_files: "operation", git_overview: "operation", recent_commits: "operation",
+  git_file_diff: "operation", git_hunk: "operation", propose_changelog: "operation", propose_commit: "operation", split_commit: "operation",
   inspect_image: "media", image_gen: "media", generate_image: "media", calc: "operation", tts: "media",
   // The thought tool is intentionally a free-form prompt and response.
   think: "generic",

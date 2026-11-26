@@ -91,7 +91,7 @@ export function TodoBody({ call }: Props) {
 export function WebBody({ call }: Props) {
   const t = useT();
   const details = rec(call.result?.details);
-  const query = str(call.args.query ?? call.args.url ?? details.url);
+  const query = str(call.args.query ?? call.args.url ?? details.url ?? call.args.path);
   const response = rec(details.response);
   const sources = list(response.sources);
   const answer = str(response.answer);
@@ -105,8 +105,8 @@ export function WebBody({ call }: Props) {
         return <li key={i}>{str(source.title) || str(source.url)}{source.title && typeof source.url === "string" ? <div className="lab">{source.url}</div> : null}</li>;
       })}</ul>
     </>}
-    {(call.result?.isError || (!answer && !sources.length)) && (call.name === "fetch" && call.result && !call.result.isError
-      ? <Pre limit={2000}>{resultText(call) || t("tool.noResult")}</Pre> : <TextBody call={call} />)}
+    {(call.result?.isError || (!answer && !sources.length)) && (call.name !== "web_search" && call.result && !call.result.isError
+      ? <Pre limit={2000}>{str(details.displayContent) || resultText(call) || t("tool.noResult")}</Pre> : <TextBody call={call} />)}
   </>;
 }
 

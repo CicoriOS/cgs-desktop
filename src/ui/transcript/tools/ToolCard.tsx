@@ -166,7 +166,7 @@ export function ToolCard({ call }: { call: ToolCall }) {
     }
   }, [failed, autoOpened]);
 
-  const kind = toolCardKind(call.name);
+  const kind = call.name === "read" && rec(call.result?.details).kind === "url" ? "web" : toolCardKind(call.name);
   const Body = BODY[kind];
   const stat = statChip(call);
   const path = str(call.args.path) ?? str(call.args.file_path);
