@@ -92,7 +92,9 @@ if [ -f "$SNIPPET" ]; then cp -p "$SNIPPET" "$SNIPPET.bak-connect-$TAG" && TOUCH
 cat > "$SNIPPET" <<'EOF' || fail "cannot write $SNIPPET"
 # CGS Connect PWA, served by nginx itself; everything else still goes to the upstream. Managed by deploy-connect.sh.
 # The console links to /connect?device=<id>: the redirect must keep the query.
-location = /connect { return 301 /connect/$is_args$args; }
+# The Location is relative: with an absolute one nginx writes the port it listens on, and ai.cnklp.cn listens on 47443 while
+# users reach it on 443 (https://ai.cnklp.cn:47443/connect/ is not reachable for them).
+location = /connect { absolute_redirect off; return 301 /connect/$is_args$args; }
 location /connect/ {
     root /var/www/cgs;
     try_files $uri /connect/index-connect.html;
@@ -141,9 +143,10 @@ for check in $CHECKS; do
   asset=$(grep -o '/connect/assets/[^"]*\.js' /tmp/connect-page.$TAG | head -1)
   [ "$(curl $R -o /dev/null -w '%{http_code}' "$base$asset")" = 200 ] || fail "$base$asset is not served"
   [ "$(curl $R -o /dev/null -w '%{http_code}' "$base/connect/?device=1")" = 200 ] || fail "$base/connect/?device=1 is not served"
-  # The link the console really uses has no slash; following it must land on the page with the device kept.
-  loc=$(curl $R -o /dev/null -w '%{redirect_url}' "$base/connect?device=7")
-  case "$loc" in */connect/?device=7) ;; *) fail "$base/connect?device=7 redirects to '$loc': the device is lost" ;; esac
+  # The link the console really uses has no slash; following it must land on the page with the device kept, and the
+  # Location must name no host or port of its own.
+  loc=$(curl $R -o /dev/null -D - "$base/connect?device=7" | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
+  [ "$loc" = "/connect/?device=7" ] || fail "$base/connect?device=7 redirects to '$loc', not /connect/?device=7"
   api=$(curl $R -o /dev/null -w '%{http_code}' "$base/api/status")
   [ "$api" = 200 ] || fail "$base/api/status answered $api: the upstream is no longer reached"
   log "ok: $base/connect/ (page, $asset, /api/status)"
