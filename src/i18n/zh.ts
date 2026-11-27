@@ -198,6 +198,7 @@ export const zh = {
   "connect.password.wrong": "密码不对,请再试一次。",
   "connect.error.closed": "与设备的连接已断开。",
   "connect.error.protocol": "有一条消息无法读取或发送,连接已关闭。",
+  "connect.error.outdated": "设备上的 cgs 版本过旧,这个页面连不上它。请在设备上运行 `cgs update`,重启 cgs 后刷新本页。",
   "connect.error.generic": "发生了未知错误。",
   "connect.revoked.title": "此浏览器的授权已被撤销",
   "connect.revoked.body": "请在设备上用设备密码重新授权这个浏览器。",

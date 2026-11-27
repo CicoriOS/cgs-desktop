@@ -199,6 +199,7 @@ export const en: Record<MessageKey, string> = {
   "connect.password.wrong": "That password is not right. Try again.",
   "connect.error.closed": "The connection to the device was closed.",
   "connect.error.protocol": "A message could not be read or written, so the connection was closed.",
+  "connect.error.outdated": "The cgs on this device is too old for this page. Run `cgs update` on the device, restart cgs, and reload this page.",
   "connect.error.generic": "An unknown error occurred.",
   "connect.revoked.title": "This browser's access was revoked",
   "connect.revoked.body": "Authorise this browser again on the device with the device password.",

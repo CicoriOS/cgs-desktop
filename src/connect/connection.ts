@@ -38,6 +38,8 @@ export interface RelayDeps {
   userAgent: string;
   setTimeout(fn: () => void, ms: number): unknown;
   clearTimeout(id: unknown): void;
+  /** Wall clock in ms; tests move it. */
+  now?(): number;
 }
 
 export function browserDeps(): RelayDeps {
@@ -61,6 +63,15 @@ const RETRY_MAX_MS = 30_000;
 const IDLE_RETRY_MS = 10_000;
 const LIMITED_RETRY_MS = 60_000;
 const AUTH_LOCK = "new-api:auth-refresh";
+/**
+ * How long a fingerprint the user confirmed stays good while the password is typed and the link is re-made. The first
+ * connection is split in two (fingerprint, then password) and the browser may be suspended or lose the network between
+ * them, so nothing is held on the wire: the page remembers the confirmed key, and a new socket within this window
+ * continues from it. Memory only; a reload starts over.
+ */
+const FINGERPRINT_WINDOW_MS = 15 * 60_000;
+/** How long a returning tab waits for the device to answer before it calls the link dead. */
+const PROBE_MS = 5000;
 
 /** A short, human name for this browser: "Chrome on Linux". The user can change it in the password form. */
 export function defaultBrowserName(ua: string): string {
@@ -128,6 +139,14 @@ export class RelayConnection {
   #wantControl = false;
   #needsConfirm = false;
   #closed = false;
+  /** The device key the user confirmed on the fingerprint page, and when. */
+  #confirmed: { pin: string; at: number } | null = null;
+  /** Typed password, kept only while the handshake it is for may still be re-made inside the window. */
+  #pendingPassword: string | undefined;
+  /** The key a fingerprint or changed page is showing before the password step. Null when the page shows a saved key's. */
+  #probedPin: string | null = null;
+  /** The confirmed key this socket's password handshake was answered for: no second fingerprint after it. */
+  #trusted: string | null = null;
 
   constructor(device: string, deps: RelayDeps = browserDeps()) {
     this.#deps = deps;
@@ -150,20 +169,39 @@ export class RelayConnection {
     for (const cb of this.#listeners) cb();
   }
 
-  /** First connection: ask for the password before touching the network. A saved key resumes without one. */
+  #now(): number {
+    return this.#deps.now?.() ?? Date.now();
+  }
+
+  /** The key confirmed on the fingerprint page, while its window is open. An expired window also drops the password. */
+  #trustedPin(): string | null {
+    const c = this.#confirmed;
+    if (c && this.#now() - c.at < FINGERPRINT_WINDOW_MS) return c.pin;
+    this.#confirmed = null;
+    this.#pendingPassword = undefined;
+    return null;
+  }
+
+  /**
+   * A saved key resumes without a password. Otherwise the device key comes first: connect once to read it and show the
+   * fingerprint, and only after the user confirmed it ask for the password (`password()` connects again).
+   */
   async start(): Promise<void> {
     if (this.#deviceId === 0) return this.#set({ phase: "missing" });
     const saved = await this.#store.load();
     if (saved) {
       this.#set({ phase: "connecting", emoji: marksOf(saved.pin) });
-      return this.#connect(undefined, saved.name);
+      return this.#connect(saved.name);
     }
-    this.#set({ phase: "password" });
+    if (this.#trustedPin() !== null && this.#pendingPassword === undefined) return this.#set({ phase: "password" });
+    this.#set({ phase: "connecting" });
+    return this.#connect(this.#state.name);
   }
 
   password(password: string): void {
+    this.#pendingPassword = password;
     this.#set({ phase: "connecting" });
-    void this.#connect(password, this.#state.name);
+    void this.#connect(this.#state.name);
   }
 
   retry(): void {
@@ -171,14 +209,58 @@ export class RelayConnection {
     else this.#restart();
   }
 
-  /** Confirms a first fingerprint, or after a changed device forgets the old pin so the password is asked again. */
+  /**
+   * Confirms the fingerprint on screen. Before the password step that opens the window and asks for the password; for a
+   * device that cannot announce its key it confirms the one shown after the handshake. A changed saved device forgets
+   * the old pin so the first-connection flow starts again.
+   */
   confirm(): void {
-    if (this.#state.phase === "changed") {
+    const phase = this.#state.phase;
+    if (this.#probedPin !== null && (phase === "fingerprint" || phase === "changed")) {
+      this.#confirmed = { pin: this.#probedPin, at: this.#now() };
+      this.#probedPin = null;
+      this.#set({ phase: "password" });
+      return;
+    }
+    if (phase === "changed") {
       void this.#store.clear().then(() => this.#restart());
       return;
     }
     this.#needsConfirm = false;
     this.#settle();
+  }
+
+  /**
+   * The tab came back to the foreground or the network returned. A backgrounded Safari suspends timers and kills sockets
+   * without always saying so, so neither the backoff timer nor `onclose` can be relied on: do not wait for them.
+   */
+  resume(): void {
+    if (this.#closed) return;
+    if (this.#retryTimer !== undefined) return this.#restart(); // waiting out a backoff that may have been suspended
+    const socket = this.#socket;
+    // A handshake in flight (the fingerprint probe, or the password step) on a socket the system closed silently.
+    if (this.#state.phase === "connecting") return !socket || socket.readyState !== WebSocket.OPEN ? this.#restart() : undefined;
+    if (this.#state.phase !== "ready") return;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return this.#reconnectAsController();
+    // Looks open, but may be a socket the system dropped: it must answer a request.
+    const generation = this.#generation;
+    let timer: unknown;
+    const silence = new Promise<never>((_, reject) => {
+      timer = this.#deps.setTimeout(() => reject(new Error("no answer")), PROBE_MS);
+    });
+    void Promise.race([this.#mux.host.info(), silence]).then(
+      () => this.#deps.clearTimeout(timer),
+      () => {
+        this.#deps.clearTimeout(timer);
+        if (generation === this.#generation && !this.#closed) this.#reconnectAsController();
+      },
+    );
+  }
+
+  /** The page held control before the link died, so it takes it back instead of asking again. */
+  #reconnectAsController(): void {
+    this.#wantControl = true;
+    this.#restart();
   }
 
   takeover(): void {
@@ -255,7 +337,7 @@ export class RelayConnection {
     return body.data.ticket;
   }
 
-  async #connect(password: string | undefined, name: string): Promise<void> {
+  async #connect(name: string): Promise<void> {
     const generation = ++this.#generation;
     try {
       const ticket = await this.#ticket();
@@ -263,7 +345,7 @@ export class RelayConnection {
       const url = new URL("/relay", this.#deps.origin);
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
       url.searchParams.set("ticket", ticket);
-      this.#open(this.#deps.createSocket(url.href), generation, password, name);
+      this.#open(this.#deps.createSocket(url.href), generation, name);
     } catch (e) {
       if (generation !== this.#generation) return;
       this.#fail(e instanceof Failure ? e : new Failure("error", e instanceof Error ? e.message : String(e)));
@@ -290,15 +372,18 @@ export class RelayConnection {
     if (socket && socket.readyState <= WebSocket.OPEN) socket.close();
   }
 
-  #open(socket: WebSocket, generation: number, password: string | undefined, name: string): void {
+  #open(socket: WebSocket, generation: number, name: string): void {
     this.#socket = socket;
+    this.#sid = ""; // every socket is a new relay session: the previous sid made a reconnect ignore the relay's "open"
     this.#seq = 0;
     this.#control = false;
     this.#needsConfirm = false;
+    this.#probedPin = null;
+    this.#trusted = null;
     this.#inbound = Promise.resolve();
     this.#outbound = Promise.resolve();
     this.#mux = new RelayMux((m) => this.#fromMux(m));
-    const session = new BrowserSession({ store: this.#store, name, ...(password === undefined ? {} : { password }) });
+    const session = new BrowserSession({ store: this.#store, name });
     this.#session = session;
     socket.onmessage = (ev) => {
       if (generation !== this.#generation || typeof ev.data !== "string") return;
@@ -355,9 +440,36 @@ export class RelayConnection {
 
   /** Events first (a pin or a registration must be recorded before anything is forwarded), then the outgoing records. */
   async #apply(step: Step, generation: number): Promise<void> {
-    for (const event of step.events) this.#event(event);
+    let answer: string | undefined;
+    for (const event of step.events) {
+      if (event.type === "challenged") answer = this.#challenged(event.pin);
+      else this.#event(event);
+    }
     if (generation !== this.#generation) return;
     for (const record of step.outgoing) this.#sendRecord(record);
+    const session = this.#session;
+    if (answer !== undefined && session) await this.#apply(await session.answer(answer), generation);
+  }
+
+  /**
+   * The device answered the first-connection request with its key. Returns the password to answer with, or undefined when
+   * the page has to show something first (this socket is then dropped: no state is kept on the wire).
+   */
+  #challenged(pin: string): string | undefined {
+    const password = this.#pendingPassword;
+    const trusted = this.#trustedPin();
+    if (trusted === pin && password !== undefined) {
+      this.#trusted = pin;
+      return password;
+    }
+    this.#teardown();
+    this.#pendingPassword = undefined; // never answer for a key the user has not confirmed, nor keep the password past that
+    if (trusted === pin) return void this.#set({ phase: "password" });
+    this.#probedPin = pin;
+    // A key other than the one confirmed a moment ago is a changed device, not a new one.
+    if (trusted !== null) this.#confirmed = null;
+    this.#set({ phase: trusted !== null ? "changed" : "fingerprint", emoji: marksOf(pin) });
+    return undefined;
   }
 
   #sendRecord(payload: Uint8Array): void {
@@ -369,12 +481,16 @@ export class RelayConnection {
   #event(e: WireEvent): void {
     switch (e.type) {
       case "pinned":
-        this.#needsConfirm = true;
+        this.#needsConfirm = this.#trusted !== e.pin;
         this.#state = { ...this.#state, emoji: marksOf(e.pin) };
         return;
       case "pin_mismatch":
         this.#teardownSocketOnly();
         this.#set({ phase: "changed", emoji: marksOf(e.received) });
+        return;
+      case "authenticated":
+        this.#pendingPassword = undefined;
+        this.#confirmed = null;
         return;
       case "auth_failed":
         this.#authFailed(e.code);
@@ -388,8 +504,10 @@ export class RelayConnection {
   }
 
   #authFailed(code: string): void {
+    this.#pendingPassword = undefined;
     this.#teardownSocketOnly();
     if (code === "bad_password") this.#set({ phase: "password", problem: t("connect.password.wrong") });
+    else if (code === "device_outdated") this.#set({ phase: "error", problem: t("connect.error.outdated") });
     else if (code === "locked") this.#set({ phase: "locked" });
     else if (code === "unknown_browser" || code === "bad_signature") this.#set({ phase: "revoked" });
     else if (code === "no_password") this.#set({ phase: "disabled" });

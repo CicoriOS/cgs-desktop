@@ -7,7 +7,9 @@ import "../ui/styles/notice.css";
 import "./connect.css";
 import { ConnectView } from "./ConnectView";
 import { MissingPage } from "./screens";
+import { trackVisualViewport } from "./viewport";
 
+trackVisualViewport();
 document.documentElement.lang = getLocale() === "zh" ? "zh-CN" : "en";
 
 // `/connect?device=<client id>` (ADR 0036 §3). Without the parameter nothing is constructed: the plain page says how to get here.

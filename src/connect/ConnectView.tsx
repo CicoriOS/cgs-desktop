@@ -20,6 +20,21 @@ export function ConnectView({ device }: { device: string }) {
     return () => relay.close();
   }, [relay]);
 
+  // Coming back from the background (or regaining the network): check the link now instead of waiting for a timer Safari may have suspended.
+  useEffect(() => {
+    const wake = () => {
+      if (document.visibilityState === "visible") relay.resume();
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("pageshow", wake);
+    window.addEventListener("online", wake);
+    return () => {
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("pageshow", wake);
+      window.removeEventListener("online", wake);
+    };
+  }, [relay]);
+
   // The client lives while the link is up: created on ready, kept across ready -> readonly, dropped on any other phase
   // so that the next ready builds a fresh one.
   useEffect(() => {
