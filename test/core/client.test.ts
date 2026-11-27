@@ -343,3 +343,112 @@ test("New chat uses the active workspace, detaches without aborting, and reattac
   expect(c.getState().turns).toHaveLength(1);
   expect(c.getState().turns[0]).toMatchObject({ state: "done", assistant: [{ id: "a" }, { id: "live", items: [{ text: "done" }] }] });
 });
+
+const userEntry = (id: string, parentId: string | null, text: string) => ({ id, parentId, type: "message", message: { role: "user", content: text } });
+const replyEntry = (id: string, parentId: string, text: string) => ({ id, parentId, type: "message", message: { role: "assistant", content: [{ type: "text", text }], stopReason: "stop" } });
+
+function memoryCache() {
+  const rows = new Map<string, import("../../src/core/history").CachedSession>();
+  const saved: string[] = [];
+  return {
+    rows,
+    saved,
+    cache: {
+      load: async (path: string) => rows.get(path),
+      save: async (path: string, s: import("../../src/core/history").CachedSession) => { saved.push(path); rows.set(path, s); },
+    },
+  };
+}
+
+test("a loaded history is kept; opening that session again shows the copy while the child starts, and the device's history replaces it", async () => {
+  const mem = memoryCache();
+  const t = fakeTransport();
+  const child = Promise.withResolvers<typeof childA>();
+  const host = { ...fakeHost, children: async () => [], openChild: () => child.promise };
+  const c = createClient(() => t.transport, host, { holdMs: 0, cache: mem.cache });
+  clients.add(c);
+  await tick();
+
+  // First open: nothing cached, the page shows the loading state with no turns; the history that arrives is saved.
+  void c.actions.openSession("/s.jsonl", "/work");
+  await tick();
+  expect(c.getState()).toMatchObject({ loading: true, sessionFile: "/s.jsonl", connection: "connecting", turns: [] });
+  child.resolve({ ...childA, sessionPath: "/s.jsonl" });
+  await tick();
+  t.open();
+  await tick();
+  t.respond("set_title_language");
+  t.respond("get_state", { sessionFile: "/s.jsonl", isStreaming: false });
+  await tick();
+  t.respond("get_entries", { entries: [userEntry("u1", null, "hello"), replyEntry("a1", "u1", "hi there")], leafId: "a1" });
+  await tick();
+  expect(c.getState()).toMatchObject({ loading: false, connection: "ready" });
+  expect(mem.saved).toEqual(["/s.jsonl"]);
+  expect(mem.rows.get("/s.jsonl")?.turns[0]?.user.text).toBe("hello");
+
+  // Open another session, then this one again: the copy shows before the child answers.
+  const second = Promise.withResolvers<typeof childA>();
+  host.openChild = () => second.promise;
+  void c.actions.openSession("/s.jsonl", "/work"); // same session while ready is a no-op
+  await tick();
+  expect(c.getState().loading).toBe(false);
+  void c.actions.openSession("/other.jsonl", "/work");
+  await tick();
+  expect(c.getState()).toMatchObject({ loading: true, sessionFile: "/other.jsonl", turns: [] });
+  void c.actions.openSession("/s.jsonl", "/work");
+  await tick();
+  const s = c.getState();
+  expect(s).toMatchObject({ loading: true, connection: "connecting", sessionFile: "/s.jsonl" });
+  expect(s.turns.map((x) => x.user.text)).toEqual(["hello"]);
+  expect(s.turns[0]!.state).toBe("done");
+});
+
+test("a session that cannot be opened stops loading instead of spinning forever", async () => {
+  const mem = memoryCache();
+  const t = fakeTransport();
+  const host = { ...fakeHost, children: async () => [], openChild: async () => { throw new Error("no such session"); } };
+  const c = createClient(() => t.transport, host, { cache: mem.cache });
+  clients.add(c);
+  await tick();
+  await c.actions.openSession("/gone.jsonl", "/work");
+  expect(c.getState()).toMatchObject({ loading: false, connection: "closed" });
+  expect(c.getState().toast?.text).toBe("no such session");
+});
+
+test("compact sends the slash command once, stays busy until omp reports, and shows the report", async () => {
+  const { t, c } = await connected();
+  const commands = () => t.sent.filter((f) => f.type === "prompt").map((f) => f.message);
+  void c.actions.compact("snapcompact");
+  await tick();
+  expect(commands()).toEqual(["/compact snapcompact"]);
+  expect(c.getState().compacting).toBe(true);
+  t.respond("prompt", { agentInvoked: false });
+  await tick();
+  expect(c.getState().compacting).toBe(true); // omp compacts in the background: the prompt answer is not the result
+  void c.actions.compact("soft"); // refused while one runs
+  await tick();
+  expect(commands()).toEqual(["/compact snapcompact"]);
+  t.push({ type: "command_output", text: "Compaction complete. Tokens: 90000 -> 12000 (saved 78000)." });
+  await tick();
+  expect(c.getState()).toMatchObject({ compacting: false, toast: { text: "Compaction complete. Tokens: 90000 -> 12000 (saved 78000)." } });
+  void c.actions.compact("handoff");
+  await tick();
+  expect(commands()).toEqual(["/compact snapcompact", "/compact handoff"]);
+});
+
+test("a compaction omp refuses frees the button and tells why; one asked while the agent runs is not sent", async () => {
+  const { t, c } = await connected();
+  void c.actions.compact("remote");
+  await tick();
+  t.fail("prompt", "no compaction model");
+  await tick();
+  expect(c.getState()).toMatchObject({ compacting: false, toast: { text: "no compaction model" } });
+
+  t.push({ type: "agent_start" });
+  await tick();
+  expect(c.getState().run.streaming).toBe(true);
+  const before = t.sent.length;
+  await c.actions.compact("snapcompact");
+  expect(t.sent.length).toBe(before);
+  expect(c.getState().compacting).toBe(false);
+});

@@ -7,6 +7,8 @@ import type { ClientState, Dialog, NoticeItem, RingState, SubagentInfo, ToolCall
 export function initialState(): ClientState {
   return {
     connection: "connecting",
+    loading: false,
+    compacting: false,
     device: "",
     activeCwd: "",
     title: "",

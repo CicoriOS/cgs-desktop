@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { useActions } from "./client-context";
+import { useActions, useReadOnly } from "./client-context";
+import { CompactSplit } from "./CompactButton";
 import { formatCost, formatPercent, formatTokens } from "./format";
 import { CloseIcon } from "./icons";
 import { cacheHitRate, type ContextGauge, fill, type StatsView, type Tokens } from "../core/stats";
@@ -42,6 +43,7 @@ function Counts({ u }: { u: Tokens }) {
 export function StatsPanel({ onClose }: { onClose: () => void }) {
   const t = useT();
   const actions = useActions();
+  const readOnly = useReadOnly();
   const [view, setView] = useState<StatsView>();
   const [failed, setFailed] = useState(false);
 
@@ -99,7 +101,10 @@ export function StatsPanel({ onClose }: { onClose: () => void }) {
               <div className="muted note">{t("stats.costNote")}</div>
             </section>
             <section>
-              <h4>{t("stats.context")}</h4>
+              <div className="st-head">
+                <h4>{t("stats.context")}</h4>
+                {!readOnly && <CompactSplit />}
+              </div>
               <div className="st-agent">
                 <span className="st-name">{t("stats.main")}</span>
                 <Bar gauge={view.main} />

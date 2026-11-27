@@ -1,5 +1,6 @@
 // Shared contract for the web client (ADR 0032). The UI renders omp RPC frames; it never assumes a transport.
 // core/ turns frames into `ClientState` and implements `Actions`; ui/ only reads state and calls actions.
+import type { CompactMode } from "./compact";
 import type { RawMessage } from "./messages";
 import type { StatsView } from "./stats";
 
@@ -149,6 +150,10 @@ export type DialogAnswer =
 
 export interface ClientState {
   connection: "connecting" | "ready" | "closed";
+  /** A conversation's history is being fetched (opening a session, a reconnect, a fork). What is on screen may be the browser's copy. */
+  loading: boolean;
+  /** A manual compaction is running (asked by `compact`, ended by omp's `command_output`). */
+  compacting: boolean;
   /** Name of the machine being controlled (from the host; empty when unknown). */
   device: string;
   /** Workspace and identity of the attached child. */
@@ -216,6 +221,8 @@ export interface Actions {
   restoreDraft(text: string, images?: ImageRef[]): void;
   /** Answers (or cancels) the dialog with this id; omp stops waiting for it. */
   answerDialog(id: string, answer: DialogAnswer): void;
+  /** Runs `/compact <mode>`: omp compacts the session context and reports the result as a notice. Refused while the agent runs. */
+  compact(mode: CompactMode): Promise<void>;
   newSession(cwd?: string): Promise<void>;
   openSession(path: string, cwd: string): Promise<void>;
   /** Registers a (possibly new) directory as a workspace and opens a new session in it. */

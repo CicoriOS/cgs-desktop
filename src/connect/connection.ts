@@ -5,6 +5,7 @@ import { BrowserSession, fingerprint, fromBase64, toBase64, UNKNOWN_CHILD_REASON
 import type { HostApi, RpcTransport } from "../core/types";
 import { t } from "../i18n";
 import { deviceStore, type DeviceStore } from "./browser-store";
+import { deviceHistory, type DeviceHistory } from "./history-cache";
 import { RelayMux, type MuxMessage } from "./mux";
 
 /** One symbol of a device fingerprint, shown on the confirmation page (ADR 0036). */
@@ -123,6 +124,8 @@ export class RelayConnection {
   readonly #deps: RelayDeps;
   readonly #deviceId: number;
   readonly #store: DeviceStore;
+  /** The conversations this browser keeps for the device; forgotten together with the pin. */
+  readonly history: DeviceHistory;
   readonly #listeners = new Set<() => void>();
   #state: RelayState;
   #mux = new RelayMux(() => false);
@@ -152,7 +155,14 @@ export class RelayConnection {
     this.#deps = deps;
     this.#deviceId = /^[1-9][0-9]*$/.test(device) ? Number(device) : 0;
     this.#store = deviceStore(deps.idb, device);
+    this.history = deviceHistory(deps.idb, device);
     this.#state = { phase: "connecting", emoji: [], name: defaultBrowserName(deps.userAgent) };
+  }
+
+  /** The pin and key go first (the next connection needs the password); what was read from the old device goes with them, best effort. */
+  async #forget(): Promise<void> {
+    await this.#store.clear();
+    await this.history.clear().catch(() => {});
   }
 
   get host(): HostApi { return this.#mux.host; }
@@ -205,7 +215,7 @@ export class RelayConnection {
   }
 
   retry(): void {
-    if (this.#state.phase === "revoked") void this.#store.clear().then(() => this.#restart());
+    if (this.#state.phase === "revoked") void this.#forget().then(() => this.#restart());
     else this.#restart();
   }
 
@@ -223,7 +233,7 @@ export class RelayConnection {
       return;
     }
     if (phase === "changed") {
-      void this.#store.clear().then(() => this.#restart());
+      void this.#forget().then(() => this.#restart());
       return;
     }
     this.#needsConfirm = false;

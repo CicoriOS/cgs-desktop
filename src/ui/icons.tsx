@@ -106,3 +106,14 @@ export const DeviceIcon = () => (
     <path d="M8 20h8M12 16v4" />
   </Icon>
 );
+export const ChevronDownIcon = () => (
+  <Icon>
+    <path d="m6 9 6 6 6-6" />
+  </Icon>
+);
+/** Two arrows squeezing toward the middle: the context is made smaller. */
+export const CompactIcon = () => (
+  <Icon>
+    <path d="M12 3v7M9 7l3 3 3-3M12 21v-7M9 17l3-3 3 3M4 12h16" />
+  </Icon>
+);

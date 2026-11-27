@@ -243,6 +243,20 @@ export const zh = {
   "notice.other": "给模型的附加内容",
   "notice.rule": "注入规则:{names}",
   "notice.ruleAnon": "注入规则",
+  "loading.history": "正在加载对话…",
+  "compact.run": "压缩上下文",
+  "compact.running": "压缩中…",
+  "compact.choose": "选择压缩方式",
+  "compact.hint": "按“{mode}”压缩上下文",
+  "compact.turn": "压缩上下文（{mode}）",
+  "compact.mode.snapcompact": "快速压缩",
+  "compact.desc.snapcompact": "不调用模型，把历史归档成图片供模型回看（需要支持图片的模型）",
+  "compact.mode.soft": "摘要压缩",
+  "compact.desc.soft": "用当前模型在本地做摘要，不走服务端压缩",
+  "compact.mode.remote": "服务端压缩",
+  "compact.desc.remote": "用服务商的压缩接口，不支持时回退为本地摘要",
+  "compact.mode.handoff": "交接压缩",
+  "compact.desc.handoff": "后台生成交接文档，并就地压缩",
 } as const;
 
 export type MessageKey = keyof typeof zh;

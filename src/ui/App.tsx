@@ -6,6 +6,7 @@ import { Composer } from "./composer/Composer";
 import { Dock } from "./Dock";
 import { DialogHost } from "./dialogs/DialogHost";
 import { FEATURES } from "./features";
+import { HistoryLoading } from "./HistoryLoading";
 import { cx } from "./format";
 import { RpcDrawer } from "./RpcDrawer";
 import { Sidebar } from "./Sidebar";
@@ -21,7 +22,7 @@ const SUBAGENT_Z = 50;
 
 export function App() {
   const t = useT();
-  const empty = useClientState((s) => s.turns.length === 0);
+  const empty = useClientState((s) => s.turns.length === 0 && !s.loading); // while a history loads the page is not "new"
   const [side, setSide] = useState(() => !isMobile()); // a drawer on narrow screens: closed until asked for
   const [right, setRight] = useState(false);
   const [btw, setBtw] = useState(false);
@@ -49,6 +50,7 @@ export function App() {
         <section id="scroller">
           {empty && <div id="empty-hello">{t("empty.hello")}</div>}
           <Transcript />
+          <HistoryLoading />
         </section>
         {!readOnly && <DialogHost />}
         <Dock onOpenSubagent={openSubagent} />

@@ -1,5 +1,6 @@
+import { compactCommand } from "./compact";
 import { type EventFrame, applyFrame, initialState, newTurnId, ringFor, subagentsFromTools } from "./reducer";
-import { type SessionEntry, activeBranch, turnsFromEntries, turnsFromMessages, turnTailIds } from "./history";
+import { type HistoryCache, type SessionEntry, activeBranch, turnsFromEntries, turnsFromMessages, turnTailIds } from "./history";
 import type { RawMessage } from "./messages";
 import { buildStats, type SessionTotals, type StatsView, type SubagentSnapshot, type UsageMessage } from "./stats";
 import { mergeSubagents, reconcileRoster, subagentsFromSnapshot } from "./subagents";
@@ -17,6 +18,8 @@ export interface ClientOptions {
   now?: () => number;
   holdMs?: number;
   rpcTimeoutMs?: number;
+  /** Where this browser keeps finished conversations: opening one shows its copy at once while the device sends the current history. */
+  cache?: HistoryCache;
 }
 
 interface Pending {
@@ -56,6 +59,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
   const now = opts.now ?? Date.now;
   const holdMs = opts.holdMs ?? THINK_HOLD_MS;
   const rpcTimeout = opts.rpcTimeoutMs ?? RPC_TIMEOUT_MS;
+  const cache = opts.cache;
 
   let state = initialState();
   const listeners = new Set<() => void>();
@@ -210,6 +214,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     runEnded = true;
     endInfo = undefined;
     requestRing("idle");
+    remember();
     void refreshState();
     void refreshSessions();
   }
@@ -301,13 +306,50 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     }
   }
 
-  function resetSession(): void {
+  /** Starts a history load. `keepView` leaves the conversation on screen (a cached copy, or the last one before a reconnect) until the load replaces it. */
+  function resetSession(keepView = false): void {
     clearTimeout(hold?.timer);
     hold = undefined;
     runEnded = false;
     endInfo = undefined;
     deliveringQueue = false;
-    set((s) => ({ ...s, turns: [], tools: {}, queue: [], todos: [], subagents: [], dialogs: [], btw: [], title: "", run: { state: "idle", streaming: false } }));
+    set((s) => ({
+      ...s,
+      ...(keepView ? {} : { turns: [], tools: {}, subagents: [], title: "" }),
+      queue: [], todos: [], dialogs: [], btw: [], loading: true, compacting: false, run: { state: "idle", streaming: false },
+    }));
+  }
+
+  // ------------------------------------------------------------------ browser copy of conversations
+  /** Keeps the finished conversation. A running turn is not kept: the settle that ends it saves the whole. */
+  function remember(): void {
+    const path = state.sessionFile;
+    if (!cache || !path || state.connection !== "ready" || !state.turns.length) return;
+    if (state.turns.some((t) => t.pending || t.state === "running")) return;
+    void cache.save(path, { turns: state.turns, tools: state.tools, title: state.title }).catch(() => {});
+  }
+
+  /** Shows the browser's copy of `path` while the device is still being reached; the history that arrives replaces it. */
+  async function preview(path: string): Promise<void> {
+    if (!cache) return;
+    let copy;
+    try {
+      copy = await cache.load(path);
+    } catch {
+      return;
+    }
+    if (!copy || closed || state.sessionFile !== path || !state.loading || state.turns.length) return;
+    // Turn ids are per page load: a saved one could collide with a new one and remount (or merge) rows.
+    const turns = copy.turns.map((t) => ({ ...t, id: newTurnId() }));
+    set((s) => ({ ...s, turns, tools: copy.tools, subagents: subagentsFromTools(copy.tools), title: copy.title || s.title }));
+  }
+
+  /** Opening a saved session: the previous one is let go at once (its frames must not paint over the next), and its copy shows while the child starts. */
+  function beginOpening(cwd: string, path: string): void {
+    detach();
+    resetSession();
+    set((s) => ({ ...s, childId: undefined, activeCwd: cwd, sessionFile: path, connection: "connecting", model: undefined, draftRestore: undefined }));
+    void preview(path);
   }
 
   async function hydrate(): Promise<void> {
@@ -340,8 +382,9 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
           if (queue || st.queuedMessages) next = applyFrame(next, queue ?? { type: "queue_update", ...st.queuedMessages }, nowMs);
           if (partial) next = applyFrame(next, partial, nowMs);
           for (const dialog of dialogs ?? []) next = applyFrame(next, dialog, nowMs);
-          return { ...next, connection: "ready" };
+          return { ...next, connection: "ready", loading: false };
         });
+        remember();
         hydrating = false;
         snapshot = undefined;
         attached?.resolve(true);
@@ -358,7 +401,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     } catch (e) {
       if (current !== epoch) return;
       hydrating = false;
-      set((s) => ({ ...s, connection: "closed" }));
+      set((s) => ({ ...s, connection: "closed", loading: false }));
       attached?.resolve(false);
       toast(errorMessage(e));
     }
@@ -384,8 +427,9 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
 
   function attach(child: ChildStatus): void {
     if (state.childId === child.id && state.connection !== "closed") return;
+    const keepView = !!child.sessionPath && child.sessionPath === state.sessionFile && state.turns.length > 0;
     detach();
-    resetSession();
+    resetSession(keepView);
     hydrating = true;
     attached = Promise.withResolvers<boolean>();
     const ready = attached;
@@ -393,9 +437,10 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     void ready.promise.then(() => clearTimeout(timer));
     set((s) => ({
       ...s, childId: child.id, activeCwd: child.cwd, sessionFile: child.sessionPath, connection: "connecting",
-      model: undefined, draftRestore: undefined, title: child.title ?? "", thinking: { resolved: child.level, configured: "auto" },
+      model: undefined, draftRestore: undefined, title: child.title ?? (keepView ? s.title : ""), thinking: { resolved: child.level, configured: "auto" },
       children: [...s.children.filter((c) => c.id !== child.id), { ...child, unseen: false }],
     }));
+    if (child.sessionPath) void preview(child.sessionPath);
     transport = connect(child.id);
     const offFrame = transport.onFrame(onFrame);
     const offStatus = transport.onStatus((status) => {
@@ -404,10 +449,10 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
         rejectPending();
         if (status === "closed") attached?.resolve(false);
         else attached = Promise.withResolvers<boolean>();
-        set((s) => ({ ...s, connection: status }));
+        set((s) => ({ ...s, connection: status, loading: status === "closed" ? false : s.loading }));
         return;
       }
-      resetSession();
+      resetSession(true);
       hydrating = true;
       syncTitleLanguage();
       void hydrate();
@@ -417,12 +462,16 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
 
   function navigate(cwd: string, path?: string): Promise<boolean> {
     const request = ++navigation;
+    if (path) beginOpening(cwd, path);
     const pending = host.openChild(cwd, path).then((child) => {
       if (request !== navigation || closed) return false;
       attach(child);
       return true;
     }, (e) => {
-      if (request === navigation && !closed) toast(errorMessage(e));
+      if (request === navigation && !closed) {
+        if (path) set((s) => ({ ...s, connection: "closed", loading: false }));
+        toast(errorMessage(e));
+      }
       return false;
     });
     opening = pending;
@@ -495,6 +544,14 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
         return;
       case "model_changed":
         void refreshState();
+        return;
+      case "command_output":
+        // What a slash command printed; the compaction in flight is the one this client asked for.
+        if (state.compacting) {
+          set((s) => ({ ...s, compacting: false }));
+          toast(String(ev.text ?? ""));
+          void refreshState();
+        }
         return;
       case "prompt_result":
         onPromptResult(ev as unknown as PromptResult);
@@ -586,6 +643,18 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
       sendFrame(JSON.stringify({ type: "extension_ui_response", id, ...answer }));
       set((s) => ({ ...s, dialogs: s.dialogs.filter((d) => d.id !== id) }));
     },
+    compact: (mode) =>
+      guard(async () => {
+        if (state.compacting || state.run.streaming || state.connection !== "ready") return;
+        const current = epoch;
+        set((s) => ({ ...s, compacting: true }));
+        try {
+          await rpc({ type: "prompt", message: compactCommand(mode) });
+        } catch (e) {
+          if (epoch === current) set((s) => ({ ...s, compacting: false }));
+          throw e;
+        }
+      }),
     newSession: async (cwd) => {
       const target = cwd || state.activeCwd || state.workspaces[0]?.cwd;
       if (target) await navigate(target);

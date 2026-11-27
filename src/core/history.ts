@@ -14,6 +14,19 @@ export interface SessionEntry {
   details?: unknown;
 }
 
+/** A finished conversation as this browser keeps it (the rebuilt view, not the wire entries). */
+export interface CachedSession {
+  turns: Turn[];
+  tools: Record<string, ToolCall>;
+  title: string;
+}
+
+/** Storage for `CachedSession`s, keyed by the session file's path. Errors are the client's to ignore: a cache never blocks a load. */
+export interface HistoryCache {
+  load(sessionPath: string): Promise<CachedSession | undefined>;
+  save(sessionPath: string, session: CachedSession): Promise<void>;
+}
+
 /** The entries on the path from the root to `leafId` (default: the last entry), oldest first. */
 export function activeBranch(entries: SessionEntry[], leafId?: string | null): SessionEntry[] {
   const byId = new Map(entries.map((e) => [e.id, e]));

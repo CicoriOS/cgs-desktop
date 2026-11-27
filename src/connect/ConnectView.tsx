@@ -39,7 +39,7 @@ export function ConnectView({ device }: { device: string }) {
   // so that the next ready builds a fresh one.
   useEffect(() => {
     if (!live) return;
-    const c = createClient(relay.transport, relay.host);
+    const c = createClient(relay.transport, relay.host, { cache: relay.history });
     setClient(c);
     return () => {
       c.close();

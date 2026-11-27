@@ -2,7 +2,9 @@ import { memo, type ReactNode, useMemo, useState } from "react";
 import type { RingState, ToolCall, Turn } from "../../core/types";
 import { useActions, useClientState, useReadOnly } from "../client-context";
 import { formatDuration } from "../format";
-import { CheckIcon, CopyIcon, ForkIcon } from "../icons";
+import { compactModeName, useCompactBusy } from "../CompactButton";
+import { getCompactMode, useCompactMode } from "../compact-mode";
+import { CheckIcon, CompactIcon, CopyIcon, ForkIcon } from "../icons";
 import { Ring } from "../ring";
 import { Markdown } from "./Markdown";
 import { callNames, type Step, viewTurn } from "./process";
@@ -32,6 +34,20 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button type="button" className="act-btn" title={done ? t("common.copied") : t("common.copy")} aria-label={t("common.copy")} onClick={copy}>
       {done ? <CheckIcon /> : <CopyIcon />}
+    </button>
+  );
+}
+
+/** After a round of work the context may be worth shrinking: runs the compaction mode used last (the one picked in the usage panel). */
+function CompactTurnButton() {
+  const t = useT();
+  const actions = useActions();
+  const mode = useCompactMode();
+  const busy = useCompactBusy();
+  const title = t("compact.turn", { mode: compactModeName(mode) });
+  return (
+    <button type="button" className="act-btn" title={title} aria-label={title} disabled={busy} onClick={() => void actions.compact(getCompactMode())}>
+      <CompactIcon />
     </button>
   );
 }
@@ -159,6 +175,7 @@ export const TurnView = memo(function TurnView({ turn, index, isLast, tools }: {
                           <ForkIcon />
                         </button>
                       )}
+                      {last && isLast && canFork && !readOnly && <CompactTurnButton />}
                     </div>
                   )}
                 </div>
