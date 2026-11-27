@@ -21,6 +21,8 @@
 - 文档里标记 `[未决 On]` 的事项需要所有者决定，不要自行选择。
 - 术语以 `../cgs-client-docs/GLOSSARY.md` 为准（`cgscli`、`cgsconnect`、`client profile` 等）。旧名 `cgsagent` 已改为 `cgsconnect`；`legacy cgs-agent` 指旧的 Go 版本。
 - 许可证：新主线为 AGPL-3.0；`package.json` 目前仍是 `UNLICENSED`，改动许可证的细节见 `../cgs-client-docs/legal/LICENSING.md`。
+- cgscli 的发布号规则见 `../cgs-client-docs/adr/0044-release-numbers-minor-for-fixes.md`：修复发小版本 `N.M`；严禁自行提升大版本号 `N`；不推 tag，除非所有者同意。
+- 与设备的 wire 协议不向后兼容：旧设备连不上是设计（ADR 0041），页面只提示升级，不要加回落到旧协议的路径。
 
 ## 当前代码里仍然有效的约定
 
