@@ -1,7 +1,7 @@
 import type { ToolCall } from "../../../core/types";
 import { useT } from "../../../i18n";
 import { Pre, TextBody } from "./BodyText";
-import { evalImages, list, rec, str } from "./details";
+import { list, resultImages, rec, str } from "./details";
 import { Duration, Status } from "./ExtraBodies";
 
 type Props = { call: ToolCall };
@@ -33,9 +33,10 @@ export function JobsBody({ call }: Props) {
   </div>)}{(call.result?.isError || !jobs.some(j => j.resultText || j.errorText || j.message)) && <TextBody call={call} />}</>;
 }
 
-export function MediaBody({ call }: Props) {
+/** Every card shows the images its result carries, whatever the tool (a read image, a screenshot, a generated picture). */
+export function ResultImages({ call }: Props) {
   const t = useT();
-  return <><OperationBody call={call} />{evalImages(call).map((src, i) => <img className="eval-image" key={i} src={src} alt={t("tool.image", { n: i + 1 })} loading="lazy" />)}</>;
+  return <>{resultImages(call).map((src, i) => <img className="eval-image" key={i} src={src} alt={t("tool.image", { n: i + 1 })} loading="lazy" />)}</>;
 }
 
 export function mcpLabel(call: ToolCall) {

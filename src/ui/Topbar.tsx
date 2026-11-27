@@ -4,6 +4,7 @@ import { FEATURES } from "./features";
 import { plainTitle } from "./format";
 import { ChatBubbleIcon, GaugeIcon, SidebarLeftIcon, SidebarRightIcon } from "./icons";
 import { setLocale, useLocale, useT } from "../i18n";
+import { WindowControls } from "./WindowControls";
 
 /** Click the title to rename the session: Enter saves through omp's set_session_name, Esc cancels. omp never overwrites a name set this way. */
 function Title() {
@@ -70,6 +71,7 @@ export function Topbar({ onToggleSide, onToggleRight, onToggleBtw, onToggleStats
           <SidebarRightIcon />
         </button>
       )}
+      <WindowControls />
     </header>
   );
 }

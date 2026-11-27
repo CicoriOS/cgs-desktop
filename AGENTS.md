@@ -29,4 +29,6 @@
 - Web 客户端与宿主的共享契约集中在 `src/core/types.ts`；界面通过这套契约使用宿主能力，不直接依赖开发桥。
 - `bridge/` 是本地开发桥。先构建 `dist/`，再运行 `bridge/run.sh`，由桥启动容器中的 `cgs --mode rpc-ui`，提供静态页面、RPC WebSocket 和宿主 HTTP API。默认仅监听回环地址；任何能访问该端口的人都能控制 agent。
 - `CGS_BASE_URL` 可覆盖 CGS 服务器地址，`STATE` 可指定用于保留 `~/.cgs` 的 Docker 卷；未指定时，容器的 home 是临时的。
+- 桌面壳：`bun run desktop` 启动 Vite（HMR）加一个 Electron 窗口，窗口加载 `?demo`，用 `src/demo/` 的内存后端（三个预设会话）代替桥。`desktop/` 只有窗口与预加载，不放界面；所有界面都是 `src/` 的 React 代码，网页版的改动自动出现在桌面版。只属于某一端的功能必须用分支检测（`FEATURES`，桌面端可读 `window.cgsDesktop`），不要分叉文件。`src/demo/` 经动态导入，不进入网页产物。
 - 本地检查：`bun --bun run test`、`bun --bun run typecheck`、`bun --bun run build`。
+- 桌面开发期间，`bun.lock` 更新会重启 Vite 并重载渲染页，清除安装前缓存的依赖解析失败；普通界面改动仍由 HMR 更新。

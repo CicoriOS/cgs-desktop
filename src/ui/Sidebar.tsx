@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import { AccountFooter } from "./AccountFooter";
+import { desktop } from "./desktop";
+import { WORKSPACE_DROP } from "./drop";
 import { useActions, useClientState, useReadOnly } from "./client-context";
 import { baseName, cx, plainTitle, relativeTime } from "./format";
 import { ChevronIcon, EditIcon, FolderIcon, FolderPlusIcon, DeviceIcon } from "./icons";
 import { Ring } from "./ring";
+import type { PreviewSignIns } from "./provider-preview";
 import { useT } from "../i18n";
 
 const REFRESH_AGE_MS = 30_000;
@@ -17,7 +21,7 @@ function useNow(everyMs: number): number {
 }
 
 /** `onNavigate` runs after a pick that leaves the sidebar (a session, a new chat): the mobile drawer closes then. */
-export function Sidebar({ onAddWorkspace, onNavigate }: { onAddWorkspace: () => void; onNavigate: () => void }) {
+export function Sidebar({ onAddWorkspace, onNavigate, onOpenSettings, previewSignIns }: { onAddWorkspace: () => void; onNavigate: () => void; onOpenSettings: () => void; previewSignIns?: PreviewSignIns }) {
   const t = useT();
   const actions = useActions();
   const readOnly = useReadOnly();
@@ -50,10 +54,10 @@ export function Sidebar({ onAddWorkspace, onNavigate }: { onAddWorkspace: () => 
   }, [workspaces, children, activeCwd, sessionFile, title, now]);
 
   return (
-    <aside id="sidebar">
+    <aside id="sidebar" data-drop={desktop ? WORKSPACE_DROP : undefined}>
       <div className="brand">
         <img src={`${import.meta.env.BASE_URL}cgs-logo.svg`} alt="" width={30} height={30} />
-        <span>CGS Connect</span>
+        <span>{desktop ? "CGS Desktop" : t("app.title")}</span>
       </div>
       {!readOnly && (
       <div className="side-top">
@@ -100,7 +104,7 @@ export function Sidebar({ onAddWorkspace, onNavigate }: { onAddWorkspace: () => 
                       return (
                         <button type="button" key={s.path} className={cx("sess", active && "active")} title={plainTitle(s.title)} aria-current={active ? "true" : undefined} onClick={() => (onNavigate(), void actions.openSession(s.path, w.cwd))}>
                           <span className="t">{plainTitle(active && title ? title : s.title)}</span>
-                          <Ring small state={ring} level={active ? level : child?.level ?? "high"} />
+                          {ring !== "idle" && <Ring small state={ring} level={active ? level : child?.level ?? "high"} />}
                           {unseen && <span className="unseen" role="img" title={t("side.unseen")} aria-label={t("side.unseen")} />}
                           {ring === "idle" && !unseen && <span className="age">{relativeTime(s.updatedAt, now)}</span>}
                         </button>
@@ -115,7 +119,7 @@ export function Sidebar({ onAddWorkspace, onNavigate }: { onAddWorkspace: () => 
           );
         })}
       </nav>
-      {device && (
+      {!desktop && device && (
         <div id="device" title={t("side.device", { name: device })}>
           <DeviceIcon />
           <span>{device}</span>
@@ -125,6 +129,8 @@ export function Sidebar({ onAddWorkspace, onNavigate }: { onAddWorkspace: () => 
           </span>
         </div>
       )}
+      <AccountFooter now={now} onOpenSettings={onOpenSettings} previewSignIns={previewSignIns} />
+      {desktop && <div className="drop-hint">{t("side.dropHint")}</div>}
     </aside>
   );
 }

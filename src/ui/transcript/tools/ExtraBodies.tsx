@@ -1,6 +1,7 @@
 import type { ToolCall } from "../../../core/types";
 import { useT } from "../../../i18n";
-import { evalCells, evalImages, list, rec, str, todoPhases } from "./details";
+import { TodoList } from "../../TodoList";
+import { evalCells, list, rec, str, todoPhases } from "./details";
 import { Pre, resultText, TextBody } from "./BodyText";
 
 type Props = { call: ToolCall };
@@ -39,7 +40,6 @@ export function EvalBody({ call }: Props) {
       <Pre language={cell.language}>{cell.code}</Pre>
       {cell.output && <Pre label={t(cell.status === "error" ? "tool.err" : "tool.out")}>{cell.output}</Pre>}
     </div>)}
-    {evalImages(call).map((src, i) => <img className="eval-image" key={i} src={src} alt={t("tool.image", { n: i + 1 })} loading="lazy" />)}
     {!call.result ? <div className="lab">{t("tool.running")}</div>
       : (!structured || (call.result.isError && !cells.some(c => c.status === "error" && c.output))) && output
         ? <Pre label={t(call.result.isError ? "tool.err" : "tool.out")}>{output}</Pre> : null}
@@ -72,18 +72,10 @@ export function TaskBody({ call }: Props) {
   </>;
 }
 
-const MARK = { pending: "☐", in_progress: "◐", completed: "☑", abandoned: "⊘" };
-
 export function TodoBody({ call }: Props) {
-  const t = useT();
   const phases = todoPhases(call.result?.details);
   return <>
-    {phases.map((phase, i) => <div className="file" key={i}>
-      {phase.name && <div className="lab">{phase.name}</div>}
-      <ul className="tool-checklist">{phase.tasks.map((item, j) => <li key={j} data-state={item.status}>
-        <span aria-hidden="true">{MARK[item.status]}</span> <span>{item.content}</span> <small>{t(`tool.${item.status}`)}</small>
-      </li>)}</ul>
-    </div>)}
+    {phases.length > 0 && <TodoList phases={phases} />}
     {(!phases.length || call.result?.isError) && <TextBody call={call} />}
   </>;
 }

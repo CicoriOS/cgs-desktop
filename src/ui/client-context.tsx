@@ -11,7 +11,7 @@ interface Scope {
 const Ctx = createContext<Scope | undefined>(undefined);
 
 /** Actions a read-only view may still call. Every other action is refused with a notice. */
-const READ_ONLY_ALLOWED: Record<string, true> = { notify: true, pickerRows: true, thinkingLevels: true, completePath: true };
+const READ_ONLY_ALLOWED: Record<string, true> = { notify: true, pickerRows: true, thinkingLevels: true, completePath: true, refreshAccount: true, listDir: true, readFile: true, gitStatus: true, gitDiff: true, gitBranches: true, gitLog: true, gitCommitFiles: true, watchWorkspace: true };
 
 function readOnlyActions(actions: Actions): Actions {
   const guarded: Record<string, unknown> = {};

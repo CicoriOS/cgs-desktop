@@ -13,6 +13,8 @@ const RPC_TIMEOUT_MS = 60_000;
 /** A fast model thinks for a fraction of a second: once the blue thinking ring shows, the next state waits this long. */
 const THINK_HOLD_MS = 1500;
 const CHILD_POLL_MS = 2000;
+/** The server refreshes usage figures on this order (account-billing.md: every 5 minutes). */
+const ACCOUNT_POLL_MS = 5 * 60_000;
 
 export interface ClientOptions {
   now?: () => number;
@@ -126,7 +128,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
   }
 
   const toast = (text: string) => set((s) => ({ ...s, toast: { text, seq: (s.toast?.seq ?? 0) + 1 } }));
-  const restoreDraft = (text: string, images?: ImageRef[]) => set((s) => ({ ...s, draftRestore: { text, ...(images?.length ? { images } : {}), seq: (s.draftRestore?.seq ?? 0) + 1 } }));
+  const restoreDraft = (text: string, images?: ImageRef[], refs?: string[]) => set((s) => ({ ...s, draftRestore: { text, ...(images?.length ? { images } : {}), ...(refs?.length ? { refs } : {}), seq: (s.draftRestore?.seq ?? 0) + 1 } }));
 
   /** Runs a mutating action: failures become a toast instead of a rejection. */
   async function guard(fn: () => Promise<void>): Promise<void> {
@@ -274,6 +276,19 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
       });
     } catch (e) {
       if (!closed && request === listRequest) toast(errorMessage(e));
+    }
+  }
+
+  let accountRequest = 0;
+  /** Quiet on failure: a host without an account, or one that is briefly unreachable, keeps the last snapshot (marked stale) or none. */
+  async function refreshAccount(): Promise<void> {
+    if (!host.account) return;
+    const request = ++accountRequest;
+    try {
+      const account = await host.account();
+      if (!closed && request === accountRequest) set((s) => ({ ...s, account }));
+    } catch {
+      if (!closed && request === accountRequest) set((s) => (s.account && !s.account.stale ? { ...s, account: { ...s.account, stale: true } } : s));
     }
   }
 
@@ -600,6 +615,11 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     }
   }
 
+  function workspace() {
+    if (!host.workspace) throw new Error(t("err.noWorkspace"));
+    return host.workspace;
+  }
+
   // ------------------------------------------------------------------ actions
   const actions: Actions = {
     async send(text, images) {
@@ -760,10 +780,29 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
       for (const cb of rawListeners) cb();
     },
     refreshSessions,
+    refreshAccount,
     completePath: (typed) => host.complete(typed),
+    listDir: (dir) => workspace().list(state.activeCwd, dir),
+    readFile: (path) => workspace().read(state.activeCwd, path),
+    gitStatus: () => workspace().gitStatus(state.activeCwd),
+    gitDiff: (path, target) => workspace().gitDiff(state.activeCwd, path, target),
+    gitStage: (paths) => workspace().gitStage(state.activeCwd, paths),
+    gitUnstage: (paths) => workspace().gitUnstage(state.activeCwd, paths),
+    gitDiscard: (paths) => workspace().gitDiscard(state.activeCwd, paths),
+    gitCommit: (message) => workspace().gitCommit(state.activeCwd, message),
+    gitFetch: () => workspace().gitFetch(state.activeCwd),
+    gitPull: () => workspace().gitPull(state.activeCwd),
+    gitPush: () => workspace().gitPush(state.activeCwd),
+    gitBranches: () => workspace().gitBranches(state.activeCwd),
+    gitCheckout: (branch, create) => workspace().gitCheckout(state.activeCwd, branch, create),
+    gitLog: (limit) => workspace().gitLog(state.activeCwd, limit),
+    gitCommitFiles: (hash) => workspace().gitCommitFiles(state.activeCwd, hash),
+    watchWorkspace: (listener) => host.workspace?.watch(state.activeCwd, listener) ?? (() => {}),
   };
 
   const poll = setInterval(() => void refreshChildren(), CHILD_POLL_MS);
+  const accountPoll = setInterval(() => void refreshAccount(), ACCOUNT_POLL_MS);
+  void refreshAccount();
   const bootstrap = Promise.all([host.info(), host.children(), host.sessions()]).then(
     ([info, children, workspaces]) => {
       if (closed || navigation) return;
@@ -795,6 +834,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     close: () => {
       closed = true;
       clearInterval(poll);
+      clearInterval(accountPoll);
       clearTimeout(hold?.timer);
       unsubscribeLocale();
       detach();

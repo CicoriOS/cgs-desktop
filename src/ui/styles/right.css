@@ -1,0 +1,121 @@
+/* Right side bar: task changes, Git, files. An opaque surface (the left bar may be glass; this one never is). */
+
+#right { position: relative; flex: none; display: flex; flex-direction: column; min-height: 0; background: var(--bg); border-left: 1px solid var(--line); border-top: 1px solid var(--line); }
+.right-resize { position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 2; touch-action: none; }
+.right-resize:hover, .right-resize:active { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+
+.right-tabs { flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.right-tab { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 8px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.right-tab:hover { background: var(--hover); }
+.right-tab.active { background: var(--active); color: var(--text); }
+.right-tab .i { width: 15px; height: 15px; }
+.right-count { padding: 0 6px; border-radius: 9px; background: var(--hover); color: var(--muted); font-size: 11px; line-height: 17px; }
+.spin { animation: right-spin 1s linear infinite; }
+@keyframes right-spin { to { transform: rotate(360deg); } }
+
+.right-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.right-note { padding: 20px 16px; color: var(--faint); font-size: 13px; text-align: center; }
+
+/* changed files over the diff of the picked one */
+.chg { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.chg-list { flex: none; max-height: 38%; overflow-y: auto; padding: 6px; border-bottom: 1px solid var(--line); }
+.chg-row { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 8px; border-radius: 7px; text-align: left; font-size: 13px; }
+.chg-row:hover { background: var(--hover); }
+.chg-row.active { background: var(--active); }
+.chg-name { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chg-dir { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 12px; }
+.chg-stat { margin-left: auto; flex: none; font: 12px var(--mono); }
+.chg-stat .add { color: var(--add-fg); font-weight: 500; }
+.chg-stat .del { color: var(--danger); font-weight: 500; }
+.chg-diff { flex: 1; min-height: 0; overflow: auto; padding: 8px; }
+#right .diff { max-height: none; margin: 0; }
+
+.stat-letter { flex: none; width: 16px; text-align: center; font: 600 11.5px var(--mono); color: var(--muted); }
+.stat-letter[data-kind="modified"], .tree-name[data-kind="modified"] { color: #c98a14; }
+.stat-letter[data-kind="added"], .stat-letter[data-kind="untracked"], .tree-name[data-kind="added"], .tree-name[data-kind="untracked"] { color: var(--ok); }
+.stat-letter[data-kind="deleted"], .stat-letter[data-kind="conflict"], .tree-name[data-kind="deleted"], .tree-name[data-kind="conflict"] { color: var(--danger); }
+.stat-letter[data-kind="renamed"], .tree-name[data-kind="renamed"] { color: var(--accent); }
+
+/* files */
+.tree { flex: 1; overflow: auto; padding: 6px 4px; }
+.tree-row { display: flex; align-items: center; gap: 6px; width: 100%; height: 28px; padding-right: 8px; border-radius: 6px; text-align: left; font-size: 13px; }
+.tree-row:hover { background: var(--hover); }
+.tree-row .i { width: 15px; height: 15px; color: var(--muted); flex: none; }
+.tree-chev { width: 14px; height: 14px; flex: none; transition: transform .12s; }
+.tree-chev.open { transform: rotate(90deg); }
+.tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: #c98a14; }
+.tree-empty { padding: 4px 0; color: var(--faint); font-size: 12.5px; }
+
+.fpv { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.file-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.file-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12.5px var(--mono); }
+.file-mode { height: 24px; padding: 0 8px; border-radius: 7px; color: var(--muted); font-size: 12px; }
+.file-mode:hover { background: var(--hover); color: var(--text); }
+.file-body { flex: 1; min-height: 0; overflow: auto; padding: 8px; }
+.file-image { display: block; max-width: 100%; margin: 0 auto; }
+.file-md { padding: 4px 8px; }
+
+/* git: branch bar, commit box, sections, history */
+.git { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.git .chg-list { max-height: 52%; padding: 4px 6px 8px; }
+.git-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 8px 6px; }
+.git-branch-wrap { position: relative; flex: 1; min-width: 0; }
+.git-branch { display: flex; align-items: center; gap: 6px; max-width: 100%; height: 30px; padding: 0 8px; border-radius: 8px; background: var(--hover); font-size: 13px; font-weight: 600; }
+.git-branch:hover, .git-branch[aria-expanded="true"] { background: var(--active); }
+.git-branch .i { width: 15px; height: 15px; flex: none; color: var(--muted); }
+.git-branch-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-sync { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; border-radius: 8px; color: var(--muted); font-size: 12px; }
+.git-sync:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.git-sync.due { color: var(--accent); }
+.git-sync .i { width: 15px; height: 15px; }
+.git-count { display: inline-flex; align-items: center; gap: 1px; font: 600 12px var(--mono); }
+.git-count .i { width: 12px; height: 12px; }
+.git-seg { flex: 1 0 100%; display: flex; padding: 2px; border-radius: 8px; background: var(--hover); }
+.git-seg button { flex: 1; justify-content: center; display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; border-radius: 6px; color: var(--muted); font-size: 12.5px; }
+.git-seg button.active { background: var(--bg); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+.git-banner { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 10px; margin-bottom: 4px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-size: 12.5px; text-align: left; }
+.git-banner .i { width: 14px; height: 14px; flex: none; }
+.git-banner span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.git-commit { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 0 8px 8px; }
+.git-commit textarea { width: 100%; resize: none; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; line-height: 1.4; }
+.git-commit textarea:focus { outline: none; border-color: var(--accent); }
+.git-commit-btn { height: 30px; border-radius: 8px; background: var(--btn); color: var(--on-btn); font-size: 13px; font-weight: 600; }
+.git-commit-btn:disabled { background: var(--hover); color: var(--faint); cursor: default; }
+
+.git-section-head { display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 4px; border-radius: 6px; cursor: pointer; user-select: none; color: var(--muted); font-size: 12px; font-weight: 600; }
+.git-section-head:hover { background: var(--hover); }
+.git-section-head .i { width: 14px; height: 14px; flex: none; }
+.git-section-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; letter-spacing: .03em; }
+.git-section-head .git-acts { margin-left: auto; }
+.git-acts { display: none; align-items: center; gap: 2px; flex: none; margin-left: auto; }
+.git-section-head:hover .git-acts, .git-file:hover .git-acts, .git-file:focus-within .git-acts { display: flex; }
+.git-act { width: 22px; height: 22px; border-radius: 5px; display: grid; place-items: center; color: var(--muted); }
+.git-act:hover { background: var(--active); color: var(--text); }
+.git-act.armed { background: var(--danger); color: #fff; }
+.git-act .i { width: 14px; height: 14px; }
+.git-file { cursor: pointer; }
+.git-file .chg-dir { flex: 1; }
+
+.commit-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 8px; border-radius: 7px; text-align: left; font-size: 13px; }
+.commit-row:hover, .commit-row.open { background: var(--hover); }
+.commit-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commit-meta { flex: none; color: var(--faint); font-size: 11.5px; }
+.commit-files { margin: 0 0 4px 22px; }
+.git-avatar { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 10px; font-weight: 700; }
+
+.branch-menu { position: absolute; z-index: 20; top: 34px; left: 0; width: min(340px, calc(100vw - 24px)); max-height: 60vh; display: flex; flex-direction: column; background: var(--surface, var(--bg)); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 30px rgba(0, 0, 0, .18); overflow: hidden; }
+.branch-filter { flex: none; margin: 8px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; }
+.branch-filter:focus { outline: none; border-color: var(--accent); }
+.branch-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 6px 8px; }
+.branch-list h5 { display: flex; align-items: center; gap: 6px; margin: 8px 6px 4px; color: var(--faint); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.branch-list h5 .i { width: 12px; height: 12px; }
+.branch-row { display: flex; align-items: center; gap: 6px; width: 100%; height: 30px; padding: 0 6px; border-radius: 7px; text-align: left; font-size: 13px; }
+.branch-row:hover { background: var(--hover); }
+.branch-row .i { width: 14px; height: 14px; flex: none; }
+.branch-row.create { color: var(--accent); }
+.branch-check { flex: none; width: 14px; }
+.branch-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.branch-row.current .branch-name { font-weight: 600; }
+.branch-time { flex: none; width: 46px; color: var(--faint); font-size: 11.5px; text-align: right; }

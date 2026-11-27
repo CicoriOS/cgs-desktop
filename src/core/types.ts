@@ -2,6 +2,7 @@
 // core/ turns frames into `ClientState` and implements `Actions`; ui/ only reads state and calls actions.
 import type { CompactMode } from "./compact";
 import type { RawMessage } from "./messages";
+import type { SettingsApi } from "./settings";
 import type { StatsView } from "./stats";
 
 export type RingState = "idle" | "think" | "work" | "ok" | "fail" | "stop";
@@ -156,6 +157,8 @@ export interface ClientState {
   compacting: boolean;
   /** Name of the machine being controlled (from the host; empty when unknown). */
   device: string;
+  /** Absent until the host answers, and for hosts that have no account (see `HostApi.account`). */
+  account?: AccountSnapshot;
   /** Workspace and identity of the attached child. */
   activeCwd: string;
   childId?: string;
@@ -180,8 +183,8 @@ export interface ClientState {
   btw: BtwRecord[];
   /** Questions waiting for an answer, oldest first; the UI shows the first. */
   dialogs: Dialog[];
-  /** Text (and images) the composer should take into its editor (interrupted turn, removed queue item); `seq` makes repeats distinct. */
-  draftRestore?: { text: string; images?: ImageRef[]; seq: number };
+  /** Text (images, file references) the composer should take into its editor (interrupted turn, removed queue item); `seq` makes repeats distinct. */
+  draftRestore?: { text: string; images?: ImageRef[]; /** Absolute paths of files to attach as @ references. */ refs?: string[]; seq: number };
   toast?: { text: string; seq: number };
 }
 
@@ -217,8 +220,8 @@ export interface Actions {
   removeQueued(index: number): Promise<void>;
   /** Shows a short notice (toast). */
   notify(text: string): void;
-  /** Puts text into the composer editor. */
-  restoreDraft(text: string, images?: ImageRef[]): void;
+  /** Puts text, pictures and file references (absolute paths) into the composer editor. */
+  restoreDraft(text: string, images?: ImageRef[], refs?: string[]): void;
   /** Answers (or cancels) the dialog with this id; omp stops waiting for it. */
   answerDialog(id: string, answer: DialogAnswer): void;
   /** Runs `/compact <mode>`: omp compacts the session context and reports the result as a notice. Refused while the agent runs. */
@@ -246,7 +249,28 @@ export interface Actions {
   sendRaw(json: string): void;
   clearRaw(): void;
   refreshSessions(): Promise<void>;
+  /** Fetches the account snapshot now (the client also refreshes it every few minutes). */
+  refreshAccount(): Promise<void>;
   completePath(typed: string): Promise<{ exists: boolean; entries: string[] }>;
+  /** The right panel's reads, for the active workspace. They reject when the host has no workspace API. */
+  listDir(dir: string): Promise<FileEntry[]>;
+  readFile(path: string): Promise<FilePreview>;
+  gitStatus(): Promise<GitStatus>;
+  gitDiff(path: string, target: GitDiffTarget): Promise<string | undefined>;
+  /** Git writes and reads that are not part of the status. Like the reads above they reject with Git's message; the Git panel shows it. */
+  gitStage(paths: string[] | "all"): Promise<void>;
+  gitUnstage(paths: string[] | "all"): Promise<void>;
+  gitDiscard(paths: string[]): Promise<void>;
+  gitCommit(message: string): Promise<void>;
+  gitFetch(): Promise<void>;
+  gitPull(): Promise<void>;
+  gitPush(): Promise<void>;
+  gitBranches(): Promise<GitBranch[]>;
+  gitCheckout(branch: string, create?: boolean): Promise<void>;
+  gitLog(limit: number): Promise<GitCommit[]>;
+  gitCommitFiles(hash: string): Promise<GitFile[]>;
+  /** Calls back when the active workspace's files or Git state change; returns the way to stop. Does nothing on a host without a workspace API. */
+  watchWorkspace(listener: () => void): () => void;
 }
 
 /** The only thing core/ needs for omp itself. Dev: WebSocket to the bridge. Later: the cgsconnect channel. */
@@ -278,6 +302,148 @@ export interface HostApi {
   addWorkspace(cwd: string): Promise<void>;
   children(): Promise<ChildStatus[]>;
   openChild(cwd: string, sessionPath?: string): Promise<ChildStatus>;
+  /** The workspace's files and Git state, for the right panel. A host without it (the dev bridge) leaves the panel with the task's own changes only. */
+  workspace?: WorkspaceApi;
+  /** The signed-in CGS account (no tokens: the host holds them, ADR 0010). Undefined means signed out; rejection leaves the last snapshot stale. */
+  account?(): Promise<AccountSnapshot | undefined>;
+  settings?: SettingsApi;
+}
+
+export type AccountTier = "free" | "go" | "pro" | "dedicated";
+
+export interface Subscription {
+  id: number;
+  planTitle: string;
+  /** No total amount: the plan is unlimited. */
+  unlimited: boolean;
+  amountUsed: number;
+  amountTotal: number;
+  /** Display strings come from the server, formatted as in its console. */
+  usedDisplay: string;
+  totalDisplay: string;
+  resetPeriod: "never" | "daily" | "weekly" | "monthly" | "custom";
+  /** Unix seconds; 0 when none. */
+  nextResetAt: number;
+  /** Unix seconds; 0 when it does not expire. */
+  endTime: number;
+}
+
+/** `GET /api/device/usage` as the host normalises it (docs: desktop/account-billing.md, `account.snapshot`). */
+export interface AccountSnapshot {
+  username: string;
+  /** A picture for the account; the page draws a placeholder from the name when it is absent. */
+  avatarUrl?: string;
+  tier: AccountTier;
+  /** The balance as the server displays it, e.g. `¥199.99`. */
+  balance: string;
+  subscriptions: Subscription[];
+  /** The host could not refresh; this is the last value it has. */
+  stale: boolean;
+  /** Unix milliseconds. */
+  fetchedAt: number;
+}
+
+export interface FileEntry {
+  name: string;
+  /** Absolute path. */
+  path: string;
+  dir: boolean;
+}
+
+export type GitFileKind = "modified" | "added" | "deleted" | "renamed" | "untracked" | "conflict";
+
+export interface GitFile {
+  /** Absolute path. */
+  path: string;
+  status: GitFileKind;
+  /** In the index (staged for the next commit). A file changed both in the index and after it appears twice, once per side. */
+  staged: boolean;
+}
+
+export interface GitIdentity {
+  name: string;
+  email: string;
+}
+
+export interface GitStatus {
+  isRepo: boolean;
+  /** Absent while HEAD is detached. */
+  branch?: string;
+  /** Short hash of a detached HEAD. */
+  detached?: string;
+  /** The remote branch this one follows, e.g. `origin/main`; absent for a branch that was never published. */
+  upstream?: string;
+  /** Commits here that the upstream lacks (to push) and commits there that this branch lacks (to pull); as of the last fetch. */
+  ahead: number;
+  behind: number;
+  /** `user.name` and `user.email`: tells the user's own commits from a teammate's. */
+  user?: GitIdentity;
+  files: GitFile[];
+}
+
+export interface GitBranch {
+  /** Local `feature/x`, or remote `origin/feature/x`. */
+  name: string;
+  remote: boolean;
+  current: boolean;
+  upstream?: string;
+  ahead: number;
+  behind: number;
+  /** Author and time (ms) of the newest commit: who touched the branch last. */
+  author: string;
+  time: number;
+}
+
+export interface GitCommit {
+  hash: string;
+  subject: string;
+  author: string;
+  email: string;
+  /** Unix milliseconds. */
+  time: number;
+  /** Against the upstream: `incoming` is on the remote only (a teammate's push to pull), `outgoing` is here only (to push), `shared` is on both. */
+  direction: "incoming" | "outgoing" | "shared";
+}
+
+/** What a diff compares: the working tree with the index, the index with HEAD, or one commit with its parent. */
+export type GitDiffTarget = "changes" | "staged" | { commit: string };
+
+export type FilePreview =
+  | { kind: "text"; text: string }
+  | { kind: "image"; url: string }
+  | { kind: "binary" }
+  | { kind: "large"; size: number };
+
+/** Everything takes the workspace's `cwd`: the host may serve several. Paths in and out are absolute. */
+export interface WorkspaceApi {
+  list(cwd: string, dir: string): Promise<FileEntry[]>;
+  read(cwd: string, path: string): Promise<FilePreview>;
+  gitStatus(cwd: string): Promise<GitStatus>;
+  /** Unified diff of one file; undefined when none can be shown (binary, deleted, ignored). */
+  gitDiff(cwd: string, path: string, target: GitDiffTarget): Promise<string | undefined>;
+  /** Everything below rejects with a readable message when Git refuses (a rejected push, a checkout that would lose changes). `"all"` is every changed file. */
+  gitStage(cwd: string, paths: string[] | "all"): Promise<void>;
+  gitUnstage(cwd: string, paths: string[] | "all"): Promise<void>;
+  /** Throws the working-tree changes of these files away (an untracked file is deleted). */
+  gitDiscard(cwd: string, paths: string[]): Promise<void>;
+  /** Commits what is staged. */
+  gitCommit(cwd: string, message: string): Promise<void>;
+  /** Asks the remote what is new; changes `behind` and the incoming commits only. */
+  gitFetch(cwd: string): Promise<void>;
+  /** Brings the upstream's commits in (fast-forward or merge). */
+  gitPull(cwd: string): Promise<void>;
+  /** Sends local commits; a branch without an upstream is published as `origin/<name>` and starts following it. */
+  gitPush(cwd: string): Promise<void>;
+  /** Local branches first, then the remote ones; a remote branch already followed by a local one is left out. */
+  gitBranches(cwd: string): Promise<GitBranch[]>;
+  /** Switches branch. `create` makes it from HEAD; a remote name creates the local branch that follows it. */
+  gitCheckout(cwd: string, branch: string, create?: boolean): Promise<void>;
+  /** Newest first: the current branch's commits together with the upstream's, so teammates' unpulled work shows too. */
+  gitLog(cwd: string, limit: number): Promise<GitCommit[]>;
+  /** The files one commit changed. */
+  gitCommitFiles(cwd: string, hash: string): Promise<GitFile[]>;
+  /** Calls `listener` whenever something under `cwd` changes on disk or in Git (a local host watches the files); returns the way to stop. Bursts may arrive as many calls. */
+  watch(cwd: string, listener: () => void): () => void;
 }
 
 /** Every frame sent (`out`) and received (`in`), newest last; kept apart from the state so streaming does not re-render the UI twice. */

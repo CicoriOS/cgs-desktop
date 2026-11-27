@@ -1,0 +1,33 @@
+/* Desktop shell only: nothing here applies in a browser (no `data-glass`). */
+
+/* The window has no frame: the top bar and the brand row are what you drag, everything clickable in them is not. */
+html[data-shell="desktop"] :is(#topbar, .brand, .set-top) { -webkit-app-region: drag; }
+html[data-shell="desktop"] :is(#topbar, .brand, .set-top) :is(button, input, #title) { -webkit-app-region: no-drag; }
+html[data-shell="desktop"] .set-back { -webkit-app-region: no-drag; }
+html[data-shell="desktop"] #topbar { padding-right: 0; }
+
+.win-controls { display: flex; align-self: stretch; margin-left: 6px; }
+.win-controls button { width: 46px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); -webkit-app-region: no-drag; }
+.win-controls button:hover { background: var(--hover); color: var(--text); }
+.win-controls .close:hover { background: #e5384a; color: #fff; }
+.win-controls .i { width: 15px; height: 15px; }
+
+/* The window is translucent (macOS vibrancy, Windows acrylic): the sidebar lets the blur show, the content stays opaque. */
+html[data-glass] body { background: transparent; }
+html[data-glass] #stage { background: var(--bg); }
+html[data-glass] #sidebar {
+  --hover: rgba(0, 0, 0, .06); --active: rgba(0, 0, 0, .1); --line: rgba(0, 0, 0, .08);
+  background: color-mix(in srgb, var(--side) 40%, transparent);
+  border-right-color: transparent;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-glass] #sidebar { --hover: rgba(255, 255, 255, .07); --active: rgba(255, 255, 255, .12); --line: rgba(255, 255, 255, .09); }
+}
+
+/* A file or folder dragged over the sidebar: dropping it there opens a workspace. */
+@media (min-width: 761px) { #sidebar { position: relative; } } /* the drawer layout already positions it */
+#sidebar .drop-hint { display: none; }
+html[data-drop-target="workspace"] #sidebar .drop-hint {
+  display: grid; place-items: center; position: absolute; inset: 6px; z-index: 5; padding: 16px; text-align: center; pointer-events: none;
+  border: 2px dashed var(--accent); border-radius: 12px; background: color-mix(in srgb, var(--accent) 12%, var(--side)); color: var(--accent); font-size: 13px;
+}

@@ -1,34 +1,66 @@
-/* Todo and subagent cards above the message box, and the subagent windows (ADR 0037). */
-#dock { flex: none; padding: 0 24px; }
+/* The checklist is shared by the dock and the todo tool result. */
+#dock, .todo-list { --todo-accent: #006e6b; --todo-mark-ink: #fff; }
+@media (prefers-color-scheme: dark) {
+  #dock, .todo-list { --todo-accent: #75d4ce; --todo-mark-ink: #152c2b; }
+}
+.todo-list { padding: 8px; border-radius: 9px; background: color-mix(in srgb, var(--todo-accent) 9%, var(--surface)); }
+.todo-phase + .todo-phase { margin-block-start: 12px; }
+.todo-phase-name { padding: 2px 4px 6px; color: var(--todo-accent); font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.todo-phase ul { display: grid; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.todo-item { position: relative; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: start; gap: 10px; min-height: 44px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 14px; line-height: 1.4; }
+.todo-mark { display: grid; place-items: center; width: 20px; height: 20px; border: 1px solid var(--muted); border-radius: 50%; color: var(--muted); }
+.todo-mark .i { width: 13px; height: 13px; stroke-width: 2.4; }
+.todo-text { overflow-wrap: anywhere; }
+.todo-phase .todo-steps { grid-column: 2 / -1; margin-inline-start: 8px; padding-inline-start: 12px; border-inline-start: 1px solid var(--line); }
+.todo-steps li { display: flex; align-items: start; gap: 8px; padding: 3px 0; font-size: 13px; overflow-wrap: anywhere; }
+.todo-steps li[data-done="true"] > span:last-child { color: var(--muted); text-decoration: line-through; }
+.todo-step-mark { display: grid; place-items: center; flex: none; width: 15px; height: 15px; margin-block-start: 2px; border: 1px solid currentColor; border-radius: 50%; color: var(--todo-accent); }
+.todo-step-mark .i { width: 10px; height: 10px; }
+.todo-state { color: var(--muted); font-size: 11.5px; line-height: 20px; white-space: nowrap; }
+.todo-item[data-state="in_progress"] { border-color: color-mix(in srgb, var(--todo-accent) 42%, var(--line)); }
+.todo-item[data-state="in_progress"] :is(.todo-mark, .todo-state) { border-color: var(--todo-accent); color: var(--todo-accent); }
+.todo-item[data-state="in_progress"] .todo-mark::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.todo-item[data-state="completed"] .todo-mark { border-color: var(--todo-accent); background: var(--todo-accent); color: var(--todo-mark-ink); }
+.todo-item[data-state="completed"] .todo-text { color: var(--muted); text-decoration: line-through; }
+.todo-item[data-state="abandoned"] .todo-text { color: var(--muted); }
+/* The circle already distinguishes these two states visually. Keep the words in the accessibility tree. */
+.todo-item:is([data-state="pending"], [data-state="completed"]) .todo-state { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+/* Cards above the message box and their bounded, independently scrollable lists (ADR 0037). */
+#dock { flex: 0 1 auto; min-height: 0; max-height: 56dvh; overflow-y: auto; padding: 0 24px 8px; }
 #dock:empty { display: none; }
-#dock > * { max-width: var(--composer-w); margin: 0 auto 6px; }
-.dock-card { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); font-size: 13px; }
-.dock-card > summary, .dock-head { display: flex; align-items: center; gap: 8px; padding: 6px 12px; min-height: 32px; cursor: pointer; list-style: none; }
-.dock-head { cursor: default; }
-.dock-card > summary::-webkit-details-marker { display: none; }
-.dock-card > summary::after { content: "›"; margin-inline-start: auto; color: var(--muted); transition: transform .15s; }
-.dock-card[open] > summary::after { transform: rotate(90deg); }
-.dock-title { font-weight: 600; }
-.dock-count { color: var(--muted); font-variant-numeric: tabular-nums; }
-.dock-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
-.dock-body { max-height: 30vh; overflow-y: auto; padding: 0 12px 8px; }
-.sub-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 12px; text-align: start; border-top: 1px solid var(--line); }
+#dock > * { max-width: var(--composer-w); margin: 0 auto; }
+#dock > * + * { margin-top: 8px; }
+.dock-card { border: 1px solid var(--line); border-radius: 13px; background: var(--surface); font-size: 13.5px; }
+.dock-card > summary, .dock-head { display: flex; align-items: center; gap: 8px; padding: 6px 12px; min-height: 42px; }
+.dock-card summary { cursor: pointer; list-style: none; border-radius: 11px; }
+.dock-card summary::-webkit-details-marker { display: none; }
+.dock-card summary:hover { background: var(--hover); }
+.dock-card :is(summary, .sub-row):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.dock-card.todo > summary:focus-visible { outline-color: var(--todo-accent); }
+.dock-icon { color: var(--text); }
+.todo .dock-icon { color: var(--todo-accent); }
+.dock-chevron { width: 15px; height: 15px; margin-inline-start: auto; color: var(--muted); }
+.dock-card details[open] > summary .dock-chevron, .dock-card[open] > summary .dock-chevron { transform: rotate(90deg); }
+.dock-title { flex: none; font-weight: 600; }
+.dock-count { flex: none; padding: 1px 7px; border-radius: 999px; background: var(--surface2); color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.todo .dock-count { background: color-mix(in srgb, var(--todo-accent) 9%, var(--surface)); color: var(--todo-accent); }
+.dock-sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.dock-body { max-height: min(30dvh, 260px); overflow-y: auto; padding: 0 8px 8px; }
+.dock-card:only-child .dock-body { max-height: min(38dvh, 320px); }
+/* When both lists are visible, leave room for both headings inside the dock's 56dvh cap. */
+#dock:has(.todo[open]) > .dock-card:not(:only-child) .dock-body { max-height: clamp(68px, calc(28dvh - 50px), 220px); }
+.sub-list { display: grid; gap: 5px; }
+.sub-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; min-height: 50px; padding: 7px 11px; text-align: start; border: 1px solid var(--line); border-radius: 8px; background: var(--surface2); }
 .sub-row:hover { background: var(--hover); }
-.sub-row:last-child { border-radius: 0 0 14px 14px; }
-.sub-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub-label { display: grid; gap: 1px; min-width: 0; line-height: 1.3; }
+.sub-name { overflow-wrap: anywhere; font-weight: 500; }
 .sub-agent { color: var(--muted); white-space: nowrap; }
-.sub-state { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; }
+.sub-label .sub-agent { overflow: hidden; text-overflow: ellipsis; }
+.sub-state { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 6px; background: var(--surface); color: var(--muted); white-space: nowrap; }
 .sub-row[data-status="failed"] .sub-state { color: var(--danger); }
-.sub-finished > summary { display: flex; align-items: center; padding: 5px 12px; color: var(--muted); cursor: pointer; border-top: 1px solid var(--line); list-style: none; }
-.sub-finished > summary::-webkit-details-marker { display: none; }
-.sub-finished > summary::after { content: "›"; margin-inline-start: auto; transition: transform .15s; }
-.sub-finished[open] > summary::after { transform: rotate(90deg); }
-.lvl { display: inline-flex; align-items: center; gap: 5px; min-width: 14px; }
-.lvl i { width: 10px; height: 10px; border-radius: 50%; background: transparent; border: 1.5px dashed var(--faint); flex: none; }
-.lvl[data-known="1"] i { border: 0; }
-.lvl[data-hot="1"] i { animation: lvl-hot 1.1s ease-in-out infinite; }
-.lvl small { color: var(--muted); font-size: 12px; white-space: nowrap; }
-@keyframes lvl-hot { 50% { opacity: .45; } }
+.sub-finished > summary { display: flex; align-items: center; min-height: 34px; padding: 4px 10px; color: var(--muted); }
+.sub-finished[open] > summary { margin-block-end: 4px; }
 
 .sub-win { position: fixed; width: 560px; height: 520px; min-width: 320px; min-height: 240px; max-width: 96vw; max-height: 92vh; display: flex; flex-direction: column; resize: both; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 40px rgba(0, 0, 0, .22); }
 .sub-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 12px; border-bottom: 1px solid var(--line); cursor: grab; user-select: none; touch-action: none; }
@@ -41,8 +73,10 @@
 .sub-prompt > summary { padding: 6px 10px; cursor: pointer; color: var(--muted); font-size: 13px; }
 .sub-prompt-text { padding: 0 10px 10px; max-height: 40vh; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; }
 .sub-body > .sub-prompt-text { padding: 0; margin-bottom: 8px; }
+@media (max-width: 760px) {
+  #dock { padding-inline: 12px; }
+}
 @media (max-width: 720px) {
-  #dock { padding: 0 12px; }
   .sub-win { left: 0 !important; top: 0 !important; width: 100vw; height: 100dvh; max-width: none; max-height: none; border-radius: 0; resize: none; }
   .sub-head { cursor: default; }
 }

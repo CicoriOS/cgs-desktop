@@ -9,6 +9,8 @@ export default defineConfig(({ mode }) => ({
   resolve: { alias: { "@cgs/wire": path.resolve(__dirname, "../cgscli/packages/connect/src/remote/wire/index.ts") } },
   base: mode === "connect" ? "/connect/" : "/",
   root: ".",
+  // `vendor/` holds sources of the old ompweb; scanning it for imports only produces errors.
+  optimizeDeps: { entries: ["index.html", "index-connect.html"] },
   build: mode === "connect" ? { outDir: "dist-connect", emptyOutDir: true, rollupOptions: { input: "index-connect.html" } } : undefined,
   server: { proxy: { "/api": "http://127.0.0.1:18787", "/ws": { target: "ws://127.0.0.1:18787", ws: true }, "/relay": { target: "ws://127.0.0.1:18787", ws: true } } },
   test: { environment: "node", include: ["test/**/*.test.ts", "src/**/*.test.ts"] },

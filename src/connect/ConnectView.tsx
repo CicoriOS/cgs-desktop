@@ -61,7 +61,7 @@ export function ConnectView({ device }: { device: string }) {
             </div>
           )}
           <div className="connect-app">
-            <App />
+            <App profileUrl="/profile" />
           </div>
         </div>
       </ClientProvider>

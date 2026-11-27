@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { ToolCall } from "../src/core/types";
 import { TOOL_CARD_KINDS, toolCardKind } from "../src/ui/transcript/tools/cardKinds";
-import { evalCells, evalImages, todoPhases } from "../src/ui/transcript/tools/details";
+import { evalCells, resultImages, todoPhases } from "../src/ui/transcript/tools/details";
 
 // Snapshot of BUILTIN_TOOL_NAMES + HIDDEN_TOOL_NAMES in omp tools/builtin-names.ts.
 const registered = `read bash edit ast_grep ast_edit ask debug eval github glob grep find lsp checkpoint rewind context_notes new_context security_scan task wait todo web_search write memory_edit retain recall reflect learn manage_skill yield goal think`.split(" ");
@@ -34,8 +34,10 @@ test("eval prefers recorded cells but previews pending and legacy arguments", ()
   ]);
 });
 
-test("eval accepts only inline raster image blocks", () => {
-  expect(evalImages({ ...pending, result: { isError: false, content: [
+test("result images: only inline raster blocks, the model-bound (compressed) content before details.images", () => {
+  expect(resultImages({ ...pending, result: { isError: false, details: { images: [{ type: "image", mimeType: "image/png", data: "Yg==" }] }, content: [{ type: "text", text: "x" }] } })).toEqual(["data:image/png;base64,Yg=="]);
+  expect(resultImages({ ...pending, result: { isError: false, details: { images: [{ type: "image", mimeType: "image/png", data: "Yg==" }] }, content: [{ type: "image", mimeType: "image/jpeg", data: "YQ==" }] } })).toEqual(["data:image/jpeg;base64,YQ=="]);
+  expect(resultImages({ ...pending, result: { isError: false, content: [
     { type: "image", mimeType: "image/png", data: "YQ==" },
     { type: "image", mimeType: "image/svg+xml", data: "YQ==" },
     { type: "image", mimeType: "image/png", data: "https://example.com" },

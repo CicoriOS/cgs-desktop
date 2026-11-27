@@ -90,6 +90,7 @@ export class RelayMux {
     addWorkspace: async (cwd) => void (await this.#request("/api/workspace", { cwd }, true)),
     children: async () => (await this.#request<{ children: ChildStatus[] }>("/api/children")).children,
     openChild: (cwd, sessionPath) => this.#request("/api/children", { cwd, sessionPath }, true),
+    account: () => this.#request("/api/account"),
   };
 
   /** One child's RpcTransport. Calling it again for the same child closes the earlier transport first. */

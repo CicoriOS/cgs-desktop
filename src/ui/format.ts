@@ -37,4 +37,10 @@ export function formatCost(c: number): string {
   return c < 1 ? c.toFixed(4) : c.toFixed(2);
 }
 
+/** 900 B, 12.3 kB, 4.5 MB. */
+export function formatBytes(n: number): string {
+  if (n < 1000) return `${n} B`;
+  return n < 1e6 ? `${(n / 1000).toFixed(1)} kB` : `${(n / 1e6).toFixed(1)} MB`;
+}
+
 export const formatPercent = (r: number): string => `${(r * 100).toFixed(r < 0.1 ? 1 : 0)}%`;

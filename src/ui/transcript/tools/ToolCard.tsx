@@ -11,7 +11,7 @@ import { useT } from "../../../i18n";
 import { Pre, resultText, TextBody } from "./BodyText";
 import { AstBody, EvalBody, TaskBody, TodoBody, WebBody } from "./ExtraBodies";
 import { list, rec, str } from "./details";
-import { JobsBody, McpBody, mcpLabel, MediaBody, OperationBody } from "./OperationBodies";
+import { JobsBody, McpBody, mcpLabel, OperationBody, ResultImages } from "./OperationBodies";
 import { type CardKind, toolCardKind } from "./cardKinds";
 
 /** One-line description of what a call does, for the card header. */
@@ -57,13 +57,13 @@ function ReadBody({ call }: { call: ToolCall }) {
   return <DiffView lines={lines} lang={langOf(str(call.args.path) ?? str(call.args.file_path))} />;
 }
 
-interface FileDiff {
+export interface FileDiff {
   path: string;
   lines: DiffLine[];
   note?: string;
 }
 
-function editFiles(call: ToolCall): FileDiff[] {
+export function editFiles(call: ToolCall): FileDiff[] {
   const d = rec(call.result?.details);
   const per = list(d.perFileResults).map(rec);
   if (per.length) {
@@ -128,7 +128,7 @@ function GenericBody({ call }: { call: ToolCall }) {
 const BODY: Record<CardKind, (p: { call: ToolCall }) => JSX.Element> = {
   bash: BashBody, read: ReadBody, edit: EditBody, write: WriteBody, text: TextBody,
   eval: EvalBody, task: TaskBody, todo: TodoBody, web: WebBody, ast: AstBody,
-  jobs: JobsBody, operation: OperationBody, media: MediaBody, mcp: McpBody,
+  jobs: JobsBody, operation: OperationBody, media: OperationBody, mcp: McpBody,
   ask: TextBody, // AskCard is routed separately by the transcript.
   generic: GenericBody,
 };
@@ -185,6 +185,7 @@ export function ToolCard({ call }: { call: ToolCall }) {
       {open && (
         <div className="tb">
           <Body call={call} />
+          <ResultImages call={call} />
         </div>
       )}
     </details>

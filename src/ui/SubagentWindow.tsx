@@ -6,7 +6,7 @@ import type { RingState, SubagentStatus, ToolCall } from "../core/types";
 import { useT } from "../i18n";
 import { useActions, useClientState } from "./client-context";
 import { CloseIcon } from "./icons";
-import { LevelDot, Ring } from "./ring";
+import { Ring } from "./ring";
 import { RunScopeProvider } from "./transcript/scope";
 import { Pre } from "./transcript/tools/BodyText";
 import { TurnView } from "./transcript/TurnView";
@@ -132,7 +132,6 @@ export function SubagentWindow({ id, slot, z, onClose, onFocus }: { id: string; 
   return (
     <div className="sub-win" role="dialog" aria-label={title} style={{ left: pos.x, top: pos.y, zIndex: z }} onPointerDown={onFocus}>
       <div className="sub-head" title={t("sub.drag")} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
-        <LevelDot level={info.level} />
         <b className="sub-title">{title}</b>
         <small className="sub-agent">{[info.agent !== title && info.agent, info.model].filter(Boolean).join(" · ")}</small>
         <Ring small state={RING[info.status]} level={info.level ?? "auto"} />

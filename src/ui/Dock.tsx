@@ -1,11 +1,12 @@
-import { summarizeTodos } from "../core/todos";
+import { Bot, ChevronRight, ListTodo } from "lucide-react";
 import { isFinished } from "../core/subagents";
+import { summarizeTodos } from "../core/todos";
 import type { RingState, SubagentInfo, SubagentStatus } from "../core/types";
 import { useT } from "../i18n";
 import { useClientState } from "./client-context";
-import { LevelDot, Ring } from "./ring";
+import { Ring } from "./ring";
+import { TodoList } from "./TodoList";
 
-const MARK = { pending: "☐", in_progress: "◐", completed: "☑", abandoned: "⊘" } as const;
 const SUB_RING: Record<SubagentStatus, RingState> = { pending: "idle", running: "work", completed: "ok", failed: "fail", aborted: "stop" };
 const SUB_STATUS = { pending: "tool.pending", running: "tool.running", completed: "tool.completed", failed: "tool.err", aborted: "tool.cancelled" } as const;
 
@@ -17,23 +18,14 @@ function TodoCard() {
   return (
     <details className="dock-card todo">
       <summary>
+        <ListTodo className="i dock-icon" aria-hidden="true" />
         <span className="dock-title">{t("dock.todo")}</span>
         <span className="dock-count">{t("dock.todoCount", { done, total })}</span>
-        {current && <span className="dock-sum">{current}</span>}
+        {current && <span className="dock-sum">{current.split("\n", 1)[0]}</span>}
+        <ChevronRight className="i dock-chevron" aria-hidden="true" />
       </summary>
       <div className="dock-body">
-        {phases.map((phase, i) => (
-          <div key={i}>
-            {phase.name && <div className="lab">{phase.name}</div>}
-            <ul className="tool-checklist">
-              {phase.tasks.map((item, j) => (
-                <li key={j} data-state={item.status}>
-                  <span aria-hidden="true">{MARK[item.status]}</span> <span>{item.content}</span> <small>{t(`tool.${item.status}`)}</small>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+        <TodoList phases={phases} />
       </div>
     </details>
   );
@@ -41,12 +33,13 @@ function TodoCard() {
 
 function SubagentRow({ info, onOpen }: { info: SubagentInfo; onOpen: (id: string) => void }) {
   const t = useT();
-  const name = info.description ?? info.id;
+  const name = info.description || info.id;
   return (
     <button type="button" className="sub-row" data-status={info.status} title={t("dock.open", { name })} aria-label={t("dock.open", { name })} onClick={() => onOpen(info.id)}>
-      <LevelDot level={info.level} />
-      <span className="sub-name">{name}</span>
-      {name !== info.agent && <small className="sub-agent">{info.agent}</small>}
+      <span className="sub-label">
+        <span className="sub-name">{name}</span>
+        {name !== info.agent && <small className="sub-agent">{info.agent}</small>}
+      </span>
       <span className="sub-state">
         <Ring small state={SUB_RING[info.status]} level={info.level ?? "auto"} />
         <small>{t(SUB_STATUS[info.status])}</small>
@@ -64,20 +57,25 @@ function SubagentCard({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <div className="dock-card subs">
       <div className="dock-head">
+        <Bot className="i dock-icon" aria-hidden="true" />
         <span className="dock-title">{t("dock.subagents")}</span>
         {live.length > 0 && <span className="dock-count">{t("dock.running", { n: live.length })}</span>}
       </div>
-      {live.map((s) => (
-        <SubagentRow key={s.id} info={s} onOpen={onOpen} />
-      ))}
-      {finished.length > 0 && (
-        <details className="sub-finished" open={live.length === 0}>
-          <summary>{t("dock.finished", { n: finished.length })}</summary>
-          {finished.map((s) => (
-            <SubagentRow key={s.id} info={s} onOpen={onOpen} />
-          ))}
-        </details>
-      )}
+      <div className="dock-body sub-list">
+        {live.map((s) => (
+          <SubagentRow key={s.id} info={s} onOpen={onOpen} />
+        ))}
+        {finished.length > 0 && (
+          <details className="sub-finished" open={live.length === 0}>
+            <summary>{t("dock.finished", { n: finished.length })}<ChevronRight className="i dock-chevron" aria-hidden="true" /></summary>
+            <div className="sub-list">
+              {finished.map((s) => (
+                <SubagentRow key={s.id} info={s} onOpen={onOpen} />
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
     </div>
   );
 }

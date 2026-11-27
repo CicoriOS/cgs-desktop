@@ -1,10 +1,14 @@
+@import "@fontsource-variable/noto-sans-sc";
+
 :root {
   --bg: #fff; --side: #f9f9f9; --hover: #ececec; --active: #e8e8e8; --line: #e5e5e5; --text: #0d0d0d; --muted: #6b6b6b; --faint: #9a9a9a;
-  --bubble: #f0f0f0; --accent: #2f6fdb; --danger: #d8453b; --ok: #2fb260;
-  --surface: #fff; --surface2: #fafafa; --code: #f3f3f3; --btn: #0d0d0d; --on-btn: #fff; --btn-hover: #2a2a2a; --toast: #2a2a2a;
+  --bubble: #f0f0f0; --accent: oklch(0.5709 0.1808 306.89); --danger: #d8453b; --ok: #2fb260; --warning: #daa20d;
+  --surface: #fff; --surface2: #fafafa; --code: #f3f3f3; --on-btn: #fff; --toast: #2a2a2a;
+  --btn: var(--accent); --btn-hover: color-mix(in srgb, var(--btn) 86%, var(--on-btn));
   --line2: #cfcfcf; --ink2: #444; --add-bg: #e9f7ee; --add-fg: #1f8a4c; --del-bg: #fdecea; --err-line: #f0c5c1;
   color-scheme: light;
-  --font: -apple-system, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font: "Source Han Sans SC", "Noto Sans SC Variable", "Noto Sans CJK SC", system-ui, sans-serif;
+  accent-color: var(--accent);
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   /* Conversation and message box are 25% wider than the first prototype (780 / 760): ADR 0032. */
   --chat-w: 975px;
@@ -15,8 +19,8 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #1b1b1d; --side: #151516; --hover: #2a2a2d; --active: #303034; --line: #333337; --text: #ececec; --muted: #a0a0a6; --faint: #77777d;
-    --bubble: #2a2a2e; --accent: #6ea0ff; --danger: #ff6b61; --ok: #4ccc7d;
-    --surface: #232326; --surface2: #1f1f22; --code: #2a2a2e; --btn: #ececec; --on-btn: #111; --btn-hover: #ffffff; --toast: #3a3a3e;
+    --bubble: #2a2a2e; --accent: oklch(0.6359 0.1699 307.95); --danger: #ff6b61; --ok: #4ccc7d; --warning: #efba30;
+    --surface: #232326; --surface2: #1f1f22; --code: #2a2a2e; --on-btn: #141019; --toast: #3a3a3e;
     --line2: #4a4a50; --ink2: #c8c8cc; --add-bg: #17301f; --add-fg: #5bd88a; --del-bg: #3a1d1b; --err-line: #6b2f2b;
     color-scheme: dark;
   }
@@ -28,13 +32,16 @@ html, body, #root { height: 100%; margin: 0; }
 body { font: 14.5px/1.55 var(--font); color: var(--text); background: var(--bg); overflow: hidden; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
 button:disabled { cursor: default; }
-input, textarea { font: inherit; color: inherit; }
+input, textarea, select { font: inherit; color: inherit; }
+/* iOS Safari zooms the page when a field under 16px takes focus, and the layout stays broken after it. */
+@supports (-webkit-touch-callout: none) { input, textarea, select { font-size: 16px !important; } }
 .grow { flex: 1; }
 .muted { color: var(--muted); font-size: 12.5px; }
 .pad { padding: 8px 10px; }
 .i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
 #app { display: flex; height: 100%; }
+.app-workspace { display: contents; }
 
 /* ---- sidebar ---- */
 #sidebar { width: 280px; flex: none; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; transition: margin-left .2s; }
@@ -61,6 +68,32 @@ input, textarea { font: inherit; color: inherit; }
 .sess .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .sess .age { color: var(--faint); font-size: 12px; white-space: nowrap; }
 .sess .unseen { width: 7px; height: 7px; flex: none; background: var(--accent); border-radius: 50%; }
+/* Bottom of the sidebar: the balance and plan, then the signed-in user with settings on the right. */
+#usage { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 9px 14px 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.35; }
+.usage-head, .usage-line, .usage-meta { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.side-provider-preview { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 4px 8px; flex-wrap: wrap; padding: 5px 10px; font-size: 12px; }
+.side-provider-preview small { color: var(--muted); }
+.usage-line, .usage-meta { justify-content: space-between; }
+.usage-badge { flex: none; padding: 0 6px; border: 1px solid var(--line); border-radius: 5px; color: var(--text); font: 700 10px/1.7 ui-monospace, monospace; }
+.usage-plan { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 600; }
+.usage-stale { flex: none; width: 6px; height: 6px; border-radius: 50%; background: #e0a21e; }
+.usage-balance { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.usage-value { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
+.usage-pct { flex: none; }
+.usage-bar { height: 3px; border-radius: 2px; overflow: hidden; background: var(--active); }
+.usage-bar > i { display: block; height: 100%; border-radius: 2px; background: var(--ok); }
+.usage-bar[data-tone="warn"] > i { background: var(--warning); }
+.usage-bar[data-tone="high"] > i { background: var(--danger); }
+.usage-meta { color: var(--faint); font-size: 11px; }
+.usage-meta > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.usage-meta > span:last-child { flex: none; }
+#side-user { flex: none; display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 8px 0 14px; border-top: 1px solid var(--line); font-size: 13.5px; }
+#usage + #side-user { border-top: 0; padding-top: 0; }
+#side-user .avatar { flex: none; width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; color: #fff; font-size: 13px; font-weight: 600; object-fit: cover; }
+#side-user .user-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#side-user .gear { flex: none; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); }
+#side-user .gear:hover { background: var(--hover); color: var(--text); }
+#side-user .gear .i { width: 17px; height: 17px; }
 #device { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 #device span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #device .dev-status { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; flex: none; font-size: 12px; }
@@ -90,8 +123,8 @@ input, textarea { font: inherit; color: inherit; }
 #app.empty #main { justify-content: center; }
 #app.empty #transcript { display: none; }
 #app.empty #topbar { position: absolute; top: 0; left: 0; right: 0; }
-#right { width: 340px; flex: none; border-left: 1px solid var(--line); background: var(--side); }
-.placeholder { padding: 24px; color: var(--faint); font-size: 13px; text-align: center; }
+#stage { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+#body { flex: 1; min-height: 0; display: flex; }
 
 /* ---- composer ---- */
 #composer-wrap { flex: none; position: relative; padding: 0 24px 18px; }
@@ -107,7 +140,7 @@ input, textarea { font: inherit; color: inherit; }
 #composer .icon { align-self: flex-end; margin-bottom: 1px; }
 #send { width: 34px; height: 34px; margin-bottom: 1px; border-radius: 50%; background: var(--btn); color: var(--on-btn); display: inline-flex; align-items: center; justify-content: center; align-self: flex-end; }
 #send:disabled { background: var(--line2); }
-#send[data-mode="deliver"] { background: var(--accent); }
+#send:hover:not(:disabled) { background: var(--btn-hover); }
 
 /* ---- status ring (ADR 0030) ---- */
 .ring { --c: #b8b8b8; --dur: 2.4s; display: inline-block; width: 20px; height: 20px; border-radius: 50%; border: 2.5px solid var(--c); background: transparent; box-shadow: 0 0 0 1px rgba(0, 0, 0, .08); vertical-align: middle; flex: none; transition: border-color .7s ease, background-color .7s ease, box-shadow .7s ease; }
@@ -227,7 +260,7 @@ input, textarea { font: inherit; color: inherit; }
 #rpc-log pre { margin: 2px 0 6px; white-space: pre-wrap; word-break: break-all; color: var(--ink2); }
 #rpc-form { padding: 6px 12px; border-top: 1px solid var(--line); }
 #rpc-form input { width: 100%; padding: 5px 9px; border: 1px solid var(--line); border-radius: 8px; font: 12px var(--mono); outline: 0; }
-#toast { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); background: var(--toast); color: #fff; padding: 8px 16px; border-radius: 10px; font-size: 13.5px; z-index: 60; max-width: 70vw; }
+#toast { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); background: var(--toast); color: #fff; padding: 8px 16px; border-radius: 10px; font-size: 13.5px; z-index: 100; max-width: 70vw; }
 
 /* ---- narrow screens: the sidebar is a drawer over the conversation, starting below the top bar so its toggle stays reachable ---- */
 .side-scrim { display: none; }
@@ -239,6 +272,9 @@ input, textarea { font: inherit; color: inherit; }
   #right { position: absolute; z-index: 35; top: var(--topbar-h); right: 0; bottom: 0; width: min(340px, 90vw); box-shadow: 0 8px 30px rgba(0, 0, 0, .18); }
   #transcript { padding: 8px 14px 20px; }
   #composer-wrap { padding: 0 12px 12px; }
+  /* Several lines of text: the buttons stay centred on the box instead of hanging at the bottom edge. */
+  #composer { align-items: center; }
+  #composer .icon, #send { align-self: center; margin-bottom: 0; }
   #btw-panel, #stats-panel { right: 10px; left: 10px; width: auto; }
   #empty-hello { font-size: 22px; }
   #title { max-width: 40vw; }

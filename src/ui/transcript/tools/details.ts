@@ -15,13 +15,19 @@ export function evalCells(call: ToolCall) {
   });
 }
 
-export function evalImages(call: ToolCall): string[] {
-  const images = list(rec(call.result?.details).images);
-  return (images.length ? images : list(call.result?.content)).flatMap(value => {
+/**
+ * Images a tool result carries, as data URLs. The result's own content blocks come first: they are what was sent to the model,
+ * so omp has already scaled and recompressed them (the same bytes the terminal shows). `details.images` is only a fallback.
+ * Only inline raster images are accepted.
+ */
+export function resultImages(call: ToolCall): string[] {
+  const inline = (values: unknown[]) => values.flatMap(value => {
     const { type, mimeType, data } = rec(value);
     return type === "image" && typeof mimeType === "string" && /^image\/(png|jpeg|gif|webp)$/.test(mimeType)
       && typeof data === "string" && /^[A-Za-z0-9+/]+=*$/.test(data) ? [`data:${mimeType};base64,${data}`] : [];
   });
+  const fromContent = inline(list(call.result?.content));
+  return fromContent.length ? fromContent : inline(list(rec(call.result?.details).images));
 }
 
 export const TODO_STATES = ["pending", "in_progress", "completed", "abandoned"] as const;

@@ -21,7 +21,7 @@ test("with no workspace the only primary action is Add workspace", async () => {
   const root = createRoot(document.getElementById("root") as unknown as HTMLElement);
   try {
     await act(async () => {
-      root.render(<ClientProvider client={client}><Sidebar onAddWorkspace={add} onNavigate={() => {}} /></ClientProvider>);
+      root.render(<ClientProvider client={client}><Sidebar onAddWorkspace={add} onNavigate={() => {}} onOpenSettings={() => {}} /></ClientProvider>);
       await tick();
     });
     const buttons = document.querySelectorAll(".side-top button");
