@@ -15,6 +15,12 @@ export function formatDuration(ms: number): string {
   return s < 60 ? t("dur.sec", { n: s }) : t("dur.min", { m: Math.floor(s / 60), s: s % 60 });
 }
 
+/** Nerd Font glyphs are private-use code points. omp heads titles made in a terminal with one; the page has no such font and would draw an empty box. */
+const PRIVATE_USE = /[\uE000-\uF8FF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/gu;
+
+/** A session title as the page shows it: without terminal-only icon glyphs. An emoji icon stays. */
+export const plainTitle = (title: string) => title.replace(PRIVATE_USE, "").trim();
+
 export const baseName = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(" ");

@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { useActions, useClientState, useReadOnly } from "./client-context";
 import { FEATURES } from "./features";
+import { plainTitle } from "./format";
 import { ChatBubbleIcon, GaugeIcon, SidebarLeftIcon, SidebarRightIcon } from "./icons";
 import { setLocale, useLocale, useT } from "../i18n";
 
 /** Click the title to rename the session: Enter saves through omp's set_session_name, Esc cancels. omp never overwrites a name set this way. */
 function Title() {
   const actions = useActions();
-  const title = useClientState((s) => s.title);
+  const title = plainTitle(useClientState((s) => s.title));
   const readOnly = useReadOnly();
   const [draft, setDraft] = useState<string>();
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useActions, useClientState, useReadOnly } from "./client-context";
-import { baseName, cx, relativeTime } from "./format";
+import { baseName, cx, plainTitle, relativeTime } from "./format";
 import { ChevronIcon, EditIcon, FolderIcon, FolderPlusIcon, DeviceIcon } from "./icons";
 import { Ring } from "./ring";
 import { useT } from "../i18n";
@@ -98,8 +98,8 @@ export function Sidebar({ onAddWorkspace, onNavigate }: { onAddWorkspace: () => 
                       const ring = active ? (run.streaming ? (run.state === "think" ? "think" : "work") : "idle") : child?.ring ?? "idle";
                       const unseen = !active && child?.unseen;
                       return (
-                        <button type="button" key={s.path} className={cx("sess", active && "active")} title={s.title} aria-current={active ? "true" : undefined} onClick={() => (onNavigate(), void actions.openSession(s.path, w.cwd))}>
-                          <span className="t">{active && title ? title : s.title}</span>
+                        <button type="button" key={s.path} className={cx("sess", active && "active")} title={plainTitle(s.title)} aria-current={active ? "true" : undefined} onClick={() => (onNavigate(), void actions.openSession(s.path, w.cwd))}>
+                          <span className="t">{plainTitle(active && title ? title : s.title)}</span>
                           <Ring small state={ring} level={active ? level : child?.level ?? "high"} />
                           {unseen && <span className="unseen" role="img" title={t("side.unseen")} aria-label={t("side.unseen")} />}
                           {ring === "idle" && !unseen && <span className="age">{relativeTime(s.updatedAt, now)}</span>}
