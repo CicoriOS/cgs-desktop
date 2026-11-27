@@ -144,8 +144,12 @@ for check in $CHECKS; do
   [ "$(curl $R -o /dev/null -w '%{http_code}' "$base$asset")" = 200 ] || fail "$base$asset is not served"
   [ "$(curl $R -o /dev/null -w '%{http_code}' "$base/connect/?device=1")" = 200 ] || fail "$base/connect/?device=1 is not served"
   # The link the console really uses has no slash; following it must land on the page with the device kept, and the
-  # Location must name no host or port of its own.
-  loc=$(curl $R -o /dev/null -D - "$base/connect?device=7" | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
+  # Location must name no host or port of its own. The old workers answer until the reload has taken over: wait for it.
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    loc=$(curl $R -o /dev/null -D - "$base/connect?device=7" | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
+    [ "$loc" = "/connect/?device=7" ] && break
+    sleep 1
+  done
   [ "$loc" = "/connect/?device=7" ] || fail "$base/connect?device=7 redirects to '$loc', not /connect/?device=7"
   api=$(curl $R -o /dev/null -w '%{http_code}' "$base/api/status")
   [ "$api" = 200 ] || fail "$base/api/status answered $api: the upstream is no longer reached"
