@@ -257,6 +257,7 @@ export const zh = {
   "compact.desc.remote": "用服务商的压缩接口，不支持时回退为本地摘要",
   "compact.mode.handoff": "交接压缩",
   "compact.desc.handoff": "后台生成交接文档，并就地压缩",
+  "compact.fallback": "快速压缩没能完成，改用{mode}…",
 } as const;
 
 export type MessageKey = keyof typeof zh;

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { compactCommand, COMPACT_MODES, DEFAULT_COMPACT_MODE, parseCompactMode } from "../src/core/compact";
+import { compactCommand, compactFailed, compactFallback, COMPACT_MODES, DEFAULT_COMPACT_MODE, parseCompactMode } from "../src/core/compact";
 import { getCompactMode, setCompactMode } from "../src/ui/compact-mode";
 
 afterEach(() => { delete (globalThis as { localStorage?: unknown }).localStorage; });
@@ -28,4 +28,11 @@ test("the mode picked last is the default next time, and a browser without stora
   expect(getCompactMode()).toBe("soft");
   setCompactMode("handoff");
   expect(getCompactMode()).toBe("handoff");
+});
+
+test("only quick compaction has a fallback, and a failure is recognized by omp's report", () => {
+  expect(compactFallback("snapcompact")).toBe("soft");
+  expect(COMPACT_MODES.filter((m) => m !== "snapcompact").map(compactFallback)).toEqual([undefined, undefined, undefined]);
+  expect(compactFailed("Compaction failed: boom")).toBe(true);
+  expect(compactFailed("Compaction complete. Tokens: 1 -> 1 (saved 0).")).toBe(false);
 });

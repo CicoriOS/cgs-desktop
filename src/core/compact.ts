@@ -9,3 +9,12 @@ export const parseCompactMode = (v: unknown): CompactMode => (COMPACT_MODES.find
 
 /** The slash command that runs this mode. It takes no focus text: `snapcompact` refuses one. */
 export const compactCommand = (mode: CompactMode): string => `/compact ${mode}`;
+
+/**
+ * What runs when a mode cannot: quick compaction archives history onto images, so a model that does not read images (or text the archive
+ * font cannot draw) fails it; the local summary works on any model.
+ */
+export const compactFallback = (mode: CompactMode): CompactMode | undefined => (mode === "snapcompact" ? "soft" : undefined);
+
+/** omp's report of a compaction that did not happen (`slash-commands/builtin-lifecycle.ts`). */
+export const compactFailed = (output: string): boolean => /^Compaction failed\b/.test(output.trim());

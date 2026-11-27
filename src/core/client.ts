@@ -1,4 +1,4 @@
-import { compactCommand } from "./compact";
+import { type CompactMode, compactCommand, compactFailed, compactFallback } from "./compact";
 import { type EventFrame, applyFrame, initialState, newTurnId, ringFor, subagentsFromTools } from "./reducer";
 import { type HistoryCache, type SessionEntry, activeBranch, turnsFromEntries, turnsFromMessages, turnTailIds } from "./history";
 import type { RawMessage } from "./messages";
@@ -548,8 +548,16 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
       case "command_output":
         // What a slash command printed; the compaction in flight is the one this client asked for.
         if (state.compacting) {
+          const text = String(ev.text ?? "");
+          const next = compactFailed(text) ? compactFallbackMode : undefined;
+          compactFallbackMode = undefined;
+          if (next) {
+            toast(t("compact.fallback", { mode: t(`compact.mode.${next}`) }));
+            void startCompaction(next);
+            return;
+          }
           set((s) => ({ ...s, compacting: false }));
-          toast(String(ev.text ?? ""));
+          toast(text);
           void refreshState();
         }
         return;
@@ -572,6 +580,25 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
   }
 
   const unsubscribeLocale = subscribeLocale(syncTitleLanguage);
+
+  // ------------------------------------------------------------------ compaction
+  /** The mode to run when the one in flight fails (quick compaction falls back to a local summary); cleared once it is used or the run ends. */
+  let compactFallbackMode: CompactMode | undefined;
+
+  /** Sends `/compact <mode>`; the result arrives as `command_output`. A refusal frees the button. */
+  async function startCompaction(mode: CompactMode): Promise<void> {
+    const current = epoch;
+    set((s) => ({ ...s, compacting: true }));
+    try {
+      await rpc({ type: "prompt", message: compactCommand(mode) });
+    } catch (e) {
+      if (epoch === current) {
+        compactFallbackMode = undefined;
+        set((s) => ({ ...s, compacting: false }));
+        toast(errorMessage(e));
+      }
+    }
+  }
 
   // ------------------------------------------------------------------ actions
   const actions: Actions = {
@@ -646,14 +673,8 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     compact: (mode) =>
       guard(async () => {
         if (state.compacting || state.run.streaming || state.connection !== "ready") return;
-        const current = epoch;
-        set((s) => ({ ...s, compacting: true }));
-        try {
-          await rpc({ type: "prompt", message: compactCommand(mode) });
-        } catch (e) {
-          if (epoch === current) set((s) => ({ ...s, compacting: false }));
-          throw e;
-        }
+        compactFallbackMode = compactFallback(mode);
+        await startCompaction(mode);
       }),
     newSession: async (cwd) => {
       const target = cwd || state.activeCwd || state.workspaces[0]?.cwd;

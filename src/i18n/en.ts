@@ -258,4 +258,5 @@ export const en: Record<MessageKey, string> = {
   "compact.desc.remote": "Use the provider's compaction, falling back to a local summary",
   "compact.mode.handoff": "Handoff",
   "compact.desc.handoff": "Write a handoff document in the background and compact in place",
+  "compact.fallback": "Quick compaction did not work; trying: {mode}…",
 };

@@ -452,3 +452,38 @@ test("a compaction omp refuses frees the button and tells why; one asked while t
   expect(t.sent.length).toBe(before);
   expect(c.getState().compacting).toBe(false);
 });
+
+test("quick compaction that fails falls back to the local summary once; a failing fallback is reported as is", async () => {
+  const { t, c } = await connected();
+  const commands = () => t.sent.filter((f) => f.type === "prompt").map((f) => f.message);
+  void c.actions.compact("snapcompact");
+  await tick();
+  t.respond("prompt", { agentInvoked: false });
+  t.push({ type: "command_output", text: "Compaction failed: the model does not take image input" });
+  await tick();
+  expect(commands()).toEqual(["/compact snapcompact", "/compact soft"]);
+  expect(c.getState().compacting).toBe(true); // still one compaction, now by summary
+  t.respond("prompt", { agentInvoked: false });
+  t.push({ type: "command_output", text: "Compaction complete. Tokens: 9000 -> 2000 (saved 7000)." });
+  await tick();
+  expect(c.getState()).toMatchObject({ compacting: false, toast: { text: "Compaction complete. Tokens: 9000 -> 2000 (saved 7000)." } });
+
+  void c.actions.compact("snapcompact");
+  await tick();
+  t.respond("prompt", { agentInvoked: false });
+  t.push({ type: "command_output", text: "Compaction failed: no image" });
+  await tick();
+  t.respond("prompt", { agentInvoked: false });
+  t.push({ type: "command_output", text: "Compaction failed: no compaction model" });
+  await tick();
+  expect(commands().slice(2)).toEqual(["/compact snapcompact", "/compact soft"]); // no third try
+  expect(c.getState()).toMatchObject({ compacting: false, toast: { text: "Compaction failed: no compaction model" } });
+
+  void c.actions.compact("remote"); // a mode without a fallback is reported, not retried
+  await tick();
+  t.respond("prompt", { agentInvoked: false });
+  t.push({ type: "command_output", text: "Compaction failed: x" });
+  await tick();
+  expect(commands().slice(4)).toEqual(["/compact remote"]);
+  expect(c.getState().compacting).toBe(false);
+});
