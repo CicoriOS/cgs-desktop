@@ -8,7 +8,7 @@ import { DiffView } from "./DiffView";
 import { highlightHtml, langOf } from "./highlight";
 import { useT } from "../../../i18n";
 
-import { Pre, resultText, TextBody } from "./BodyText";
+import { Pre, resultText, streamText, TextBody } from "./BodyText";
 import { AstBody, EvalBody, TaskBody, TodoBody, WebBody } from "./ExtraBodies";
 import { list, rec, str } from "./details";
 import { JobsBody, McpBody, mcpLabel, OperationBody, ResultImages } from "./OperationBodies";
@@ -34,13 +34,15 @@ function CommandPre({ command }: { command: string }) {
 
 function BashBody({ call }: { call: ToolCall }) {
   const t = useT();
-  const out = resultText(call);
+  const out = call.result ? resultText(call) : streamText(call);
   const ms = rec(call.result?.details).wallTimeMs;
   return (
     <>
       <div className="lab">{t("tool.cmd")}</div>
       <CommandPre command={str(call.args.command) ?? ""} />
-      {call.result ? <Pre label={`${call.result.isError ? t("tool.err") : t("tool.out")}${typeof ms === "number" ? `  ${ms < 1000 ? t("tool.ms", { n: Math.round(ms) }) : t("tool.sec", { n: (ms / 1000).toFixed(1) })}` : ""}`}>{out || t("tool.noOutput")}</Pre> : <div className="lab">{t("tool.running")}</div>}
+      {call.result ? <Pre label={`${call.result.isError ? t("tool.err") : t("tool.out")}${typeof ms === "number" ? `  ${ms < 1000 ? t("tool.ms", { n: Math.round(ms) }) : t("tool.sec", { n: (ms / 1000).toFixed(1) })}` : ""}`}>{out || t("tool.noOutput")}</Pre>
+        : call.stream ? <Pre tail label={t("tool.out")}>{out || t("tool.noOutput")}</Pre>
+        : <div className="lab">{t("tool.running")}</div>}
     </>
   );
 }
@@ -96,7 +98,9 @@ function EditBody({ call }: { call: ToolCall }) {
           const edit = rec(item);
           return <Pre key={i} language="diff" label={[str(edit.op), str(edit.rename)].filter(Boolean).join(" → ")}>{str(edit.diff) ?? ""}</Pre>;
         })}
-        {call.result ? <Pre label={call.result.isError ? t("tool.err") : undefined}>{text || t("tool.empty")}</Pre> : <div className="lab">{t("tool.applying")}</div>}
+        {call.result ? <Pre label={call.result.isError ? t("tool.err") : undefined}>{text || t("tool.empty")}</Pre>
+          : call.stream ? <Pre tail label={t("tool.applying")}>{streamText(call)}</Pre>
+          : <div className="lab">{t("tool.applying")}</div>}
       </>}
       {call.result?.isError && files.length > 0 && text && <Pre label={t("tool.err")}>{text}</Pre>}
     </>
@@ -120,7 +124,9 @@ function GenericBody({ call }: { call: ToolCall }) {
   return (
     <>
       <Pre label={t("tool.args")}>{JSON.stringify(call.args, null, 2)}</Pre>
-      {call.result ? <Pre label={call.result.isError ? t("tool.err") : t("tool.result")}>{resultText(call) || t("tool.empty")}</Pre> : <div className="lab">{t("tool.running")}</div>}
+      {call.result ? <Pre label={call.result.isError ? t("tool.err") : t("tool.result")}>{resultText(call) || t("tool.empty")}</Pre>
+        : call.stream ? <Pre tail label={t("tool.out")}>{streamText(call) || t("tool.noOutput")}</Pre>
+        : <div className="lab">{t("tool.running")}</div>}
     </>
   );
 }
@@ -153,17 +159,31 @@ export function toolRingState(call: ToolCall, streaming: boolean): RingState {
   return streaming ? "work" : "idle";
 }
 
+/** How long the call has run; a streaming card re-renders often, the interval keeps a quiet one ticking. */
+function Elapsed({ since }: { since?: number }) {
+  const t = useT();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (since === undefined) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [since]);
+  if (since === undefined) return null;
+  return <span className="elapsed">{t("tool.elapsed", { n: Math.max(0, Math.round((now - since) / 1000)) })}</span>;
+}
+
 export function ToolCard({ call }: { call: ToolCall }) {
   const { streaming, level } = useRunScope();
   const failed = call.status === "fail";
   const [open, setOpen] = useState(false);
   const [autoOpened, setAutoOpened] = useState(false);
   useEffect(() => {
-    if (failed && !autoOpened) {
+    // A failed call and one whose output has started streaming open their card once.
+    if ((failed || (call.stream && call.status === "running")) && !autoOpened) {
       setAutoOpened(true);
-      setOpen(true); // a failed call opens its card once
+      setOpen(true);
     }
-  }, [failed, autoOpened]);
+  }, [failed, call.stream, call.status, autoOpened]);
 
   const kind = call.name === "read" && rec(call.result?.details).kind === "url" ? "web" : toolCardKind(call.name);
   const Body = BODY[kind];
@@ -176,6 +196,7 @@ export function ToolCard({ call }: { call: ToolCall }) {
         <Ring small state={toolRingState(call, streaming)} level={level} />
         <span className="name">{kind === "mcp" ? mcpLabel(call) : call.name}</span>
         <span className="sum">{summary}</span>
+        {call.status === "running" && <Elapsed since={call.startedAt} />}
         {stat && (
           <span className="stat">
             <b className="plus">+{stat.added}</b> {stat.removed > 0 && <b className="minus">−{stat.removed}</b>}

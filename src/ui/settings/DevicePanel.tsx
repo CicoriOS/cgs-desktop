@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { DeviceSettings, SettingsApi } from "../../core/settings";
 import { useT } from "../../i18n";
 import { useActions, useClientState, useReadOnly } from "../client-context";
+import { DesktopUpdateRows } from "./DesktopUpdate";
 
 export function DevicePanel({ api }: { api?: SettingsApi["device"] }) {
   const t = useT();
@@ -72,6 +73,8 @@ export function DevicePanel({ api }: { api?: SettingsApi["device"] }) {
             {info ? <button type="button" role="switch" className="sw" aria-label={t("set.row.autoUpdate")} aria-checked={info.autoUpdate} disabled={disabled}
               onClick={() => api && void run(async () => setInfo(await api.setAutoUpdate(!info.autoUpdate)))}><i /></button> : <span className="muted">—</span>}
           </div>
+          {/* The desktop's own updater (ADR 0046 §6); the web client has no `desktop.updater` and shows nothing. */}
+          <DesktopUpdateRows />
         </div>
       </section>
       <section className="set-section">

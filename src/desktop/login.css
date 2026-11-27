@@ -1,0 +1,205 @@
+/* The signed-out page (src/desktop/gate.tsx). It reuses the host screen/card/title bar of desktop-state.css and adds the
+   login-specific controls, in the app's own variables so light and dark themes come for free. */
+.login-card {
+  width: min(520px, calc(100vw - 48px));
+  padding: 30px 32px 22px;
+}
+.login-hero {
+  margin-bottom: 12px;
+}
+.login-card .host-spinner {
+  margin: 20px auto 4px;
+}
+.login-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+}
+.login-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.login-btn.primary {
+  background: var(--btn);
+  color: var(--on-btn);
+}
+.login-btn.primary:hover {
+  background: var(--btn-hover);
+}
+.login-btn.secondary {
+  border-color: var(--line2);
+  color: var(--text);
+}
+.login-btn.secondary:hover {
+  background: var(--hover);
+}
+.login-btn.ghost {
+  align-self: flex-start;
+  min-height: 32px;
+  margin-top: 16px;
+  padding: 0 4px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.login-btn.ghost:hover {
+  color: var(--text);
+}
+.login-btn.compact {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 13.5px;
+}
+.login-btn:disabled {
+  opacity: 0.5;
+}
+.login-steps {
+  display: grid;
+  gap: 10px;
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.login-steps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--faint);
+  font-size: 13.5px;
+}
+.login-steps li i {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+.login-steps li[data-state="active"] {
+  color: var(--text);
+  font-weight: 600;
+}
+.login-steps li[data-state="active"] i {
+  border-color: var(--accent);
+  border-top-color: transparent;
+  animation: host-spin 0.9s linear infinite;
+}
+.login-steps li[data-state="done"] {
+  color: var(--muted);
+}
+.login-steps li[data-state="done"] i {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.login-linkbox {
+  display: grid;
+  gap: 6px;
+  margin-top: 20px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface2);
+}
+.login-linkbox > span {
+  color: var(--faint);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.login-linkbox code {
+  color: var(--text);
+  font: 12px/1.5 var(--mono);
+  word-break: break-all;
+  user-select: text;
+}
+.login-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.login-wait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.login-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: login-pulse 1.6s ease-in-out infinite;
+}
+@keyframes login-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.login-remaining {
+  color: var(--faint);
+}
+.login-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+.login-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.login-field input,
+.login-code {
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line2);
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+.login-field input:focus,
+.login-code:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.login-code {
+  text-align: center;
+  letter-spacing: 0.5em;
+  padding-left: calc(12px + 0.5em);
+  font: 600 18px/1 var(--mono);
+}
+.login-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.login-version {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-steps li[data-state="active"] i,
+  .login-pulse {
+    animation: none;
+  }
+}

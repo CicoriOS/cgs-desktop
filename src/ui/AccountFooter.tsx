@@ -1,11 +1,57 @@
-import { Settings } from "lucide-react";
+import { LogOut, Settings } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useT } from "../i18n";
 import { badgeText, percentText, planTimeText, planTitle, usedPercent } from "./account";
 import { avatarColor, avatarLetter } from "./avatar";
-import { useClientState } from "./client-context";
+import { useActions, useClientState } from "./client-context";
+import { updateBadge, useUpdaterStatus } from "../desktop/updater";
+import { desktop } from "./desktop";
 import { FEATURES } from "./features";
 import { NATIVE_PROVIDERS, type PreviewSignIns } from "./provider-preview";
 import { UsageMeter } from "./UsageMeter";
+
+/**
+ * Sign out on this device through the sidecar's `logout` call (ADR 0046 §4): it revokes the key, deletes
+ * credentials.json and unconfigures the unit, which stops sessions running on the old credential. Two clicks, like the
+ * settings row; without a local host (the web client) there is nothing to sign out of.
+ */
+function SignOutButton() {
+  const t = useT();
+  const actions = useActions();
+  const host = desktop?.host;
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!confirming) return;
+    const timer = setTimeout(() => setConfirming(false), 4000);
+    return () => clearTimeout(timer);
+  }, [confirming]);
+  if (!host) return null;
+  const signOut = async () => {
+    if (!confirming) return setConfirming(true);
+    setBusy(true);
+    try {
+      await host.call("logout");
+    } catch (error) {
+      actions.notify(t("acct.signOutFailed", { code: error instanceof Error ? error.message : String(error) }));
+      setConfirming(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      className={confirming ? "gear signout confirming" : "gear signout"}
+      title={t(confirming ? "set.ui.confirmSignOut" : "set.row.logout")}
+      aria-label={t("set.row.logout")}
+      disabled={busy}
+      onClick={() => void signOut()}
+    >
+      {confirming ? <span className="signout-text">{t("set.ui.confirmSignOut")}</span> : <LogOut className="i" />}
+    </button>
+  );
+}
 
 export function Avatar({ name, url }: { name: string; url?: string }) {
   return url ? (
@@ -24,12 +70,15 @@ export function Avatar({ name, url }: { name: string; url?: string }) {
 export function AccountFooter({ now, onOpenSettings, previewSignIns }: { now: number; onOpenSettings: () => void; previewSignIns?: PreviewSignIns }) {
   const t = useT();
   const account = useClientState((s) => s.account);
+  const update = useUpdaterStatus();
   const sub = account?.subscriptions[0];
   const percent = sub ? usedPercent(sub) : 0;
   const when = sub ? planTimeText(sub, now) : "";
   const gear = FEATURES.settings && (
     <button type="button" className="gear" title={t("side.settings")} aria-label={t("side.settings")} onClick={onOpenSettings}>
       <Settings className="i" />
+      {/* ADR 0046 §6: the update is only announced here; installing stays a user action in the settings screen. */}
+      {updateBadge(update) ? <span className="gear-dot" aria-hidden="true" data-update-badge /> : null}
     </button>
   );
 
@@ -77,6 +126,7 @@ export function AccountFooter({ now, onOpenSettings, previewSignIns }: { now: nu
           ) : (
             <span className="user-name">{t("side.settings")}</span>
           )}
+          {account ? <SignOutButton /> : null}
           {gear}
         </div>
       )}

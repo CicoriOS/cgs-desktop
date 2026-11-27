@@ -5,9 +5,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import electron from "electron";
 import { createServer, normalizePath } from "vite";
+import { resolveSidecarCommand } from "../desktop/platform.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const lockfile = normalizePath(path.join(root, "bun.lock"));
+// `bun run desktop` opens the demo backend; `--real` (or CGS_DESKTOP_REAL=1) opens the page without `?demo`, so
+// window.cgsDesktop.host drives the real sidecar (ADR 0046 §8). CGS_BIN / CGS_SIDECAR come from the environment.
+const real = process.argv.includes("--real") || process.env.CGS_DESKTOP_REAL === "1";
+if (real) {
+  const spec = resolveSidecarCommand({ env: process.env });
+  if (spec.error) console.warn(`CGS Desktop real backend: ${spec.error}\n${spec.log ?? ""}\nSet CGS_BIN or CGS_SIDECAR to point the shell at a cgs install.`);
+  else console.log(`CGS Desktop real backend: ${spec.source === "env" ? "CGS_SIDECAR" : "cgs"} -> ${[spec.command, ...spec.args].join(" ")}`);
+}
 const server = await createServer({
   root,
   server: { host: "127.0.0.1", port: 5173 },
@@ -34,7 +43,7 @@ if (process.platform === "linux") {
   if (helper.uid !== 0 || (helper.mode & 0o4000) === 0) args.push("--no-sandbox");
 }
 
-const child = spawn(String(electron), args, { stdio: "inherit", env: { ...process.env, CGS_DEV_URL: `${base}?demo` } });
+const child = spawn(String(electron), args, { stdio: "inherit", env: { ...process.env, CGS_DEV_URL: real ? base : `${base}?demo` } });
 const stop = async (code) => {
   await server.close();
   process.exit(code ?? 0);

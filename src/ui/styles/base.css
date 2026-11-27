@@ -68,6 +68,8 @@ input, textarea, select { font: inherit; color: inherit; }
 .sess .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .sess .age { color: var(--faint); font-size: 12px; white-space: nowrap; }
 .sess .unseen { width: 7px; height: 7px; flex: none; background: var(--accent); border-radius: 50%; }
+/* Another client controls this conversation (ADR 0047); the title names it. */
+.sess .ctrl { width: 7px; height: 7px; flex: none; background: var(--danger); border-radius: 50%; }
 /* Bottom of the sidebar: the balance and plan, then the signed-in user with settings on the right. */
 #usage { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 9px 14px 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.35; }
 .usage-head, .usage-line, .usage-meta { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -94,6 +96,9 @@ input, textarea, select { font: inherit; color: inherit; }
 #side-user .gear { flex: none; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); }
 #side-user .gear:hover { background: var(--hover); color: var(--text); }
 #side-user .gear .i { width: 17px; height: 17px; }
+#side-user .signout.confirming { width: auto; padding: 0 8px; color: var(--danger); }
+#side-user .signout.confirming:hover { background: var(--del-bg); color: var(--danger); }
+#side-user .signout-text { font-size: 12.5px; font-weight: 600; white-space: nowrap; }
 #device { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 #device span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #device .dev-status { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; flex: none; font-size: 12px; }

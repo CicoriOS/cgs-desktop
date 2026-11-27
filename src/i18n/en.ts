@@ -1,4 +1,7 @@
+import { hostEn } from "./host.en";
+import { loginEn } from "./login.en";
 import { settingsEn } from "./settings.en";
+import { shellEn } from "./shell.en";
 import type { MessageKey } from "./zh";
 
 export const en: Record<MessageKey, string> = {
@@ -105,6 +108,13 @@ export const en: Record<MessageKey, string> = {
   "composer.recall": "Take back into the editor",
   "composer.queueHint": "Inserted before the model's next call  ·  press Enter again on an empty box to interrupt and send now",
 
+  "control.remote": "Being used remotely",
+  "control.taken": "{name} is using this conversation",
+  "control.takeOver": "Click to take over",
+  "control.blocked": "This conversation is controlled elsewhere, so it cannot be changed now",
+  "control.unavailable": "This connection cannot take control",
+  "control.sideBadge": "Controlled by {name}",
+
   "pop.aria": "Model and thinking effort",
   "pop.thinking": "Thinking effort",
   "pop.effort": "Effort: ",
@@ -153,6 +163,7 @@ export const en: Record<MessageKey, string> = {
   "tool.truncated": "… truncated",
   "tool.ms": "{n} ms",
   "tool.sec": "{n} s",
+  "tool.elapsed": "{n}s",
   "tool.cell": "Cell {n}",
   "tool.image": "Output image {n}",
   "tool.agent": "Agent {n}",
@@ -182,6 +193,9 @@ export const en: Record<MessageKey, string> = {
   "err.timeout": "{cmd}: no response within {n} s",
   "err.forkTarget": "Cannot find the message to fork from",
   "err.noWorkspace": "This device does not offer files and Git",
+  "err.terminalDidNotExit": "The terminal did not exit within 5 seconds; try again",
+  "session.busy.title": "A terminal is running this conversation",
+  "session.busy.message": "This conversation is running a task in a terminal. Taking it over interrupts that task and the terminal exits.",
   "toast.exited": "omp exited ({code})",
   "toast.forkCancelled": "Fork cancelled",
   "form.required": "Required",
@@ -350,5 +364,27 @@ export const en: Record<MessageKey, string> = {
   "compact.mode.handoff": "Handoff",
   "compact.desc.handoff": "Write a handoff document in the background and compact in place",
   "compact.fallback": "Quick compaction did not work; trying: {mode}…",
+
+  "run.compaction.auto": "Compacting context automatically…",
+  "run.compaction.manual": "Compacting context…",
+  "run.compaction.reason.threshold": "past the threshold",
+  "run.compaction.reason.overflow": "context overflow",
+  "run.compaction.reason.idle": "idle cleanup",
+  "run.compaction.reason.incomplete": "previous attempt incomplete",
+  "run.retry": "Retry {attempt}/{max}",
+  "run.retry.countdown": "again in {n} s",
+  "run.retry.now": "retrying now",
+  "run.fallback": "Fallen back to {model}",
+  "run.fallback.from": "was {from}",
+  "run.fallback.ok": "Fallback model recovered: {model}",
+  "run.warming": "Warming the prompt cache…",
+  "run.goal": "Goal: {goal}",
+  "run.configWarnings": "Configuration has warnings; omp's output has the details",
+  "run.dismiss": "Dismiss",
+  "run.todoReminder": "Todo reminder ({attempt}/{max}): tasks are still not updated",
+  "run.irc": "IRC message",
   ...settingsEn,
+  ...hostEn,
+  ...loginEn,
+  ...shellEn,
 };

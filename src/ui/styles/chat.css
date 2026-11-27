@@ -65,6 +65,7 @@
 .tool .name { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
 .tool .sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12.5px; flex: 1; }
 .tool .stat { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.tool .elapsed { flex: none; font-family: var(--mono); font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .tool .stat .plus { color: var(--ok); font-weight: 600; }
 .tool .stat .minus { color: var(--danger); font-weight: 600; }
 .tool.err { border-color: var(--err-line); }
@@ -182,3 +183,16 @@
 .tool-fields > div { display: grid; grid-template-columns: minmax(6em, 20%) minmax(0, 1fr); gap: 8px; padding: 4px 0; overflow-wrap: anywhere; }
 .tool-fields dt { color: var(--muted); }
 .tool-fields dd { margin: 0; white-space: pre-wrap; }
+
+/* ---- conversation control (ADR 0047) ---- */
+/* The composer of a conversation another client controls: a red frosted pane over the box; a left click takes over. */
+#composer-wrap .control-lock {
+  position: absolute; inset: 0; z-index: 3; border-radius: 20px; cursor: pointer; user-select: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 0 24px; text-align: center;
+  color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 32%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  -webkit-backdrop-filter: blur(7px) saturate(.9); backdrop-filter: blur(7px) saturate(.9);
+}
+#composer-wrap .control-lock:hover, #composer-wrap .control-lock:focus-visible { background: color-mix(in srgb, var(--danger) 18%, transparent); outline: none; }
+.control-lock-title { font-weight: 600; font-size: 14px; }
+.control-lock-hint { color: color-mix(in srgb, var(--danger) 78%, var(--text)); font-size: 12.5px; }

@@ -17,6 +17,16 @@ export interface ToolResult {
   details?: unknown;
 }
 
+/** What a running tool streamed before its result exists (`tool_execution_update`, `tool_stream_update`). */
+export interface ToolStream {
+  /** The newest preview; the reducer keeps only the tail of a long one. */
+  text: string;
+  /** When the preview arrived (ms). */
+  at: number;
+  /** Older output was dropped to stay bounded. */
+  truncated?: boolean;
+}
+
 export interface ToolCall {
   id: string;
   name: string;
@@ -24,6 +34,10 @@ export interface ToolCall {
   args: Record<string, unknown>;
   status: "running" | "ok" | "fail";
   result?: ToolResult;
+  /** When `tool_execution_start` arrived: the running card's elapsed time. */
+  startedAt?: number;
+  /** Live output of a running call; the result replaces it. */
+  stream?: ToolStream;
 }
 
 /** Text for the model, not the user (a harness reminder, a rule injected after a rewind): a quiet card, folded by default (ADR 0037). */
@@ -149,6 +163,25 @@ export type DialogAnswer =
   | { cancelled: true }
   | { data: Record<string, string | number | string[]> };
 
+/**
+ * The agent's own machinery while it works, drawn as one strip above the message box. Compaction, retry, fallback and
+ * warming belong to a run and clear at its end; statuses, widgets, the goal and config warnings are session state.
+ */
+export interface RunProgress {
+  compaction?: { kind: "auto" | "manual"; /** auto: why it ran (`threshold`, `overflow`, …). */ reason?: string; /** manual: the `/compact <mode>` subcommand. */ mode?: string; /** auto: what omp does (`context-full`, `remote`, …). */ action?: string; startedAt: number };
+  retry?: { attempt: number; maxAttempts: number; delayMs?: number; reason: string; startedAt: number };
+  fallback?: { from: string; to: string; role?: string; reason?: string; ok?: boolean };
+  warming?: { phase?: string; method?: string; model?: string };
+  /** Goal mode's objective (`goal_updated`); no goal when absent. */
+  goal?: { objective: string; status?: string };
+  /** Counts `config_warnings_changed` frames; the RPC frame carries no text, so the strip only says there are some. */
+  warnings: number;
+  /** Extension `setStatus` lines, by key, in the order they arrived. */
+  statuses: Record<string, string>;
+  /** Extension `setWidget` blocks, keyed and placed above or below the editor. */
+  widgets: { key: string; lines: string[]; placement: "aboveEditor" | "belowEditor" }[];
+}
+
 export interface ClientState {
   connection: "connecting" | "ready" | "closed";
   /** A conversation's history is being fetched (opening a session, a reconnect, a fork). What is on screen may be the browser's copy. */
@@ -172,6 +205,8 @@ export interface ClientState {
   tools: Record<string, ToolCall>;
   /** `state` is what the ring shows (it already includes the thinking hold); `streaming` is omp's own flag. */
   run: { state: RingState; streaming: boolean };
+  /** Compaction, retries, extension statuses and widgets: what the agent reports about itself while it works. */
+  progress: RunProgress;
   /** Messages sent while the agent was busy and not yet delivered (`queue_update`). */
   queue: QueuedMessage[];
   /** The session's todo list; empty when there is none. */
@@ -183,6 +218,11 @@ export interface ClientState {
   btw: BtwRecord[];
   /** Questions waiting for an answer, oldest first; the UI shows the first. */
   dialogs: Dialog[];
+  /**
+   * Who may write the open conversation (ADR 0047), from the host's `cgs_control`. `you` is true while this page may
+   * write: it holds control, or nobody does and its next write takes it. Absent until the host first says.
+   */
+  control?: { controller?: Controller; you: boolean };
   /** Text (images, file references) the composer should take into its editor (interrupted turn, removed queue item); `seq` makes repeats distinct. */
   draftRestore?: { text: string; images?: ImageRef[]; /** Absolute paths of files to attach as @ references. */ refs?: string[]; seq: number };
   toast?: { text: string; seq: number };
@@ -251,6 +291,11 @@ export interface Actions {
   refreshSessions(): Promise<void>;
   /** Fetches the account snapshot now (the client also refreshes it every few minutes). */
   refreshAccount(): Promise<void>;
+  /**
+   * Asks the host to make this page the controller of the open conversation (ADR 0047). The host answers by broadcasting
+   * `cgs_control`; a failure becomes a toast like other mutations.
+   */
+  takeControl(): Promise<void>;
   completePath(typed: string): Promise<{ exists: boolean; entries: string[] }>;
   /** The right panel's reads, for the active workspace. They reject when the host has no workspace API. */
   listDir(dir: string): Promise<FileEntry[]>;
@@ -292,6 +337,15 @@ export interface ChildStatus {
   ring: "idle" | "work" | "think";
   level: ThinkingLevel;
   unseen: boolean;
+  /** Who may write to this conversation now (ADR 0047). Absent when nobody does. */
+  controller?: Controller;
+}
+
+export interface Controller {
+  kind: "desktop" | "remote" | "terminal";
+  name: string;
+  /** This listing's caller holds it (the host compares connection keys); the sidebar does not mark the page's own control. */
+  mine?: boolean;
 }
 
 /** What the host provides beyond omp (session files, workspaces, process ownership). */
@@ -301,11 +355,14 @@ export interface HostApi {
   complete(typed: string): Promise<{ exists: boolean; entries: string[] }>;
   addWorkspace(cwd: string): Promise<void>;
   children(): Promise<ChildStatus[]>;
-  openChild(cwd: string, sessionPath?: string): Promise<ChildStatus>;
+  /** `yield` confirms taking the session from a terminal that is busy (the host answers `terminal_busy` otherwise, ADR 0047). */
+  openChild(cwd: string, sessionPath?: string, options?: { yield?: boolean }): Promise<ChildStatus>;
   /** The workspace's files and Git state, for the right panel. A host without it (the dev bridge) leaves the panel with the task's own changes only. */
   workspace?: WorkspaceApi;
   /** The signed-in CGS account (no tokens: the host holds them, ADR 0010). Undefined means signed out; rejection leaves the last snapshot stale. */
   account?(): Promise<AccountSnapshot | undefined>;
+  /** Makes this connection the controller of one conversation (`/api/children/<id>/control`, ADR 0047); a host without control leaves it out. */
+  takeControl?(childId: string): Promise<void>;
   settings?: SettingsApi;
 }
 

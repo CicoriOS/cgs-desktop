@@ -4,20 +4,64 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, protocol, shell, Tray } from "electron";
+import { APP_URL, handleAppRequests, registerAppScheme } from "./app-protocol.mjs";
+import { SHELL_SYNC, createCliSync, registerCliSyncIpc } from "./cli-sync.mjs";
+import { requestHost, shutdownLocalHost, startLocalHost } from "./host-ipc.mjs";
+import { startResident } from "./resident.mjs";
+import { createUpdater, registerUpdaterIpc } from "./updater.mjs";
+import { registerWorkspaceIpc } from "./workspace.mjs";
 
-const url = process.env.CGS_DEV_URL;
-if (!url) {
+// A packaged app loads the built page from disk; the dev shell passes its Vite URL in CGS_DEV_URL.
+const devUrl = process.env.CGS_DEV_URL;
+if (!devUrl && !app.isPackaged) {
   console.error("CGS_DEV_URL is not set: start the shell with `bun run desktop`.");
   app.exit(1);
 }
+// A packaged app serves dist/ over `cgs://`; modules cannot load from file:// (see app-protocol.mjs).
+const distRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist");
+if (app.isPackaged) registerAppScheme(protocol);
+const url = devUrl ?? APP_URL;
+/** `?demo` is in-memory: no sidecar, so the demo dev shell never touches the real daemon. */
+const demo = new URL(url).searchParams.has("demo");
 
 if (!app.requestSingleInstanceLock()) app.exit(0);
+
+const broadcast = (channel, ...args) => {
+  for (const win of BrowserWindow.getAllWindows()) if (!win.webContents.isDestroyed()) win.webContents.send(channel, ...args);
+};
+
+// CLI sync runs first (ADR 0046 §3): the sidecar starts only with the CLI copy it validated. The page subscribes to the
+// sync state through `window.cgsDesktop.shell`, so a failure has its own page instead of a dead link.
+const sync = demo ? undefined : createCliSync({ app, env: process.env });
+let hostStarted = false;
+/** The sidecar starts exactly once, when the CLI sync reports a usable CLI (also after a retry from its error page). */
+function startHostFromSync(state) {
+  if (hostStarted || state.phase !== "ready") return;
+  hostStarted = true;
+  startLocalHost({ cgs: state.cgs, env: process.env });
+}
+if (sync) {
+  registerCliSyncIpc(ipcMain, sync);
+  sync.subscribe((state) => {
+    broadcast(SHELL_SYNC, state);
+    startHostFromSync(state);
+  });
+}
+
+// Tray, close-to-background, quit confirmation and background notifications (ADR 0046 §5).
+const resident = startResident({ app, Tray, Menu, Notification, dialog, ipcMain, nativeImage, requestHost, env: process.env, createWindow });
+
+// Desktop updates (ADR 0046 §6): check-only in development, electron-updater when packaged.
+const updater = createUpdater({ app, requestHost, dialog, shutdownHost: async () => { await shutdownLocalHost(); resident.allowQuit(); }, env: process.env });
+registerUpdaterIpc(ipcMain, updater);
+updater.subscribe((status) => broadcast("cgs:updater:changed", status));
 
 app.on("second-instance", () => {
   const [win] = BrowserWindow.getAllWindows();
   if (!win) return;
   if (win.isMinimized()) win.restore();
+  if (!win.isVisible()) win.show();
   win.focus();
 });
 
@@ -45,6 +89,9 @@ ipcMain.handle("window:isMaximized", (event) => windowOf(event)?.isMaximized() ?
 ipcMain.handle("fs:areDirectories", (_event, paths) =>
   Promise.all(paths.map((p) => fs.stat(p).then((st) => st.isDirectory(), () => false))),
 );
+
+// Files and Git for the right panel (`WorkspaceApi`): Node fs plus the git CLI, so the work stays in the main process.
+registerWorkspaceIpc(ipcMain);
 
 function createWindow() {
   const glass = glassOptions();
@@ -78,11 +125,22 @@ function createWindow() {
     }
   });
   void win.loadURL(url);
+  return win;
 }
 
 app.whenReady().then(() => {
-  createWindow();
-  app.on("activate", () => BrowserWindow.getAllWindows().length === 0 && createWindow());
+  if (app.isPackaged) handleAppRequests({ protocol, root: distRoot });
+  resident.attach(createWindow());
+  void resident.start();
+  updater.start();
+  // The sidecar waits for the CLI sync; a failure shows its page and `shell.retry` runs the same start path again.
+  if (sync) void sync.start();
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) resident.attach(createWindow());
+  });
 });
 
-app.on("window-all-closed", () => app.quit());
+app.on("window-all-closed", () => {
+  // With a tray the app lives on until the explicit quit entry (resident); without one, closing the last window ends it.
+  if (!resident.stayResident()) app.quit();
+});

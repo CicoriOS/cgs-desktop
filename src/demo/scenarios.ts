@@ -9,6 +9,7 @@ import { editDemoFile, HIGHLIGHT_AFTER } from "./workspace";
 const MIN = 60_000;
 const WEB = "/home/demo/cgs-web";
 const API = "/home/demo/payments-api";
+const PROGRESS = "/home/demo/progress";
 
 // ---------------------------------------------------------------------------------------------- shared tool results
 const phases = (...tasks: [string, "pending" | "in_progress" | "completed"][]) => [{
@@ -197,7 +198,57 @@ function seedC(): Seed {
   ]);
   return {
     id: "child-c", cwd: WEB, path: `${WEB.replace(/\//g, "-")}/lcp-bundle.jsonl`, title: "首屏加载优化", log,
+    // Opened from the sidebar, this one shows ADR 0047's lock: a phone is using it, and a click on the composer takes over.
+    controller: { kind: "remote", name: "iPhone 15 Pro" },
     onFirstAttach: { prompt: "好，把 mermaid 和 highlight.js 改成按需加载，再构建一次对比体积。", script: optimizeScript },
+  };
+}
+
+// ---------------------------------------------------------------------------------------------- D/E/F: progress display
+const PASS_LINES = [
+  "PASS email accepts a normal address [0.21ms]",
+  "PASS email rejects a missing domain [0.05ms]",
+  "PASS password needs 8 characters [0.04ms]",
+];
+const FAIL_LINES = ['FAIL firstError returns the first failing check', '  expected: "邮箱格式不对"', "  received: undefined", "", " 4 pass", " 1 fail"];
+
+/** Full previews of one `bun test` run, as bash sends them: each replaces the previous one. */
+function streamedTestRun(): string[] {
+  const percents = [3, 11, 18, 26, 37, 37, 44, 52, 61, 73, 84, 92, 100];
+  return percents.map((percent, i) => {
+    const shown = PASS_LINES.slice(0, Math.min(PASS_LINES.length, Math.floor(i / 2) + 1));
+    const failed = i === percents.length - 1 ? ["", ...FAIL_LINES] : [];
+    return ["bun test v1.4.4 (demo)", "", "src/lib/validators.test.ts:", `  downloading fixtures  ${percent}%`, ...(shown.length ? ["", ...shown] : []), ...failed].join("\n");
+  });
+}
+
+function seedD(): Seed {
+  const log = new Log(Date.now() - 100 * MIN);
+  log.user("校验模块抽好了，测试写了吗？");
+  log.assistant([text("写好了，`src/lib/validators.test.ts` 里有 4 条用例。要现在跑吗？")]);
+  return {
+    id: "child-d", cwd: PROGRESS, path: `${PROGRESS.replace(/\//g, "-")}/progress-stream.jsonl`, title: "演示：工具实时输出", log,
+    onFirstAttach: { prompt: "跑一遍，我盯着输出看。", script: streamScript },
+  };
+}
+
+function seedE(): Seed {
+  const log = new Log(Date.now() - 110 * MIN);
+  log.user("上下文是不是快满了？刚才服务端还报了一次过载。");
+  log.assistant([text("对，上下文到了阈值；我可以压缩一下，再处理过载时的重试和回退。")]);
+  return {
+    id: "child-e", cwd: PROGRESS, path: `${PROGRESS.replace(/\//g, "-")}/progress-compact.jsonl`, title: "演示：压缩与重试", log,
+    onFirstAttach: { prompt: "压缩吧，顺便让我看看重试和回退的状态。", script: compactionScript },
+  };
+}
+
+function seedF(): Seed {
+  const log = new Log(Date.now() - 120 * MIN);
+  log.user("扩展现在都上报了些什么？");
+  log.assistant([text("有构建状态、CI 摘要，还有一个目标模式；我让它们显示出来。")]);
+  return {
+    id: "child-f", cwd: PROGRESS, path: `${PROGRESS.replace(/\//g, "-")}/progress-widgets.jsonl`, title: "演示：状态与小部件", log,
+    onFirstAttach: { prompt: "显示一下当前的状态和小部件。", script: statusScript },
   };
 }
 
@@ -249,6 +300,56 @@ async function optimizeScript(r: Run): Promise<void> {
   await r.assistant([
     text("构建完成，首屏 JS 大幅下降：\n\n| 产物 | 之前 gzip | 之后 gzip |\n|---|---|---|\n| 首屏入口 | 131.2 kB | **68.7 kB** |\n| mermaid | 349.9 kB（首屏） | 349.9 kB（按需） |\n| highlight.js | 301.1 kB（首屏） | 299.4 kB（按需） |\n\n首屏 JS 减少约 **48%**。mermaid 和语言包只在首次出现图表或代码块时下载。建议用 Lighthouse 再测一次 LCP。"),
   ]);
+}
+
+async function streamScript(r: Run): Promise<void> {
+  await r.assistant([
+    think("先跑测试，输出会实时出现；同时留意待办提醒和 IRC 消息。"),
+    text("开始跑 `validators.test.ts`，输出会实时出现在卡片里。"),
+    call("d-bash-1", "bash", { command: "bun test src/lib/validators.test.ts 2>&1" }),
+  ]);
+  const previews = streamedTestRun();
+  const running = r.tools([{
+    id: "d-bash-1", name: "bash", args: { command: "bun test src/lib/validators.test.ts 2>&1" }, ms: 6500, stream: previews,
+    output: previews.at(-1) ?? "", details: { wallTimeMs: 6400 },
+  }]);
+  await r.sleep(1100);
+  r.session.emit({ type: "irc_message", message: { role: "custom", customType: "irc", content: [{ type: "text", text: "mika: 构建机 3 号空着，这条跑完可以直接上 CI。" }] } });
+  await r.sleep(2400);
+  r.session.emit({ type: "todo_reminder", todos: [{ content: "补测试并跑通", status: "in_progress" }], attempt: 1, maxAttempts: 3 });
+  await running;
+  await r.assistant([text("三条通过、一条失败：失败的是测试自己的期望值写错了（给的是合法邮箱却期望报错），实现没问题。要我改测试吗？")]);
+}
+
+async function compactionScript(r: Run): Promise<void> {
+  const s = r.session;
+  await r.assistant([text("先预热缓存，然后压缩上下文；如果服务端过载，会自动重试并回退模型。")]);
+  s.emit({ type: "cache_warming_start", phase: "idle", method: "prewarm", provider: "cgs-claude", model: "claude-sonnet-5-5" });
+  await r.sleep(1600);
+  s.emit({ type: "cache_warming_end", phase: "idle", method: "prewarm", provider: "cgs-claude", model: "claude-sonnet-5-5", outcome: "hit" });
+  s.emit({ type: "auto_compaction_start", reason: "threshold", action: "remote" });
+  await r.sleep(2800);
+  s.emit({ type: "auto_compaction_end", action: "remote", aborted: false, willRetry: false, result: { summary: "…", firstKeptEntryId: "e12", tokensBefore: 136_400 } });
+  s.emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 5000, errorMessage: "529 overloaded: the provider is at capacity" });
+  await r.sleep(1400);
+  s.emit({ type: "retry_fallback_applied", from: "cgs-claude/claude-sonnet-5-5", to: "cgs-openai/gpt-5.5", role: "default", reason: "provider overloaded" });
+  await r.sleep(3600);
+  s.emit({ type: "retry_fallback_succeeded", model: "cgs-openai/gpt-5.5", role: "default" });
+  s.emit({ type: "auto_retry_end", success: true, attempt: 1 });
+  await r.assistant([text("压缩完成（136k → 31k tokens）。原模型过载，回退到 GPT-5.5 后这次重试成功了。")]);
+}
+
+async function statusScript(r: Run): Promise<void> {
+  const s = r.session;
+  // Let the page finish attaching: frames sent while it hydrates are dropped, and a real extension reports later.
+  await r.sleep(700);
+  s.emit({ type: "goal_updated", goal: { id: "goal-1", objective: "把登录校验整理成一个模块并跑通测试", status: "active", tokensUsed: 18_400, timeUsedSeconds: 420 } });
+  s.emit({ type: "extension_ui_request", id: "status-build", method: "setStatus", statusKey: "build", statusText: "构建缓存命中 (2.1s)" });
+  s.emit({ type: "extension_ui_request", id: "status-lint", method: "setStatus", statusKey: "lint", statusText: "0 处警告" });
+  s.emit({ type: "extension_ui_request", id: "widget-above", method: "setWidget", widgetKey: "note", widgetLines: ["演示后端：不连接真实模型，状态与小部件来自扩展帧。"], widgetPlacement: "aboveEditor" });
+  s.emit({ type: "extension_ui_request", id: "widget-below", method: "setWidget", widgetKey: "ci", widgetLines: ["CI · build #2481 通过", "单元测试 128/128 · 覆盖率 91%"], widgetPlacement: "belowEditor" });
+  s.emit({ type: "config_warnings_changed" });
+  await r.assistant([think("这些状态跑完也留着，用来展示扩展的常驻信息。"), text("扩展把构建状态和 CI 摘要放在输入框两侧；配置里有一条警告，可以点掉。")]);
 }
 
 async function subagentScript(r: Run): Promise<void> {
@@ -335,5 +436,5 @@ export function createSession(seed: Seed, archive: (s: DemoSession) => void): De
   });
 }
 
-/** The demo's conversations. */
-export const demoSessions = (archive: (s: DemoSession) => void): DemoSession[] => [seedA(), seedB(), seedC()].map((seed) => createSession(seed, archive));
+/** The demo's conversations; the progress ones sit in their own workspace so the original three open as before. */
+export const demoSessions = (archive: (s: DemoSession) => void): DemoSession[] => [seedA(), seedB(), seedC(), seedD(), seedE(), seedF()].map((seed) => createSession(seed, archive));

@@ -1,8 +1,19 @@
+import { t } from "../i18n";
 import { isRecord } from "./guards";
 import { assistantFrom, imagesOf, isReply, noticeFrom, type RawMessage, resultFrom, textOf } from "./messages";
 import { mergeSubagents, subagentFromFrame, subagentsFromTaskDetails } from "./subagents";
 import { parsePhases } from "./todos";
-import type { ClientState, Dialog, NoticeItem, RingState, SubagentInfo, ToolCall, Turn } from "./types";
+import type { ClientState, Controller, Dialog, NoticeItem, RingState, RunProgress, SubagentInfo, ToolCall, Turn } from "./types";
+
+/** A streaming tool preview is kept to its tail: a long build log must not grow the state without bound. */
+export const TOOL_STREAM_LIMIT = 64 * 1024;
+/** Extension widgets are small text blocks; more or longer lines are clipped, and only the newest keys stay. */
+const WIDGETS_MAX = 8;
+const WIDGET_LINES = 12;
+const WIDGET_LINE_CHARS = 400;
+const STATUS_CHARS = 200;
+/** Terminal colour codes in extension status/widget text (they are plain strings over RPC, but not guaranteed plain). */
+const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g;
 
 export function initialState(): ClientState {
   return {
@@ -16,6 +27,7 @@ export function initialState(): ClientState {
     turns: [],
     tools: {},
     run: { state: "idle", streaming: false },
+    progress: { warnings: 0, statuses: {}, widgets: [] },
     queue: [],
     todos: [],
     subagents: [],
@@ -37,6 +49,9 @@ export interface EventFrame {
   toolName?: string;
   args?: Record<string, unknown>;
   result?: { content?: unknown[]; details?: unknown };
+  /** `tool_execution_update` (an `AgentToolResult`) and `tool_stream_update` (an edit preview). */
+  partialResult?: unknown;
+  update?: unknown;
   isError?: boolean;
   steering?: string[];
   followUp?: string[];
@@ -61,6 +76,36 @@ export interface EventFrame {
   prefill?: string;
   html?: string;
   targetId?: string;
+  // extension_ui_request setStatus / setWidget
+  statusKey?: string;
+  statusText?: string;
+  widgetKey?: string;
+  widgetLines?: string[];
+  widgetPlacement?: "aboveEditor" | "belowEditor";
+  // The agent's own machinery: compaction, retries, cache warming, goal mode, reminders.
+  reason?: string;
+  action?: string;
+  mode?: string;
+  aborted?: boolean;
+  willRetry?: boolean;
+  skipped?: boolean;
+  outcome?: string;
+  attempt?: number;
+  maxAttempts?: number;
+  delayMs?: number;
+  errorMessage?: string;
+  phase?: string;
+  model?: string;
+  from?: string;
+  to?: string;
+  role?: string;
+  success?: boolean;
+  goal?: { objective?: unknown; status?: unknown } | null;
+  todos?: unknown[];
+  // cgs_control (ADR 0047): the conversation, who controls it now, and whether this client may write.
+  childId?: string;
+  controller?: Controller | null;
+  you?: boolean;
 }
 
 /** The dialog an `extension_ui_request` asks for, if its method is one the client answers. */
@@ -82,6 +127,81 @@ export function dialogFrom(f: EventFrame): Dialog | undefined {
   }
 }
 
+const setProgress = (s: ClientState, patch: Partial<RunProgress>): ClientState => ({ ...s, progress: { ...s.progress, ...patch } });
+
+/** A toast is one state field; the component shows the newest text for a few seconds. */
+const withToast = (s: ClientState, text: string): ClientState =>
+  text ? { ...s, toast: { text: text.length > 300 ? `${text.slice(0, 299)}…` : text, seq: (s.toast?.seq ?? 0) + 1 } } : s;
+
+/**
+ * The text of a streaming update. `tool_execution_update` carries an `AgentToolResult` (bash/eval send their preview in
+ * its text blocks); `tool_stream_update` carries an edit preview with per-file diffs.
+ */
+function previewText(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const parts = value.flatMap((b) => (isRecord(b) && b.type === "text" && typeof b.text === "string" ? [b.text] : []));
+    return parts.length ? parts.join("") : undefined;
+  }
+  if (!isRecord(value)) return undefined;
+  if (typeof value.text === "string") return value.text;
+  if (Array.isArray(value.content)) return previewText(value.content);
+  if (Array.isArray(value.files)) {
+    const files = value.files.flatMap((f) => {
+      if (!isRecord(f)) return [];
+      const body = typeof f.diff === "string" ? f.diff : typeof f.error === "string" ? f.error : "";
+      return [typeof f.path === "string" ? [f.path, body].filter(Boolean).join("\n") : body];
+    });
+    return files.length ? files.join("\n\n") : undefined;
+  }
+  return undefined;
+}
+
+/** Folds a streaming preview into the call; a finished call ignores late frames. */
+function applyToolStream(s: ClientState, f: EventFrame, now: number): ClientState {
+  const id = f.toolCallId;
+  if (!id) return s;
+  const call = s.tools[id];
+  if (call?.result) return s;
+  const text = previewText(f.type === "tool_stream_update" ? f.update : f.partialResult);
+  if (text === undefined) return s;
+  const truncated = text.length > TOOL_STREAM_LIMIT;
+  return {
+    ...s,
+    tools: {
+      ...s.tools,
+      [id]: {
+        ...(call ?? { id, name: "", args: {}, status: "running" as const }),
+        name: call?.name || f.toolName || "",
+        stream: { text: truncated ? text.slice(-TOOL_STREAM_LIMIT) : text, at: now, ...(truncated ? { truncated: true } : {}) },
+      },
+    },
+  };
+}
+
+/** `extension_ui_request` setStatus: text replaces the key's line, no text removes it. */
+function applyExtensionStatus(s: ClientState, f: EventFrame): ClientState {
+  if (!f.statusKey) return s;
+  const statuses = { ...s.progress.statuses };
+  const text = typeof f.statusText === "string" ? f.statusText.replace(ANSI, "").trim().slice(0, STATUS_CHARS) : "";
+  if (text) statuses[f.statusKey] = text;
+  else delete statuses[f.statusKey];
+  return setProgress(s, { statuses });
+}
+
+/** `extension_ui_request` setWidget: lines replace the block's, no lines removes it. */
+function applyExtensionWidget(s: ClientState, f: EventFrame): ClientState {
+  if (!f.widgetKey) return s;
+  const lines = Array.isArray(f.widgetLines)
+    ? f.widgetLines.filter((l): l is string => typeof l === "string").map((l) => l.replace(ANSI, "").slice(0, WIDGET_LINE_CHARS)).slice(-WIDGET_LINES)
+    : [];
+  const rest = s.progress.widgets.filter((w) => w.key !== f.widgetKey);
+  const widgets = lines.length
+    ? [...rest, { key: f.widgetKey, lines, placement: f.widgetPlacement === "aboveEditor" ? ("aboveEditor" as const) : ("belowEditor" as const) }].slice(-WIDGETS_MAX)
+    : rest;
+  return setProgress(s, { widgets });
+}
+
 let turnSeq = 0;
 export const newTurnId = () => `t${++turnSeq}`;
 
@@ -95,7 +215,10 @@ function upsertTools(tools: Record<string, ToolCall>, calls: ToolCall[]): Record
   const next = { ...tools };
   for (const c of calls) {
     const old = next[c.id];
-    next[c.id] = { ...c, status: old?.status ?? "running", result: old?.result, name: c.name || old?.name || "", args: { ...old?.args, ...c.args } };
+    next[c.id] = {
+      ...c, status: old?.status ?? "running", result: old?.result, name: c.name || old?.name || "", args: { ...old?.args, ...c.args },
+      ...(old?.startedAt !== undefined ? { startedAt: old.startedAt } : {}), ...(old?.stream ? { stream: old.stream } : {}),
+    };
   }
   return next;
 }
@@ -103,7 +226,7 @@ function upsertTools(tools: Record<string, ToolCall>, calls: ToolCall[]): Record
 function setResult(tools: Record<string, ToolCall>, id: string, result: ToolCall["result"], name = ""): Record<string, ToolCall> {
   if (!result) return tools;
   const call = tools[id] ?? { id, name, args: {} };
-  return { ...tools, [id]: { ...call, result, status: result.isError ? "fail" : "ok" } };
+  return { ...tools, [id]: { ...call, result, status: result.isError ? "fail" : "ok", stream: undefined } };
 }
 
 /** What a finished tool call tells beyond its own card: a `todo` result is the new list, a `task` result lists the subagents it ran. */
@@ -184,12 +307,70 @@ export function applyFrame(s: ClientState, f: EventFrame, now: number): ClientSt
       if (!f.toolCallId) return s;
       const old = s.tools[f.toolCallId];
       if (old?.result) return s;
-      return { ...s, tools: { ...s.tools, [f.toolCallId]: { id: f.toolCallId, name: f.toolName ?? old?.name ?? "", args: { ...f.args, ...old?.args }, status: "running" } } };
+      return {
+        ...s,
+        tools: {
+          ...s.tools,
+          [f.toolCallId]: {
+            id: f.toolCallId, name: f.toolName ?? old?.name ?? "", args: { ...f.args, ...old?.args }, status: "running",
+            startedAt: old?.startedAt ?? now, ...(old?.stream ? { stream: old.stream } : {}),
+          },
+        },
+      };
     }
+    case "tool_execution_update":
+    case "tool_stream_update":
+      return applyToolStream(s, f, now);
+    case "agent_end":
+      // Compaction, retries and warming describe one run; the result frames that follow carry the outcome.
+      return setProgress(s, { compaction: undefined, retry: undefined, fallback: undefined, warming: undefined });
     case "tool_execution_end": {
       if (!f.toolCallId || s.tools[f.toolCallId]?.result) return s;
       const tools = setResult(s.tools, f.toolCallId, { content: f.result?.content ?? [], details: f.result?.details, isError: !!f.isError }, f.toolName);
       return foldToolResult({ ...s, tools }, tools[f.toolCallId]);
+    }
+    case "auto_compaction_start":
+      return setProgress(s, { compaction: { kind: "auto", reason: f.reason, action: f.action, startedAt: now } });
+    case "manual_compaction_start":
+      return setProgress(s, { compaction: { kind: "manual", mode: f.mode, startedAt: now } });
+    case "auto_compaction_end":
+    case "manual_compaction_end":
+      return setProgress(s, { compaction: undefined });
+    case "auto_retry_start":
+      return setProgress(s, {
+        retry: {
+          attempt: typeof f.attempt === "number" ? f.attempt : 1,
+          maxAttempts: typeof f.maxAttempts === "number" ? f.maxAttempts : 1,
+          delayMs: typeof f.delayMs === "number" ? f.delayMs : undefined,
+          reason: f.errorMessage ?? "",
+          startedAt: now,
+        },
+      });
+    case "auto_retry_end":
+      return setProgress(s, { retry: undefined });
+    case "retry_fallback_applied":
+      if (!f.to) return s;
+      return setProgress(s, { fallback: { from: f.from ?? "", to: f.to, role: f.role, reason: f.reason } });
+    case "retry_fallback_succeeded":
+      return f.model
+        ? setProgress(s, { fallback: { from: s.progress.fallback?.from ?? "", to: f.model, role: f.role ?? s.progress.fallback?.role, reason: s.progress.fallback?.reason, ok: true } })
+        : s;
+    case "cache_warming_start":
+      return setProgress(s, { warming: { phase: f.phase, method: f.method, model: f.model } });
+    case "cache_warming_end":
+      return setProgress(s, { warming: undefined });
+    case "config_warnings_changed":
+      return setProgress(s, { warnings: s.progress.warnings + 1 });
+    case "goal_updated": {
+      const goal = isRecord(f.goal) && typeof f.goal.objective === "string" ? { objective: f.goal.objective, status: typeof f.goal.status === "string" ? f.goal.status : undefined } : undefined;
+      return setProgress(s, { goal });
+    }
+    case "todo_reminder":
+      return withToast(s, t("run.todoReminder", { attempt: f.attempt ?? 1, max: f.maxAttempts ?? 1 }));
+    case "irc_message": {
+      const message = f.message;
+      const text = typeof message === "object" && message ? textOf(message.content).trim() : "";
+      return withToast(s, text ? `${t("run.irc")}: ${text}` : t("run.irc"));
     }
     case "subagent_lifecycle":
     case "subagent_progress": {
@@ -199,11 +380,18 @@ export function applyFrame(s: ClientState, f: EventFrame, now: number): ClientSt
     }
     case "extension_ui_request": {
       if (f.method === "cancel") return { ...s, dialogs: s.dialogs.filter((d) => d.id !== f.targetId) }; // omp closed it (timeout, abort)
+      if (f.method === "setStatus") return applyExtensionStatus(s, f);
+      if (f.method === "setWidget") return applyExtensionWidget(s, f);
       const d = dialogFrom(f);
       return d && !s.dialogs.some((x) => x.id === d.id) ? { ...s, dialogs: [...s.dialogs, d] } : s;
     }
     case "queue_update":
       return { ...s, queue: [...(f.steering ?? []).map((text) => ({ text, mode: "steer" as const })), ...(f.followUp ?? []).map((text) => ({ text, mode: "followUp" as const }))] };
+    case "cgs_control": {
+      const c = f.controller;
+      const controller: Controller | undefined = c && typeof c.name === "string" ? { kind: c.kind, name: c.name } : undefined;
+      return { ...s, control: { controller, you: f.you === true } };
+    }
     case "btw_record": {
       const rec = f.record;
       if (!rec) return s;

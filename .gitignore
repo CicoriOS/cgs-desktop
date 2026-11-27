@@ -4,3 +4,4 @@ vendor/
 .cgs-channel-test/
 *.log
 dist-connect/
+dist-desktop/

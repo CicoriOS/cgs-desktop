@@ -3,7 +3,7 @@
 import type { SessionEntry } from "../core/history";
 import { type RawMessage, textOf } from "../core/messages";
 import type { UsageMessage } from "../core/stats";
-import type { BtwRecord, ChildStatus, ModelPicker, ThinkingLevel } from "../core/types";
+import type { BtwRecord, ChildStatus, Controller, ModelPicker, ThinkingLevel } from "../core/types";
 import { assistantMessage, type Block, Log, MODEL, toolResultMessage } from "./log";
 
 export type Listener = (frame: string) => void;
@@ -39,6 +39,8 @@ export interface ToolSpec {
   args: Record<string, unknown>;
   /** How long the tool runs. */
   ms: number;
+  /** Previews streamed while it runs (`tool_execution_update`), oldest first; each replaces the one before it. */
+  stream?: string[];
   output: string;
   details?: unknown;
   isError?: boolean;
@@ -64,6 +66,8 @@ export interface SessionInit {
   todos?: unknown[];
   subagents?: SubagentRec[];
   transcripts?: Record<string, RawMessage[]>;
+  /** Who controls this conversation before the demo page opens it (ADR 0047); the page takes over by clicking the box. */
+  controller?: Controller;
   /** Runs the first time a client attaches (a conversation that is "in progress" the moment it is opened). */
   onFirstAttach?: { prompt: string; script: Script };
   /** Runs for every prompt the user sends. */
@@ -81,6 +85,8 @@ export class DemoSession {
   todos: unknown[];
   live = false;
   unseen = false;
+  /** Who controls this conversation; the demo page starts as a viewer of the seeded one (ADR 0047). */
+  controller?: Controller;
   model: { provider: string; id: string; name: string } = MODEL;
   level: ThinkingLevel = "high";
   configured: ThinkingLevel | "auto" = "auto";
@@ -107,6 +113,7 @@ export class DemoSession {
     this.log = init.log;
     this.todos = init.todos ?? [];
     this.first = init.onFirstAttach;
+    this.controller = init.controller;
     for (const s of init.subagents ?? []) this.subagents.set(s.id, s);
     for (const [id, m] of Object.entries(init.transcripts ?? {})) this.transcripts.set(id, m);
   }
@@ -127,18 +134,30 @@ export class DemoSession {
   }
 
   child(): ChildStatus {
-    return { id: this.id, cwd: this.cwd, sessionPath: this.path, title: this.shownTitle || undefined, updatedAt: this.updatedAt, ring: this.ring, level: this.level, unseen: this.unseen };
+    return {
+      id: this.id, cwd: this.cwd, sessionPath: this.path, title: this.shownTitle || undefined, updatedAt: this.updatedAt, ring: this.ring, level: this.level, unseen: this.unseen,
+      ...(this.controller ? { controller: this.controller } : {}),
+    };
   }
 
   // ------------------------------------------------------------------ attachments
   attach(listener: Listener): void {
     this.listeners.add(listener);
     this.unseen = false;
+    // The real host tells every stream who may write when it opens (ADR 0047); the demo does the same.
+    listener(JSON.stringify({ type: "cgs_control", childId: this.id, controller: this.controller ?? null, you: !this.controller }));
     if (this.first && !this.run) {
       const { prompt, script } = this.first;
       this.first = undefined;
       this.startRun(prompt, script);
     }
+  }
+
+  /** The page's takeover click: the demo has one viewer, so it becomes the controller (ADR 0047). */
+  takeControl(): void {
+    if (!this.controller) return;
+    this.controller = undefined;
+    this.emit({ type: "cgs_control", childId: this.id, controller: null, you: true });
   }
 
   detach(listener: Listener): void {
@@ -462,7 +481,18 @@ export class Run {
     };
     try {
       await Promise.all(specs.map(async (t) => {
-        await this.sleep(t.ms);
+        if (t.stream?.length) {
+          // Spread the previews over the tool's lifetime, as bash does while a command prints.
+          const step = Math.max(30, Math.floor(t.ms / (t.stream.length + 1)));
+          for (const text of t.stream) {
+            await this.sleep(step);
+            if (done.has(t.id)) return;
+            s.emit({ type: "tool_execution_update", toolCallId: t.id, toolName: t.name, args: t.args, partialResult: { content: [{ type: "text", text }], details: {} } });
+          }
+          await this.sleep(step);
+        } else {
+          await this.sleep(t.ms);
+        }
         finish(t, t.output, t.details, !!t.isError);
       }));
     } catch (e) {

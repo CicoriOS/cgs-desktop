@@ -1,4 +1,4 @@
-import { memo, type ReactNode, useMemo, useState } from "react";
+import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
 import type { RingState, ToolCall, Turn } from "../../core/types";
 import { useActions, useClientState, useReadOnly } from "../client-context";
 import { formatDuration } from "../format";
@@ -54,6 +54,10 @@ function CompactTurnButton() {
 
 function Fold({ className, summary, children, defaultOpen = false }: { className: string; summary: ReactNode; children: ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
+  // A chain folds into one line; a failure or live output that arrives later still shows itself once.
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
   return (
     <details className={className} open={open} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
       <summary>{summary}</summary>
@@ -70,8 +74,9 @@ function CallChain({ calls }: { calls: ToolCall[] }) {
   const state: RingState = running ? (streaming ? "work" : "idle") : failed ? "fail" : "ok";
   const names = callNames(calls);
   const text = running && streaming ? t("turn.running", { names }) : failed ? t("turn.callFailed", { names }) : t("turn.used", { names });
+  // A call that streams output opens the chain on it, the way a terminal shows a command's output as it prints.
   return (
-    <Fold className={`chain${failed ? " err" : ""}`} defaultOpen={failed} summary={<><Ring small state={state} level={level} /><span className="cs">{text}</span></>}>
+    <Fold className={`chain${failed ? " err" : ""}`} defaultOpen={failed || calls.some((c) => c.status === "running" && c.stream)} summary={<><Ring small state={state} level={level} /><span className="cs">{text}</span></>}>
       <div className="cards">
         {calls.map((c) => (
           <ToolCard key={c.id} call={c} />

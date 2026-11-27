@@ -14,11 +14,13 @@ import type { NativeProvider, PreviewSignIns } from "./provider-preview";
 import { baseName, cx, plainTitle } from "./format";
 import { RightPanel } from "./right/RightPanel";
 import { RpcDrawer } from "./RpcDrawer";
+import { RunStatus, RunWidgets } from "./RunStatus";
 import { SettingsPage } from "./settings/SettingsPage";
 import { Sidebar } from "./Sidebar";
 import { SubagentWindow } from "./SubagentWindow";
 import { StatsPanel } from "./StatsPanel";
 import { Toast } from "./Toast";
+import { useShellOpenChild } from "../desktop/shell";
 import { Topbar } from "./Topbar";
 import { Transcript } from "./transcript/Transcript";
 import { isMobile } from "./viewport";
@@ -55,6 +57,7 @@ export function App({ profileUrl, settingsApi }: { profileUrl?: string; settings
   const focusSubagent = (id: string) => setSubagents((l) => (l.at(-1) === id ? l : [...l.filter((x) => x !== id), id]));
 
   useFileDrop();
+  useShellOpenChild();
 
   useEffect(() => {
     document.title = desktop ? (desktopTitle ? `CGS Desktop - ${desktopTitle}` : "CGS Desktop") : t("app.title");
@@ -102,7 +105,10 @@ export function App({ profileUrl, settingsApi }: { profileUrl?: string; settings
               </section>
               {!readOnly && <DialogHost />}
               <Dock onOpenSubagent={openSubagent} />
+              <RunStatus />
+              <RunWidgets placement="aboveEditor" />
               {!readOnly && <Composer />}
+              <RunWidgets placement="belowEditor" />
               {btw && !empty && <BtwPanel onClose={() => setBtw(false)} />}
               {stats && !empty && <StatsPanel onClose={() => setStats(false)} />}
             </main>

@@ -14,7 +14,12 @@
     "desktop": "node scripts/dev-desktop.mjs",
     "build": "vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:desktop": "vite build --base=./",
+    "dist:linux": "bun run build:desktop && electron-builder --linux AppImage --x64 --publish never",
+    "dist:win": "bun run build:desktop && electron-builder --win --x64 --publish never",
+    "smoke:desktop": "xvfb-run -a electron test/desktop/smoke/main.mjs --no-sandbox",
+    "e2e:desktop": "bun run build:desktop && xvfb-run -a electron test/e2e/main.mjs --no-sandbox"
   },
   "devDependencies": {
     "@types/node": "^26.6.11",
@@ -22,6 +27,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
     "electron": "^45.5.0",
+    "electron-builder": "^26.18.0",
     "fake-indexeddb": "^6.2.8",
     "linkedom": "^0.18.15",
     "react": "19",
@@ -33,8 +39,62 @@
   "dependencies": {
     "@fontsource-variable/noto-sans-sc": "^5.3.1",
     "@jsquash/jpeg": "^1.6.0",
+    "electron-updater": "^6.8.11",
     "highlight.js": "^11.12.0",
     "lucide-react": "^1.82.0",
     "mermaid": "^12.3.0"
-  }
+  },
+  "cgsVersion": "19.2.1-cgs.5.4",
+  "build": {
+    "appId": "com.cicori.cgs-desktop",
+    "productName": "CGS Desktop",
+    "executableName": "cgs-desktop",
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "files": [
+      "package.json",
+      "desktop/**/*",
+      "dist/**/*"
+    ],
+    "asar": true,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "CicoriOS",
+        "repo": "cgs-desktop",
+        "releaseType": "release"
+      }
+    ],
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Development",
+      "artifactName": "CGS-Desktop-${version}-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "CGS-Desktop-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "description": "CGS Desktop: the CGS web client around the local cgs CLI",
+  "author": "Cicori"
 }

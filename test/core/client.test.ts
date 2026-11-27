@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { createClient } from "../../src/core/client";
-import { getLocale, setLocale } from "../../src/i18n";
+import { getLocale, setLocale, t } from "../../src/i18n";
 import { childA, fakeHost, fakeTransport, tick } from "./fake";
 
 const clients = new Set<{ close(): void }>();
@@ -413,6 +413,52 @@ test("a session that cannot be opened stops loading instead of spinning forever"
   await c.actions.openSession("/gone.jsonl", "/work");
   expect(c.getState()).toMatchObject({ loading: false, connection: "closed" });
   expect(c.getState().toast?.text).toBe("no such session");
+});
+
+test("a conversation held by a busy terminal asks, then reopens with yield (ADR 0047)", async () => {
+  const socket = fakeTransport();
+  const calls: { cwd: string; file?: string; options?: { yield?: boolean } }[] = [];
+  const host = {
+    ...fakeHost,
+    openChild: async (cwd: string, file?: string, options?: { yield?: boolean }) => {
+      calls.push({ cwd, file, options });
+      if (!options?.yield) throw new Error("terminal_busy");
+      return { ...childA, cwd, sessionPath: file };
+    },
+  };
+  const c = createClient(() => socket.transport, host, { holdMs: 0 });
+  clients.add(c);
+  await tick();
+  const opening = c.actions.openSession("/busy.jsonl", "/work");
+  await tick();
+  const dialog = c.getState().dialogs[0];
+  expect(dialog).toMatchObject({ method: "confirm", title: t("session.busy.title") });
+  expect(c.getState()).toMatchObject({ connection: "connecting", childId: undefined, sessionFile: "/busy.jsonl" });
+  c.actions.answerDialog(dialog!.id, { confirmed: true });
+  await opening;
+  expect(calls).toEqual([
+    { cwd: "/work", file: "/busy.jsonl", options: undefined },
+    { cwd: "/work", file: "/busy.jsonl", options: { yield: true } },
+  ]);
+  expect(c.getState()).toMatchObject({ childId: "a", sessionFile: "/busy.jsonl", dialogs: [] });
+});
+
+test("declining the takeover leaves the conversation closed and does not retry", async () => {
+  const t = fakeTransport();
+  let calls = 0;
+  const host = { ...fakeHost, openChild: async () => { calls++; throw new Error("terminal_busy"); } };
+  const c = createClient(() => t.transport, host, { holdMs: 0 });
+  clients.add(c);
+  await tick();
+  const opening = c.actions.openSession("/busy.jsonl", "/work");
+  await tick();
+  const dialog = c.getState().dialogs[0];
+  expect(dialog).toMatchObject({ method: "confirm" });
+  c.actions.answerDialog(dialog!.id, { confirmed: false });
+  await opening;
+  expect(calls).toBe(1);
+  expect(c.getState()).toMatchObject({ connection: "closed", loading: false, dialogs: [] });
+  expect(c.getState().toast).toBeUndefined();
 });
 
 test("compact sends the slash command once, stays busy until omp reports, and shows the report", async () => {

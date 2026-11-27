@@ -1,8 +1,16 @@
 // What the Electron shell tells the page (desktop/preload.cjs). Absent in a browser: code that needs it branches on `desktop`, so the
 // web build and the desktop build stay one source (ADR 0032).
+import type { DesktopHost, DesktopShell, DesktopUpdater } from "../desktop/protocol";
+
 interface CgsDesktop {
   platform: string;
   glass: boolean;
+  /** The local host link (Electron main <-> sidecar); see cgsconnect/local-channel.md §8. */
+  host?: DesktopHost;
+  /** Desktop updates (ADR 0046 §6); absent in a browser and in the demo. */
+  updater?: DesktopUpdater;
+  /** CLI sync, close prompt and notification clicks (ADR 0046 §3, §5). */
+  shell?: DesktopShell;
   window: {
     minimize(): void;
     toggleMaximize(): void;

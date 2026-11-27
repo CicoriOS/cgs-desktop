@@ -1,4 +1,5 @@
 import { type CompactMode, compactCommand, compactFailed, compactFallback } from "./compact";
+import { isReadOnlyFrame } from "./frames";
 import { type EventFrame, applyFrame, initialState, newTurnId, ringFor, subagentsFromTools } from "./reducer";
 import { type HistoryCache, type SessionEntry, activeBranch, turnsFromEntries, turnsFromMessages, turnTailIds } from "./history";
 import type { RawMessage } from "./messages";
@@ -13,8 +14,15 @@ const RPC_TIMEOUT_MS = 60_000;
 /** A fast model thinks for a fraction of a second: once the blue thinking ring shows, the next state waits this long. */
 const THINK_HOLD_MS = 1500;
 const CHILD_POLL_MS = 2000;
+/** How often coalesced tool previews reach the state; 10 fps is smooth for a tail and cheap to render. */
+const TOOL_UPDATE_FLUSH_MS = 100;
 /** The server refreshes usage figures on this order (account-billing.md: every 5 minutes). */
 const ACCOUNT_POLL_MS = 5 * 60_000;
+/** The host's answer when a terminal runs the session a desktop wants to open (ADR 0047); `yield` takes it over. */
+const TERMINAL_BUSY = "terminal_busy";
+const TERMINAL_DID_NOT_EXIT = "terminal_did_not_exit";
+/** A question this browser asks itself: ids stay out of omp's namespace and are answered locally. */
+const LOCAL_DIALOG_PREFIX = "local:";
 
 export interface ClientOptions {
   now?: () => number;
@@ -79,6 +87,27 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
       return () => rawListeners.delete(cb);
     },
   };
+  /** Questions this browser asks itself (a terminal holds the conversation): id -> how the user answered. */
+  const localAnswers = new Map<string, (confirmed: boolean) => void>();
+  let localSeq = 0;
+
+  /** Asks in the app's own dialog area; false when cancelled or superseded by a newer navigation. */
+  function askConfirm(title: string, message: string): Promise<boolean> {
+    const id = `${LOCAL_DIALOG_PREFIX}${++localSeq}`;
+    const { promise, resolve } = Promise.withResolvers<boolean>();
+    localAnswers.set(id, resolve);
+    set((s) => ({ ...s, dialogs: [...s.dialogs, { id, method: "confirm", title, message }] }));
+    return promise;
+  }
+
+  /** Drops questions nobody can answer anymore: the asker sees "no" and navigation does not hang. */
+  function cancelLocalDialogs(): void {
+    if (localAnswers.size === 0) return;
+    const pending = [...localAnswers.values()];
+    localAnswers.clear();
+    set((s) => ({ ...s, dialogs: s.dialogs.filter((d) => !d.id.startsWith(LOCAL_DIALOG_PREFIX)) }));
+    for (const resolve of pending) resolve(false);
+  }
   const rawPush = (dir: "in" | "out", text: string) => {
     rawFrames.push({ dir, text });
     if (rawFrames.length > RAW_CAP) rawFrames.splice(0, rawFrames.length - RAW_CAP);
@@ -97,9 +126,16 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
   let attached: PromiseWithResolvers<boolean> | undefined;
   let closed = false;
   let hydrating = false;
-  let snapshot: (EventFrame & { ring?: ChildStatus["ring"]; level?: ThinkingLevel; partial?: EventFrame; dialogs?: EventFrame[]; queue?: EventFrame }) | undefined;
+  let snapshot: (EventFrame & { ring?: ChildStatus["ring"]; level?: ThinkingLevel; partial?: EventFrame; toolUpdates?: EventFrame[]; dialogs?: EventFrame[]; queue?: EventFrame }) | undefined;
+
+  /** True while this page may change the conversation: it holds control, or nobody does (ADR 0047). */
+  const canWrite = (): boolean => !state.control || state.control.you;
+  /** The error a refused mutation shows: controlled elsewhere, or the link is gone. */
+  const notWritable = (): Error => new Error(t(canWrite() ? "err.notConnected" : "control.blocked"));
 
   function sendFrame(text: string): boolean {
+    // A conversation controlled elsewhere is read-only here (the host would drop the frame anyway, ADR 0047).
+    if (!canWrite() && !isReadOnlyFrame(text)) return false;
     if (!transport?.send(text)) return false;
     rawPush("out", text);
     return true;
@@ -122,7 +158,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     if (!sendFrame(JSON.stringify({ ...cmd, id }))) {
       pending.delete(id);
       clearTimeout(timer);
-      p.reject(new Error(t("err.notConnected")));
+      p.reject(notWritable());
     }
     return p.promise;
   }
@@ -323,15 +359,18 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
 
   /** Starts a history load. `keepView` leaves the conversation on screen (a cached copy, or the last one before a reconnect) until the load replaces it. */
   function resetSession(keepView = false): void {
+    cancelLocalDialogs();
     clearTimeout(hold?.timer);
     hold = undefined;
     runEnded = false;
     endInfo = undefined;
     deliveringQueue = false;
+    dropToolUpdates();
     set((s) => ({
       ...s,
       ...(keepView ? {} : { turns: [], tools: {}, subagents: [], title: "" }),
       queue: [], todos: [], dialogs: [], btw: [], loading: true, compacting: false, run: { state: "idle", streaming: false },
+      progress: { warnings: 0, statuses: {}, widgets: [] },
     }));
   }
 
@@ -363,7 +402,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
   function beginOpening(cwd: string, path: string): void {
     detach();
     resetSession();
-    set((s) => ({ ...s, childId: undefined, activeCwd: cwd, sessionFile: path, connection: "connecting", model: undefined, draftRestore: undefined }));
+    set((s) => ({ ...s, childId: undefined, activeCwd: cwd, sessionFile: path, connection: "connecting", model: undefined, draftRestore: undefined, control: undefined }));
     void preview(path);
   }
 
@@ -377,7 +416,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
       applyState(st);
       const applyHistory = (built: { turns: Turn[]; tools: Record<string, ToolCall> }) => {
         const nowMs = now();
-        const { ring, level, partial, dialogs, queue } = snapshot ?? {};
+        const { ring, level, partial, toolUpdates, dialogs, queue } = snapshot ?? {};
         const streaming = ring ? ring !== "idle" : state.run.streaming;
         const last = built.turns.at(-1);
         if (last && streaming) {
@@ -396,6 +435,8 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
           };
           if (queue || st.queuedMessages) next = applyFrame(next, queue ?? { type: "queue_update", ...st.queuedMessages }, nowMs);
           if (partial) next = applyFrame(next, partial, nowMs);
+          // What running tools streamed before this page attached: without it a reload shows an empty card.
+          for (const update of toolUpdates ?? []) next = applyFrame(next, update, nowMs);
           for (const dialog of dialogs ?? []) next = applyFrame(next, dialog, nowMs);
           return { ...next, connection: "ready", loading: false };
         });
@@ -452,7 +493,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     void ready.promise.then(() => clearTimeout(timer));
     set((s) => ({
       ...s, childId: child.id, activeCwd: child.cwd, sessionFile: child.sessionPath, connection: "connecting",
-      model: undefined, draftRestore: undefined, title: child.title ?? (keepView ? s.title : ""), thinking: { resolved: child.level, configured: "auto" },
+      model: undefined, draftRestore: undefined, control: undefined, title: child.title ?? (keepView ? s.title : ""), thinking: { resolved: child.level, configured: "auto" },
       children: [...s.children.filter((c) => c.id !== child.id), { ...child, unseen: false }],
     }));
     if (child.sessionPath) void preview(child.sessionPath);
@@ -477,18 +518,38 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
 
   function navigate(cwd: string, path?: string): Promise<boolean> {
     const request = ++navigation;
+    cancelLocalDialogs();
     if (path) beginOpening(cwd, path);
-    const pending = host.openChild(cwd, path).then((child) => {
-      if (request !== navigation || closed) return false;
-      attach(child);
-      return true;
-    }, (e) => {
-      if (request === navigation && !closed) {
-        if (path) set((s) => ({ ...s, connection: "closed", loading: false }));
-        toast(errorMessage(e));
+    const pending = (async (): Promise<boolean> => {
+      /** Whether the user allowed taking the conversation from a terminal (ADR 0047). */
+      let taking = false;
+      for (;;) {
+        try {
+          const child = await host.openChild(cwd, path, taking ? { yield: true } : undefined);
+          if (request !== navigation || closed) return false;
+          attach(child);
+          return true;
+        } catch (e) {
+          if (request !== navigation || closed) return false;
+          const code = errorMessage(e);
+          if (path && !taking && code === TERMINAL_BUSY) {
+            if (!await askConfirm(t("session.busy.title"), t("session.busy.message"))) {
+              if (request !== navigation || closed) return false;
+              set((s) => ({ ...s, connection: "closed", loading: false }));
+              return false;
+            }
+            if (request !== navigation || closed) return false;
+            taking = true;
+            continue;
+          }
+          if (path) set((s) => ({ ...s, connection: "closed", loading: false }));
+          if (code === TERMINAL_DID_NOT_EXIT) toast(t("err.terminalDidNotExit"));
+          else if (code === TERMINAL_BUSY) toast(t("session.busy.title"));
+          else toast(code);
+          return false;
+        }
       }
-      return false;
-    });
+    })();
     opening = pending;
     void pending.then(() => { if (opening === pending) opening = undefined; });
     return pending;
@@ -517,6 +578,32 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
   }
 
   // ------------------------------------------------------------------ frames
+  /**
+   * A streaming tool can send hundreds of previews per second. Only the newest one per call is worth drawing, so they
+   * are coalesced here and the state is updated at most every TOOL_UPDATE_FLUSH_MS; the reducer keeps the order of one
+   * call's previews by replacing its tail.
+   */
+  let toolUpdates = new Map<string, EventFrame>();
+  let toolUpdateTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function flushToolUpdates(): void {
+    if (toolUpdateTimer) {
+      clearTimeout(toolUpdateTimer);
+      toolUpdateTimer = undefined;
+    }
+    if (!toolUpdates.size) return;
+    const frames = [...toolUpdates.values()];
+    toolUpdates = new Map();
+    const at = now();
+    set((s) => frames.reduce((acc, f) => applyFrame(acc, f, at), s));
+  }
+
+  function dropToolUpdates(): void {
+    clearTimeout(toolUpdateTimer);
+    toolUpdateTimer = undefined;
+    toolUpdates = new Map();
+  }
+
   function onFrame(text: string): void {
     rawPush("in", text);
     let f: EventFrame | Response;
@@ -535,11 +622,25 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
       return;
     }
     const ev = f as EventFrame & Record<string, unknown>;
+    if (ev.type === "cgs_control") {
+      // Control is independent of the history load: the host sends it right after the stream opens, and a page that
+      // dropped it while hydrating would keep writing into a conversation it no longer controls (ADR 0047).
+      set((s) => applyFrame(s, ev, now()));
+      return;
+    }
     if (ev.type === "bridge_snapshot") {
       if (hydrating) snapshot = ev;
       return;
     }
     if (hydrating && ev.type !== "bridge_exit") return;
+    if (ev.type === "tool_execution_update" || ev.type === "tool_stream_update") {
+      if (!ev.toolCallId) return;
+      toolUpdates.set(ev.toolCallId, ev);
+      toolUpdateTimer ??= setTimeout(flushToolUpdates, TOOL_UPDATE_FLUSH_MS);
+      return;
+    }
+    // Whatever ends or replaces the run must not be drawn before the previews that led to it.
+    if (ev.type === "tool_execution_end" || ev.type === "agent_end" || ev.type === "prompt_result" || ev.type === "session_settled" || ev.type === "bridge_exit") flushToolUpdates();
     switch (ev.type) {
       case "bridge_exit":
         clearTimeout(hold?.timer);
@@ -631,6 +732,12 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
           return;
         }
       }
+      if (!canWrite()) {
+        // Another client controls the conversation (ADR 0047): the text goes back to the editor, nothing is sent.
+        restoreDraft(textTrimmed, images);
+        toast(t("control.blocked"));
+        return;
+      }
       const current = epoch;
       if (state.run.streaming) {
         try {
@@ -687,6 +794,17 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     restoreDraft,
     notify: toast,
     answerDialog: (id: string, answer: DialogAnswer) => {
+      const settle = localAnswers.get(id);
+      if (settle) {
+        localAnswers.delete(id);
+        set((s) => ({ ...s, dialogs: s.dialogs.filter((d) => d.id !== id) }));
+        settle("confirmed" in answer && answer.confirmed);
+        return;
+      }
+      if (!canWrite()) {
+        toast(t("control.blocked"));
+        return;
+      }
       sendFrame(JSON.stringify({ type: "extension_ui_response", id, ...answer }));
       set((s) => ({ ...s, dialogs: s.dialogs.filter((d) => d.id !== id) }));
     },
@@ -781,6 +899,13 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     },
     refreshSessions,
     refreshAccount,
+    takeControl: () =>
+      guard(async () => {
+        const child = state.childId;
+        if (!child) throw new Error(t("control.unavailable"));
+        if (!host.takeControl) throw new Error(t("control.unavailable"));
+        await host.takeControl(child);
+      }),
     completePath: (typed) => host.complete(typed),
     listDir: (dir) => workspace().list(state.activeCwd, dir),
     readFile: (path) => workspace().read(state.activeCwd, path),
@@ -833,9 +958,11 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
     raw,
     close: () => {
       closed = true;
+      cancelLocalDialogs();
       clearInterval(poll);
       clearInterval(accountPoll);
       clearTimeout(hold?.timer);
+      dropToolUpdates();
       unsubscribeLocale();
       detach();
     },

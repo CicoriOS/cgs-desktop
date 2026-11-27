@@ -1,4 +1,7 @@
+import { hostZh } from "./host.zh";
+import { loginZh } from "./login.zh";
 import { settingsZh } from "./settings.zh";
+import { shellZh } from "./shell.zh";
 
 // Source language. `en.ts` must define the same keys (checked by the type below and by test/i18n.test.ts).
 export const zh = {
@@ -105,6 +108,13 @@ export const zh = {
   "composer.recall": "撤回到输入框",
   "composer.queueHint": "将在模型下一次调用前插入　·　输入框为空时再按回车：打断并立即发送",
 
+  "control.remote": "正在被远程使用",
+  "control.taken": "{name} 正在使用这个对话",
+  "control.takeOver": "点击接管",
+  "control.blocked": "这个对话正被其他端控制，暂时不能修改",
+  "control.unavailable": "这个连接不支持接管",
+  "control.sideBadge": "{name} 正在控制",
+
   "pop.aria": "模型与思考强度",
   "pop.thinking": "思考强度",
   "pop.effort": "强度：",
@@ -153,6 +163,7 @@ export const zh = {
   "tool.truncated": "… 已截断",
   "tool.ms": "{n} 毫秒",
   "tool.sec": "{n} 秒",
+  "tool.elapsed": "{n}s",
   "tool.cell": "单元格 {n}",
   "tool.image": "输出图片 {n}",
   "tool.agent": "智能体 {n}",
@@ -182,6 +193,9 @@ export const zh = {
   "err.timeout": "{cmd}：{n} 秒内没有响应",
   "err.forkTarget": "找不到要分叉的消息",
   "err.noWorkspace": "这台设备没有提供文件与 Git 接口",
+  "err.terminalDidNotExit": "终端没有在 5 秒内退出,请稍后再试",
+  "session.busy.title": "终端正在运行这个对话",
+  "session.busy.message": "这个对话正在终端里运行任务。接管会中断该任务,终端随后退出。",
   "toast.exited": "omp 已退出（{code}）",
   "toast.forkCancelled": "分叉已取消",
   "form.required": "必填",
@@ -350,7 +364,29 @@ export const zh = {
   "compact.mode.handoff": "交接压缩",
   "compact.desc.handoff": "后台生成交接文档，并就地压缩",
   "compact.fallback": "快速压缩没能完成，改用{mode}…",
+
+  "run.compaction.auto": "自动压缩上下文…",
+  "run.compaction.manual": "压缩上下文…",
+  "run.compaction.reason.threshold": "超出阈值",
+  "run.compaction.reason.overflow": "上下文溢出",
+  "run.compaction.reason.idle": "空闲整理",
+  "run.compaction.reason.incomplete": "上次未完成",
+  "run.retry": "重试 {attempt}/{max}",
+  "run.retry.countdown": "{n} 秒后再试",
+  "run.retry.now": "正在重试",
+  "run.fallback": "已回退到 {model}",
+  "run.fallback.from": "原模型 {from}",
+  "run.fallback.ok": "回退模型成功：{model}",
+  "run.warming": "预热提示缓存…",
+  "run.goal": "目标：{goal}",
+  "run.configWarnings": "配置有警告，详情见 omp 终端输出",
+  "run.dismiss": "关闭",
+  "run.todoReminder": "待办提醒（{attempt}/{max}）：还有任务没有更新",
+  "run.irc": "IRC 消息",
   ...settingsZh,
+  ...hostZh,
+  ...loginZh,
+  ...shellZh,
 } as const;
 
 export type MessageKey = keyof typeof zh;

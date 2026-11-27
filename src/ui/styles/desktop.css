@@ -31,3 +31,18 @@ html[data-drop-target="workspace"] #sidebar .drop-hint {
   display: grid; place-items: center; position: absolute; inset: 6px; z-index: 5; padding: 16px; text-align: center; pointer-events: none;
   border: 2px dashed var(--accent); border-radius: 12px; background: color-mix(in srgb, var(--accent) 12%, var(--side)); color: var(--accent); font-size: 13px;
 }
+
+/* The settings gear's update dot (ADR 0046 §6). */
+#side-user .gear { position: relative; }
+.gear-dot { position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 2px var(--side); }
+
+/* The window close prompt (ADR 0046 §5): background or quit, with "don't ask again". */
+.close-prompt-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; background: rgb(0 0 0 / 34%); }
+.close-prompt { width: min(440px, calc(100vw - 40px)); padding: 22px 24px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 18px 48px rgb(0 0 0 / 24%); }
+.close-prompt-title { margin: 0 0 8px; font-size: 17px; font-weight: 650; }
+.close-prompt-body { margin: 0 0 14px; color: var(--muted); line-height: 1.6; font-size: 13px; }
+.close-prompt-remember { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12.5px; }
+.close-prompt-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.close-prompt-actions button { padding: 6px 14px; border: 1px solid var(--line2); border-radius: 8px; background: transparent; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.close-prompt-actions button:hover { background: var(--hover); }
+.close-prompt-actions .close-prompt-background { border-color: var(--accent); color: var(--accent); }

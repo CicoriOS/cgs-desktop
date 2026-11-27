@@ -11,6 +11,7 @@ import { baseName } from "../format";
 import { mentionText } from "../mentions";
 import { ArrowUpIcon, BoltIcon, CloseIcon, PlusIcon, StopIcon } from "../icons";
 import { Ring } from "../ring";
+import { ControlLock } from "./ControlLock";
 import { ModelPopover } from "./ModelPopover";
 
 const MAX_HEIGHT_PX = 220;
@@ -31,6 +32,9 @@ export function Composer() {
   const modelTooltip = model ? `${model.name} · ${model.provider}` : t("composer.model");
   const restore = useClientState((s) => s.draftRestore);
   const cwd = useClientState((s) => s.activeCwd);
+  const control = useClientState((s) => s.control);
+  /** Another client controls this conversation (ADR 0047): the box is covered and a click takes it back. */
+  const locked = !!control?.controller && !control.you;
 
   const [text, setText] = useState("");
   const [images, setImages] = useState<ImageRef[]>([]);
@@ -209,6 +213,7 @@ export function Composer() {
           ref={area}
           rows={1}
           value={text}
+          readOnly={locked}
           placeholder={streaming ? t("composer.placeholderBusy") : t("composer.placeholder")}
           onChange={(e) => setText(e.target.value)}
           onPaste={(e) => {
@@ -227,11 +232,12 @@ export function Composer() {
         <button ref={ringBtn} type="button" className="icon" aria-haspopup="dialog" title={modelTooltip} onClick={(e) => (e.stopPropagation(), setPopover((v) => !v))}>
           <Ring state={ringState} level={level} />
         </button>
-        <button type="submit" id="send" data-mode={mode} title={BUTTON.title} aria-label={BUTTON.title} disabled={mode === "send" && !hasInput}>
+        <button type="submit" id="send" data-mode={mode} title={BUTTON.title} aria-label={BUTTON.title} disabled={locked || (mode === "send" && !hasInput)}>
           {BUTTON.icon}
         </button>
       </form>
       {popover && <ModelPopover anchor={ringBtn} onClose={() => setPopover(false)} />}
+      {locked && control?.controller && <ControlLock controller={control.controller} onTakeOver={() => void actions.takeControl()} />}
     </div>
   );
 }

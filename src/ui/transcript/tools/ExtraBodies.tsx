@@ -2,7 +2,7 @@ import type { ToolCall } from "../../../core/types";
 import { useT } from "../../../i18n";
 import { TodoList } from "../../TodoList";
 import { evalCells, list, rec, str, todoPhases } from "./details";
-import { Pre, resultText, TextBody } from "./BodyText";
+import { Pre, resultText, streamText, TextBody } from "./BodyText";
 
 type Props = { call: ToolCall };
 
@@ -29,7 +29,7 @@ export function EvalBody({ call }: Props) {
   const cells = evalCells(call);
   const details = rec(call.result?.details);
   const notice = str(details.notice);
-  const output = resultText(call);
+  const output = resultText(call) || streamText(call);
   const structured = cells.some(c => c.output !== undefined);
   const asyncStatus = str(rec(details.async).state);
   return <>
@@ -40,7 +40,7 @@ export function EvalBody({ call }: Props) {
       <Pre language={cell.language}>{cell.code}</Pre>
       {cell.output && <Pre label={t(cell.status === "error" ? "tool.err" : "tool.out")}>{cell.output}</Pre>}
     </div>)}
-    {!call.result ? <div className="lab">{t("tool.running")}</div>
+    {!call.result ? (call.stream ? <Pre tail label={t("tool.out")}>{output || t("tool.noOutput")}</Pre> : <div className="lab">{t("tool.running")}</div>)
       : (!structured || (call.result.isError && !cells.some(c => c.status === "error" && c.output))) && output
         ? <Pre label={t(call.result.isError ? "tool.err" : "tool.out")}>{output}</Pre> : null}
   </>;

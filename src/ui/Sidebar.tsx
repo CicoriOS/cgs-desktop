@@ -106,6 +106,8 @@ export function Sidebar({ onAddWorkspace, onNavigate, onOpenSettings, previewSig
                           <span className="t">{plainTitle(active && title ? title : s.title)}</span>
                           {ring !== "idle" && <Ring small state={ring} level={active ? level : child?.level ?? "high"} />}
                           {unseen && <span className="unseen" role="img" title={t("side.unseen")} aria-label={t("side.unseen")} />}
+                          {/* Another client controls it; our own control needs no mark (ADR 0047). */}
+                          {child?.controller && !child.controller.mine && <span className="ctrl" role="img" title={t("control.sideBadge", { name: child.controller.name })} aria-label={t("control.sideBadge", { name: child.controller.name })} />}
                           {ring === "idle" && !unseen && <span className="age">{relativeTime(s.updatedAt, now)}</span>}
                         </button>
                       );

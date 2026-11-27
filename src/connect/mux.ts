@@ -20,6 +20,7 @@
 // - A device-initiated close reports "closed" and reopens after CHILD_RETRY_MS, except for code 4004 (unknown child).
 //   The mux stops reconnecting when the transport is closed, replaced, or the mux is disconnected.
 
+import { isReadOnlyFrame } from "../core/frames";
 import type { ChildStatus, HostApi, RpcTransport, Workspace } from "../core/types";
 
 /** Stream path a child is attached at; the bridge serves it as `/ws?child=<id>`. */
@@ -28,21 +29,6 @@ export const CHILD_PATH = "/ws";
 export const CHILD_RETRY_MS = 1500;
 /** Close code the bridge uses for an unknown child: reconnecting cannot succeed. */
 const UNKNOWN_CHILD = 4004;
-
-/** The omp RPC commands that only read. Only these are sent while the mux is read-only. */
-const READ_ONLY_FRAMES: Record<string, true> = {
-  get_state: true,
-  get_entries: true,
-  get_messages: true,
-  get_session_stats: true,
-  get_subagents: true,
-  get_subagent_messages: true,
-  // Changes only which frames omp forwards to this connection, not the session.
-  set_subagent_subscription: true,
-  get_model_picker: true,
-  get_available_thinking_levels: true,
-  get_btw_history: true,
-};
 
 export type MuxMessage =
   | { type: "req"; id: string; path: string; body?: unknown }
@@ -89,8 +75,11 @@ export class RelayMux {
     complete: (typed) => this.#request(`/api/complete?path=${encodeURIComponent(typed)}`),
     addWorkspace: async (cwd) => void (await this.#request("/api/workspace", { cwd }, true)),
     children: async () => (await this.#request<{ children: ChildStatus[] }>("/api/children")).children,
-    openChild: (cwd, sessionPath) => this.#request("/api/children", { cwd, sessionPath }, true),
+    openChild: (cwd, sessionPath, options) => this.#request("/api/children", { cwd, sessionPath, ...options }, true),
     account: () => this.#request("/api/account"),
+    // Per conversation, so the controller of one conversation does not keep the others read-only (ADR 0047). Still a
+    // mutation: while another browser controls the device the mux refuses it, and the viewer takes the device over first.
+    takeControl: (childId) => this.#request(`/api/children/${encodeURIComponent(childId)}/control`, { take: true }, true),
   };
 
   /** One child's RpcTransport. Calling it again for the same child closes the earlier transport first. */
@@ -167,6 +156,19 @@ export class RelayMux {
     this.#readOnly = true;
   }
 
+  /**
+   * The link under the mux dropped but may come back (the relay socket, or the desktop sidecar restarting). Host calls in
+   * flight fail and every child closes, so each one reopens through the normal retry path once `send` works again. Unlike
+   * `disconnect`, this is not terminal: the mux stays usable and nothing tells the other end.
+   */
+  linkLost(): void {
+    if (this.#disconnected) return;
+    const error = new Error("relay link lost");
+    for (const pending of this.#pending.values()) pending.reject(error);
+    this.#pending.clear();
+    for (const stream of [...this.#streams.values()]) this.#lost(stream);
+  }
+
   /** Rejects pending host requests, closes every child, and sends nothing further. Terminal: use a new mux to reconnect. */
   disconnect(): void {
     if (this.#disconnected) return;
@@ -237,16 +239,6 @@ export class RelayMux {
     stream.status = status;
     for (const cb of stream.statuses) cb(status);
   }
-}
-
-function isReadOnlyFrame(frame: string): boolean {
-  let value: unknown;
-  try {
-    value = JSON.parse(frame);
-  } catch {
-    return false;
-  }
-  return typeof value === "object" && value !== null && "type" in value && typeof value.type === "string" && Object.hasOwn(READ_ONLY_FRAMES, value.type);
 }
 
 const REQUIRED_FIELDS: Record<MuxMessage["type"], readonly string[]> = {

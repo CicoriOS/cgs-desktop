@@ -8,7 +8,7 @@ import { demoSettings } from "./settings";
 import { demoWorkspace } from "./workspace";
 
 const HOME = "/home/demo";
-const DIRS = ["cgs-web", "payments-api", "notes", "playground"];
+const DIRS = ["cgs-web", "payments-api", "progress", "notes", "playground"];
 
 export interface DemoBackend {
   connect: (childId: string) => RpcTransport;
@@ -90,6 +90,8 @@ export function createDemoBackend(): DemoBackend {
       s.live = true;
       return s.child();
     },
+    // One viewer per conversation in the demo: the click on the lock makes it the controller (ADR 0047).
+    takeControl: async (childId) => byId(childId)?.takeControl(),
   };
 
   const connect = (childId: string): RpcTransport => {

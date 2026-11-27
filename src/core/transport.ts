@@ -67,6 +67,7 @@ export const bridgeHost: HostApi = {
   children: async () => (await call<{ children: ChildStatus[] }>("/api/children")).children,
   complete: (typed) => call(`/api/complete?path=${encodeURIComponent(typed)}`),
   addWorkspace: async (cwd) => void (await call("/api/workspace", { cwd })),
-  openChild: (cwd, sessionPath) => call("/api/children", { cwd, sessionPath }),
+  openChild: (cwd, sessionPath, options) => call("/api/children", { cwd, sessionPath, ...options }),
   account: () => call("/api/account"),
+  takeControl: async (childId) => void (await call(`/api/children/${encodeURIComponent(childId)}/control`, { take: true })),
 };

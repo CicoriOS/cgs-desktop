@@ -25,14 +25,15 @@ async function until(check: () => boolean, what: string, limitMs = 60_000): Prom
   }
 }
 
-test("the demo opens its newest conversation with history, todos and three sessions listed", async () => {
+test("the demo opens its newest conversation with history, todos and the session list", async () => {
   const c = demo();
   await until(() => c.getState().connection === "ready" && !c.getState().loading, "the first session");
   const s = c.getState();
   expect(s.turns).toHaveLength(3);
   expect(Object.values(s.tools).map((t) => t.name)).toEqual(expect.arrayContaining(["todo", "grep", "read", "edit", "write", "bash", "web_search", "eval"]));
   expect(s.todos[0]?.tasks.some((t) => t.status === "in_progress")).toBe(true);
-  await until(() => c.getState().workspaces.flatMap((w) => w.sessions).length === 3, "the session list");
+  await until(() => c.getState().workspaces.flatMap((w) => w.sessions).length === 6, "the session list");
+  expect(c.getState().workspaces.find((w) => w.cwd === "/home/demo/progress")?.sessions).toHaveLength(3);
 });
 
 test("a session opened while it waits for the user shows the question, and answering lets the run finish", async () => {
@@ -58,4 +59,22 @@ test("a prompt about subagents streams a run that fills the dock and settles", a
   await until(() => c.getState().subagents.some((x) => x.id === "scan-a"), "a subagent");
   await until(() => !c.getState().run.streaming && c.getState().turns.length === 4, "the run to settle");
   expect(c.getState().subagents.filter((x) => x.id.startsWith("scan-")).every((x) => x.status === "completed")).toBe(true);
+});
+
+test("a conversation a phone controls shows the lock; taking over makes this page the controller", async () => {
+  const c = demo();
+  await until(() => c.getState().connection === "ready" && c.getState().workspaces.length > 0, "the first session");
+  const workspace = c.getState().workspaces.find((w) => w.sessions.some((x) => x.title.includes("首屏加载优化")))!;
+  const session = workspace.sessions.find((x) => x.title.includes("首屏加载优化"))!;
+  await c.actions.openSession(session.path, workspace.cwd);
+  await until(() => c.getState().control?.you === false && c.getState().connection === "ready" && !c.getState().loading, "the lock");
+  expect(c.getState().control?.controller).toEqual({ kind: "remote", name: "iPhone 15 Pro" });
+
+  // A write while controlled goes back to the editor instead of reaching the host.
+  await c.actions.send("我来接手");
+  expect(c.getState().draftRestore?.text).toBe("我来接手");
+
+  await c.actions.takeControl();
+  await until(() => c.getState().control?.you === true, "control");
+  expect(c.getState().control?.controller).toBeUndefined();
 });
