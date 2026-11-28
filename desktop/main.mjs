@@ -84,6 +84,32 @@ ipcMain.on("window:toggleMaximize", (event) => {
   if (win) win.isMaximized() ? win.unmaximize() : win.maximize();
 });
 ipcMain.on("window:close", (event) => windowOf(event)?.close());
+
+// The sign-in pages are a small window: nothing to lay out yet, and a 1360x880 window around one card looks empty. The page asks for
+// it while it shows them and drops the request once the app opens; the size the window had before comes back then.
+const COMPACT = { width: 460, height: 660, minWidth: 380, minHeight: 520 };
+const FULL = { width: 1360, height: 880, minWidth: 420, minHeight: 520 };
+const beforeCompact = new WeakMap();
+ipcMain.on("window:compact", (event, compact) => {
+  const win = windowOf(event);
+  if (!win || win.isDestroyed()) return;
+  if (compact === beforeCompact.has(win)) return;
+  if (compact) {
+    if (win.isMaximized()) win.unmaximize();
+    beforeCompact.set(win, win.getBounds());
+    win.setMinimumSize(COMPACT.minWidth, COMPACT.minHeight);
+    win.setSize(COMPACT.width, COMPACT.height);
+    win.setMaximizable(false);
+    win.center();
+  } else {
+    const before = beforeCompact.get(win) ?? { width: FULL.width, height: FULL.height };
+    beforeCompact.delete(win);
+    win.setMaximizable(true);
+    win.setMinimumSize(FULL.minWidth, FULL.minHeight);
+    win.setSize(before.width, before.height);
+    win.center();
+  }
+});
 ipcMain.handle("window:isMaximized", (event) => windowOf(event)?.isMaximized() ?? false);
 
 // Which of the dropped paths are folders (the page only gets File objects, which cannot tell).

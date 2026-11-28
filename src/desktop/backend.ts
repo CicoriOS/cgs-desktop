@@ -2,10 +2,14 @@
 // the relay socket. The mux sees `send`/`receive` exactly as it does on the web, so host calls and child streams behave the
 // same in both products.
 import { RelayMux } from "../connect/mux";
-import type { HostApi, RpcTransport } from "../core/types";
+import type { AccountSnapshot, HostApi, RpcTransport } from "../core/types";
 import type { DesktopHost } from "./protocol";
 import { createSettingsApi } from "./settings";
 import { createWorkspaceApi } from "./workspace";
+
+function isAccountSnapshot(value: unknown): value is AccountSnapshot {
+  return typeof value === "object" && value !== null && typeof (value as { username?: unknown }).username === "string";
+}
 
 export interface DesktopBackend {
   connect: (childId: string) => RpcTransport;
@@ -31,6 +35,9 @@ export function createDesktopBackend(link: DesktopHost = requiredHost()): Deskto
   const host: HostApi = mux.host;
   const workspace = createWorkspaceApi();
   if (workspace) host.workspace = workspace;
+  host.watchAccount = (listener) => link.onEvent((name, data) => {
+    if (name === "account") listener(isAccountSnapshot(data) ? data : null);
+  });
   const settings = createSettingsApi(link);
   if (settings) host.settings = settings;
   return { connect: mux.transport, host };

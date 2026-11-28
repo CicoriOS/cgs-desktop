@@ -364,6 +364,8 @@ export interface HostApi {
   workspace?: WorkspaceApi;
   /** The signed-in CGS account (no tokens: the host holds them, ADR 0010). Undefined means signed out; rejection leaves the last snapshot stale. */
   account?(): Promise<AccountSnapshot | undefined>;
+  /** The host pushes a new snapshot when it has one (`null`: signed out). Polling `account` alone shows nothing until its next turn, which is minutes away when the first answer came before the server's. */
+  watchAccount?(listener: (account: AccountSnapshot | null) => void): () => void;
   /** Makes this connection the controller of one conversation (`/api/children/<id>/control`, ADR 0047); a host without control leaves it out. */
   takeControl?(childId: string): Promise<void>;
   settings?: SettingsApi;

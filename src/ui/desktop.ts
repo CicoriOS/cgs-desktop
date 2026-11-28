@@ -16,6 +16,8 @@ interface CgsDesktop {
     minimize(): void;
     toggleMaximize(): void;
     close(): void;
+    /** A small window for the sign-in pages (true), or the app's normal size again (false). */
+    setCompact(compact: boolean): void;
     isMaximized(): Promise<boolean>;
     /** Calls back when the window is maximized or restored; returns the way to stop listening. */
     onMaximized(listener: (maximized: boolean) => void): () => void;

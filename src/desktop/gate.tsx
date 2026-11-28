@@ -89,6 +89,12 @@ function copy(text: string): Promise<void> {
 export function SignedOutGate({ state }: { state: HostState }) {
   const t = useT();
   const host = desktopHost();
+  // A small window while the sign-in pages show; the app's size is restored when this unmounts (signed in, or the link went away).
+  useEffect(() => {
+    const win = desktop?.window;
+    win?.setCompact(true);
+    return () => win?.setCompact(false);
+  }, []);
   return (
     <div className="host-screen" data-host-state="signed-out">
       <header className="host-titlebar">

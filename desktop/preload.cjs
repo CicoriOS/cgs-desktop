@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld("cgsDesktop", {
     minimize: () => ipcRenderer.send("window:minimize"),
     toggleMaximize: () => ipcRenderer.send("window:toggleMaximize"),
     close: () => ipcRenderer.send("window:close"),
+    /** The sign-in pages ask for a small window while they show; false puts the window back. */
+    setCompact: (compact) => ipcRenderer.send("window:compact", compact),
     isMaximized: () => ipcRenderer.invoke("window:isMaximized"),
     onMaximized: (listener) => {
       const forward = (_event, maximized) => listener(maximized);

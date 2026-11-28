@@ -928,6 +928,11 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
   const poll = setInterval(() => void refreshChildren(), CHILD_POLL_MS);
   const accountPoll = setInterval(() => void refreshAccount(), ACCOUNT_POLL_MS);
   void refreshAccount();
+  const stopAccountWatch = host.watchAccount?.((account) => {
+    // Pushed by the host the moment its poll answers; a request still in flight must not overwrite it with an older answer.
+    accountRequest++;
+    if (!closed) set((s) => ({ ...s, account: account ?? undefined }));
+  });
   const bootstrap = Promise.all([host.info(), host.children(), host.sessions()]).then(
     ([info, children, workspaces]) => {
       if (closed || navigation) return;
@@ -961,6 +966,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
       cancelLocalDialogs();
       clearInterval(poll);
       clearInterval(accountPoll);
+      stopAccountWatch?.();
       clearTimeout(hold?.timer);
       dropToolUpdates();
       unsubscribeLocale();

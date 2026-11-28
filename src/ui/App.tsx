@@ -115,8 +115,8 @@ export function App({ profileUrl, settingsApi }: { profileUrl?: string; settings
           </div>
         </div>
         {workspaceDialog && <WorkspaceDialog onClose={() => setWorkspaceDialog(false)} />}
-        {!readOnly && <button type="button" id="rpc-pill" title={t("rpc.pill")} onClick={() => setRpc((v) => !v)}>RPC</button>}
-        {rpc && !readOnly && <RpcDrawer onClose={() => setRpc(false)} />}
+        {!readOnly && !desktop && <button type="button" id="rpc-pill" title={t("rpc.pill")} onClick={() => setRpc((v) => !v)}>RPC</button>}
+        {rpc && !readOnly && !desktop && <RpcDrawer onClose={() => setRpc(false)} />}
         {subagents.map((id, slot) => (
           <SubagentWindow key={id} id={id} slot={slot} z={SUBAGENT_Z + slot} onClose={() => setSubagents((l) => l.filter((x) => x !== id))} onFocus={() => focusSubagent(id)} />
         ))}
