@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useActions, useClientState, useReadOnly } from "./client-context";
 import { FEATURES } from "./features";
+import { desktop } from "./desktop";
 import { plainTitle } from "./format";
 import { ChatBubbleIcon, GaugeIcon, SidebarLeftIcon, SidebarRightIcon } from "./icons";
 import { setLocale, useLocale, useT } from "../i18n";
@@ -63,9 +64,9 @@ export function Topbar({ onToggleSide, onToggleRight, onToggleBtw, onToggleStats
           </button>
         </>
       )}
-      <button type="button" className="lang" title={t("lang.switch")} onClick={() => setLocale(locale === "zh" ? "en" : "zh")}>
+      {!desktop && <button type="button" className="lang" title={t("lang.switch")} onClick={() => setLocale(locale === "zh" ? "en" : "zh")}>
         {locale === "zh" ? "EN" : "中"}
-      </button>
+      </button>}
       {FEATURES.rightPanel && (
         <button type="button" className="icon" title={t("side.toggleRight")} onClick={onToggleRight}>
           <SidebarRightIcon />

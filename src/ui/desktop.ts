@@ -4,6 +4,7 @@ import type { DesktopHost, DesktopShell, DesktopUpdater } from "../desktop/proto
 
 interface CgsDesktop {
   platform: string;
+  systemLocale?: string;
   glass: boolean;
   /** The local host link (Electron main <-> sidecar); see cgsconnect/local-channel.md §8. */
   host?: DesktopHost;

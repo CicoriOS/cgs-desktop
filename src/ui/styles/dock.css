@@ -1,8 +1,6 @@
 /* The checklist is shared by the dock and the todo tool result. */
 #dock, .todo-list, .run-widgets { --todo-accent: #006e6b; --todo-mark-ink: #fff; }
-@media (prefers-color-scheme: dark) {
-  #dock, .todo-list, .run-widgets { --todo-accent: #75d4ce; --todo-mark-ink: #152c2b; }
-}
+:root[data-theme="dark"] :is(#dock, .todo-list, .run-widgets) { --todo-accent: #75d4ce; --todo-mark-ink: #152c2b; }
 .todo-list { padding: 8px; border-radius: 9px; background: color-mix(in srgb, var(--todo-accent) 9%, var(--surface)); }
 .todo-phase + .todo-phase { margin-block-start: 12px; }
 .todo-phase-name { padding: 2px 4px 6px; color: var(--todo-accent); font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }

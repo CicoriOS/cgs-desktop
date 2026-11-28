@@ -6,6 +6,4 @@
 .notice[open] > summary::after { transform: rotate(90deg); }
 .nt-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nt-body { padding: 0 10px 8px; max-height: 40vh; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; line-height: 1.5; }
-@media (prefers-color-scheme: dark) {
-  .notice { border-color: #5b5122; background: #302c17; color: #d8c982; }
-}
+:root[data-theme="dark"] .notice { border-color: #5b5122; background: #302c17; color: #d8c982; }

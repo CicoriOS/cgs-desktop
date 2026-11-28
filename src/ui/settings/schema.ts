@@ -15,7 +15,7 @@ export type Value = boolean | number | string;
 /** A choice is a translated `set.opt.*` key, or text shown as it is (model names, "100%"). */
 export const isOpt = (choice: string): choice is OptId => choice in settingsZh;
 
-/** What sits at the right of a row. Everything but `locale` is a placeholder: the value lives in the page and goes nowhere. */
+/** Language and theme are live preferences; other values only preview the control. */
 export type Control =
   | { kind: "toggle"; value: boolean }
   | { kind: "select"; value: string; options: string[] }
@@ -23,7 +23,7 @@ export type Control =
   | { kind: "number"; value: number; min: number; max: number; unit?: string }
   | { kind: "area"; value: string; rows: number }
   | { kind: "button"; label: OptId }
-  | { kind: "locale" };
+  | { kind: "locale" | "theme" };
 
 export interface Row {
   id: RowId;
@@ -77,7 +77,7 @@ export const PAGES: Page[] = [
     group: "app",
     icon: Sun,
     sections: [
-      { title: "set.sec.theme", rows: [segmented("set.row.theme", "set.opt.system", ["set.opt.system", "set.opt.light", "set.opt.dark"]), toggle("set.row.glass", true)] },
+      { title: "set.sec.theme", rows: [{ id: "set.row.theme", control: { kind: "theme" } }, toggle("set.row.glass", true)] },
       {
         title: "set.sec.layout",
         rows: [

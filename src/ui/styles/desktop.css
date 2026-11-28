@@ -20,9 +20,7 @@ html[data-glass] #sidebar {
   background: color-mix(in srgb, var(--side) 40%, transparent);
   border-right-color: transparent;
 }
-@media (prefers-color-scheme: dark) {
-  html[data-glass] #sidebar { --hover: rgba(255, 255, 255, .07); --active: rgba(255, 255, 255, .12); --line: rgba(255, 255, 255, .09); }
-}
+html[data-glass][data-theme="dark"] #sidebar { --hover: rgba(255, 255, 255, .07); --active: rgba(255, 255, 255, .12); --line: rgba(255, 255, 255, .09); }
 
 /* A file or folder dragged over the sidebar: dropping it there opens a workspace. */
 @media (min-width: 761px) { #sidebar { position: relative; } } /* the drawer layout already positions it */

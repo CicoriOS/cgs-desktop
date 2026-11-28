@@ -7,7 +7,7 @@ export const settingsEn: Record<keyof typeof settingsZh, string> = {
   "set.nav": "Settings pages",
   "set.profile": "Profile",
   "set.noMatch": "No settings match “{query}”",
-  "set.dummyNote": "Preview options. Apart from language, these are not saved or applied.",
+  "set.dummyNote": "Preview options are not saved or applied. Language and theme are live settings.",
   "set.dummy": "Placeholder setting, no effect yet",
   "set.ui.noAccount": "Not signed in",
   "set.ui.openProfile": "Open profile",

@@ -107,7 +107,10 @@ function createWindow() {
     ...glass,
     webPreferences: {
       preload: path.join(path.dirname(fileURLToPath(import.meta.url)), "preload.cjs"),
-      additionalArguments: glass ? ["--cgs-glass"] : [],
+      additionalArguments: [
+        ...(glass ? ["--cgs-glass"] : []),
+        `--cgs-system-locale=${app.getPreferredSystemLanguages()[0] ?? ""}`,
+      ],
       contextIsolation: true,
       sandbox: true,
     },

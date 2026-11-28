@@ -7,7 +7,7 @@ export const settingsZh = {
   "set.nav": "设置列表",
   "set.profile": "个人资料",
   "set.noMatch": "没有匹配“{query}”的设置",
-  "set.dummyNote": "此处为预览选项。除语言外，不会保存或生效。",
+  "set.dummyNote": "语言和主题设置即时生效；预览选项不会保存或生效。",
   "set.dummy": "占位设置，还不会生效",
   "set.ui.noAccount": "未登录",
   "set.ui.openProfile": "打开个人资料",

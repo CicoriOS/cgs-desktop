@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("cgsDesktop", {
   platform: process.platform,
+  systemLocale: process.argv.find((arg) => arg.startsWith("--cgs-system-locale="))?.slice("--cgs-system-locale=".length),
   /** The window itself is translucent (OS blur behind it); the page lets it show through the sidebar. */
   glass: process.argv.includes("--cgs-glass"),
   /** The page draws the title bar, so it also drives the window. */

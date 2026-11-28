@@ -18,15 +18,12 @@
   --composer-w: 950px;
   --topbar-h: 52px;
 }
-/* The browser reports a dark preference: the whole palette follows (the dark-only command block and its highlight colours stay as they are). */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1b1b1d; --side: #151516; --hover: #2a2a2d; --active: #303034; --line: #333337; --text: #ececec; --muted: #a0a0a6; --faint: #77777d;
-    --bubble: #2a2a2e; --accent: oklch(0.6359 0.1699 307.95); --danger: #ff6b61; --ok: #4ccc7d; --warning: #efba30;
-    --surface: #232326; --surface2: #1f1f22; --code: #2a2a2e; --on-btn: #141019; --toast: #3a3a3e;
-    --line2: #4a4a50; --ink2: #c8c8cc; --add-bg: #17301f; --add-fg: #5bd88a; --del-bg: #3a1d1b; --err-line: #6b2f2b;
-    color-scheme: dark;
-  }
+:root[data-theme="dark"] {
+  --bg: #1b1b1d; --side: #151516; --hover: #2a2a2d; --active: #303034; --line: #333337; --text: #ececec; --muted: #a0a0a6; --faint: #77777d;
+  --bubble: #2a2a2e; --accent: oklch(0.6359 0.1699 307.95); --danger: #ff6b61; --ok: #4ccc7d; --warning: #efba30;
+  --surface: #232326; --surface2: #1f1f22; --code: #2a2a2e; --on-btn: #141019; --toast: #3a3a3e;
+  --line2: #4a4a50; --ink2: #c8c8cc; --add-bg: #17301f; --add-fg: #5bd88a; --del-bg: #3a1d1b; --err-line: #6b2f2b;
+  color-scheme: dark;
 }
 /* The blank page keeps the original, narrower box; it widens once the first message is sent and the box drops to the bottom. */
 #app.empty { --composer-w: 760px; }
