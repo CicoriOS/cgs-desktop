@@ -11,6 +11,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { BunInstallError, installBun } from "./bun-install.mjs";
 import { bunCandidates, cgsCandidates, spawnOptions } from "./platform.mjs";
 
 /** A full `cgs --version` answer, or a bare version: both are accepted. */
@@ -334,14 +335,54 @@ export function writeMarker({ home, env, version, desktop, fs: fsOverride } = {}
   }
 }
 
-function boundVersionFromPackage() {
+/** One top-level field of package.json (`cgsVersion`, `bunInstall`), or undefined. */
+function packageField(name) {
   try {
     const file = new URL("../package.json", import.meta.url);
     const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-    return typeof parsed === "object" && parsed !== null && typeof parsed.cgsVersion === "string" ? parsed.cgsVersion : undefined;
+    return typeof parsed === "object" && parsed !== null ? parsed[name] : undefined;
   } catch {
     return undefined;
   }
+}
+
+const RESTART_TEXT = {
+  zh: {
+    title: "升级 CGS 需要重启本机服务",
+    body: "正在运行的会话会被中断。",
+    detail: "本机已有旧版本的 CGS 在后台运行。继续升级会停止它，之后由新版本重新启动。",
+    ok: "升级并重启",
+    cancel: "取消",
+  },
+  en: {
+    title: "Upgrading CGS restarts the local service",
+    body: "Running sessions will be interrupted.",
+    detail: "An older CGS is running in the background. Continuing stops it; the new version starts it again.",
+    ok: "Upgrade and restart",
+    cancel: "Cancel",
+  },
+};
+
+/**
+ * `confirmRestart` for `createCliSync`: a native dialog (this runs before any page can show one). The session count is
+ * not asked for: the sync runs before the sidecar, and `/api/children` is not reachable yet (local-channel.md §10).
+ */
+export function restartConfirmer({ app, dialog }) {
+  return async () => {
+    const lang = app?.getPreferredSystemLanguages?.()[0] ?? "";
+    const texts = /^zh(?:[-_]|$)/i.test(lang) ? RESTART_TEXT.zh : RESTART_TEXT.en;
+    const answer = await dialog.showMessageBox({
+      type: "warning",
+      buttons: [texts.ok, texts.cancel],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+      title: texts.title,
+      message: texts.body,
+      detail: texts.detail,
+    });
+    return answer.response === 0;
+  };
 }
 
 const tail = (lines, count = PROGRESS_LINES) => lines.slice(-count);
@@ -363,9 +404,13 @@ export function createCliSync({
   fs: fsOverride,
   confirmRestart,
   boundVersion,
+  bunPin,
+  fetch: fetchImpl,
+  arch = process.arch,
 } = {}) {
   const io = { ...REAL_FS, ...fsOverride };
-  const bound = boundVersion ?? boundVersionFromPackage();
+  const bound = boundVersion ?? packageField("cgsVersion");
+  const pin = bunPin ?? packageField("bunInstall");
   let state = { phase: "checking", progress: [] };
   let inflight;
   const listeners = new Set();
@@ -411,8 +456,8 @@ export function createCliSync({
       installed = read.version;
       versionLog = read.log;
     }
-    const bun = inspectBun({ env, platform, home, fs: io });
-    const plan = planCliSync({ found, installed, bound, bun, explicit });
+    let bun = inspectBun({ env, platform, home, fs: io });
+    let plan = planCliSync({ found, installed, bound, bun, explicit });
     const common = {
       progress: [],
       cgs: found?.path,
@@ -420,6 +465,30 @@ export function createCliSync({
       shadowed: inspection.shadowed,
       bound,
     };
+    if (plan.action === "error" && plan.code === "bun_missing") {
+      // No bun anywhere: fetch the pinned one. Where it cannot be fetched (unsupported platform) the page keeps the manual instructions.
+      set({ ...common, phase: "installing", progress: ["bun was not found; installing it"] });
+      try {
+        bun = await installBun({ pin, env, platform, arch, home, fetch: fetchImpl ?? ((...args) => globalThis.fetch(...args)), onProgress: progress });
+      } catch (error) {
+        if (error instanceof BunInstallError && error.code === "bun_unsupported") bun = undefined;
+        else if (error instanceof BunInstallError) return fail(error.code, "bun could not be installed.", error.message);
+        else throw error;
+      }
+      if (bun) {
+        const check = await runProcess({ spawn, command: bun, args: ["--version"], env, platform, timeoutMs: VERSION_TIMEOUT_MS });
+        if (check.code !== 0) {
+          // A bun that does not run (a wrong CPU build) must not stay: the next start would find it and fail inside `bun add`.
+          try {
+            fs.rmSync(bun, { force: true });
+          } catch {
+            /* nothing more to do */
+          }
+          return fail("bun_install_failed", "The downloaded bun does not run on this machine.", [check.stdout, check.stderr, check.error].filter(Boolean).join("\n"));
+        }
+        plan = planCliSync({ found, installed, bound, bun, explicit });
+      }
+    }
     if (plan.action === "refuse") {
       return set({
         ...common,

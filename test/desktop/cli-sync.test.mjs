@@ -1,9 +1,13 @@
 // CLI sync (ADR 0046 §3): version order, shadow detection, the install plan, and the real install path against fake
 // bun/cgs shell scripts in a temporary PATH. Nothing here touches the machine's real bun install or ~/.cgs.
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { deflateRawSync } from "node:zlib";
 import { afterEach, expect, test } from "vitest";
+import { bunAssetName, readZipEntry } from "../../desktop/bun-install.mjs";
 import {
   classifyInstallFailure,
   compareCgsVersions,
@@ -178,11 +182,171 @@ test("a newer major refuses to start and installs nothing", async () => {
   expect(() => readFileSync(path.join(fake.root, "bun.log"))).toThrow();
 });
 
-test("no bun and no CLI is bun_missing with the instructions detail", async () => {
+test("where bun cannot be installed, no bun and no CLI is bun_missing with the instructions detail", async () => {
   const fake = fakeInstall({ version: undefined, bun: false });
-  const sync = createCliSync({ app, env: fake.env, home: fake.root, boundVersion: BOUND });
+  const sync = createCliSync({ app, env: fake.env, home: fake.root, boundVersion: BOUND, platform: "win32" });
   const state = await sync.start();
   expect(state.phase).toBe("error");
   expect(state.code).toBe("bun_missing");
   expect(state.detail).toContain("Install bun");
+});
+
+// --- installing bun ------------------------------------------------------------------------------------------------
+
+/** A zip with one entry; `deflate` picks method 8 over stored. The reader does not check CRCs (the pinned SHA-256 covers the bytes). */
+function zipOf(name, data, deflate = false) {
+  const packed = deflate ? deflateRawSync(data) : data;
+  const method = deflate ? 8 : 0;
+  const nameBytes = Buffer.from(name);
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(method, 8);
+  local.writeUInt32LE(packed.length, 18);
+  local.writeUInt32LE(data.length, 22);
+  local.writeUInt16LE(nameBytes.length, 26);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(method, 10);
+  central.writeUInt32LE(packed.length, 20);
+  central.writeUInt32LE(data.length, 24);
+  central.writeUInt16LE(nameBytes.length, 28);
+  central.writeUInt32LE(0, 42);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(1, 8);
+  end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(central.length + nameBytes.length, 12);
+  end.writeUInt32LE(local.length + nameBytes.length + packed.length, 16);
+  return Buffer.concat([local, nameBytes, packed, central, nameBytes, end]);
+}
+
+const FAKE_BUN_SCRIPT = `#!/bin/sh
+if [ "$1" = "--version" ]; then echo 1.4.4; exit 0; fi
+echo "$@" >> "$BUN_INSTALL/bun.log"
+if [ "$1" = "add" ] && [ "$2" = "-g" ]; then
+  printf '#!/bin/sh\\necho cgs/19.2.1-cgs.5.4\\n' > "$BUN_INSTALL/bin/cgs"
+  chmod +x "$BUN_INSTALL/bin/cgs"
+  echo "installed $3"
+  exit 0
+fi
+exit 1
+`;
+
+const ASSETS = ["bun-linux-x64", "bun-linux-x64-baseline", "bun-linux-aarch64", "bun-darwin-x64", "bun-darwin-x64-baseline", "bun-darwin-aarch64"];
+
+/** A release host serving a zip for whichever asset the URL names, and the pin that matches those zips. */
+function fakeRelease({ script = FAKE_BUN_SCRIPT, tamper = false } = {}) {
+  const zips = new Map(ASSETS.map((asset) => [asset, zipOf(`${asset}/bun`, Buffer.from(script), true)]));
+  const pin = { version: "1.4.4", sha256: Object.fromEntries(ASSETS.map((asset) => [asset, createHash("sha256").update(zips.get(asset)).digest("hex")])) };
+  const urls = [];
+  const fetch = async (url) => {
+    urls.push(String(url));
+    const asset = /\/(bun-[a-z0-9-]+)\.zip$/.exec(String(url))?.[1];
+    const zip = zips.get(asset);
+    if (!zip) return new Response("", { status: 404 });
+    const body = tamper ? Buffer.concat([zip, Buffer.from("x")]) : zip;
+    return new Response(body, { headers: { "content-length": String(body.length) } });
+  };
+  return { pin, fetch, urls };
+}
+
+test("the bun asset follows the platform, and x64 without AVX2 takes the baseline build", () => {
+  expect(bunAssetName({ platform: "linux", arch: "x64", avx2: true })).toBe("bun-linux-x64");
+  expect(bunAssetName({ platform: "linux", arch: "x64", avx2: false })).toBe("bun-linux-x64-baseline");
+  expect(bunAssetName({ platform: "darwin", arch: "x64", avx2: false })).toBe("bun-darwin-x64-baseline");
+  expect(bunAssetName({ platform: "darwin", arch: "arm64" })).toBe("bun-darwin-aarch64");
+  expect(bunAssetName({ platform: "win32", arch: "x64", avx2: true })).toBeUndefined();
+});
+
+test("a zip entry is read stored or deflated, and a missing one is an error", () => {
+  const data = Buffer.from("0123456789".repeat(50));
+  expect(readZipEntry(zipOf("a/bun", data), "a/bun").equals(data)).toBe(true);
+  expect(readZipEntry(zipOf("a/bun", data, true), "a/bun").equals(data)).toBe(true);
+  expect(() => readZipEntry(zipOf("a/bun", data), "b/bun")).toThrow("not in the archive");
+});
+
+test("no bun: the pinned bun is downloaded, checked and used to install the CLI", async () => {
+  const fake = fakeInstall({ version: undefined, bun: false });
+  const release = fakeRelease();
+  const sync = createCliSync({ app, env: fake.env, home: fake.root, boundVersion: BOUND, bunPin: release.pin, fetch: release.fetch, arch: "arm64" });
+  const state = await sync.start();
+  expect(state.phase).toBe("ready");
+  expect(release.urls).toHaveLength(1);
+  expect(release.urls[0]).toContain("/bun-v1.4.4/");
+  expect(existsSync(path.join(fake.root, "bin", "bun"))).toBe(true);
+  expect(readFileSync(path.join(fake.root, "bun.log"), "utf8")).toContain("add -g @cicori/cgs@19.2.1-cgs.5.4");
+});
+
+test("a bun the user already has is used as it is: nothing is downloaded", async () => {
+  const fake = fakeInstall({ version: undefined });
+  const sync = createCliSync({
+    app,
+    env: fake.env,
+    home: fake.root,
+    boundVersion: BOUND,
+    bunPin: fakeRelease().pin,
+    fetch: async () => {
+      throw new Error("must not download");
+    },
+  });
+  expect((await sync.start()).phase).toBe("ready");
+});
+
+test("a download that does not match the pinned checksum installs nothing", async () => {
+  const fake = fakeInstall({ version: undefined, bun: false });
+  const release = fakeRelease({ tamper: true });
+  const sync = createCliSync({ app, env: fake.env, home: fake.root, boundVersion: BOUND, bunPin: release.pin, fetch: release.fetch, arch: "arm64" });
+  const state = await sync.start();
+  expect(state.phase).toBe("error");
+  expect(state.code).toBe("bun_install_failed");
+  expect(state.log).toContain("pinned checksum");
+  expect(existsSync(path.join(fake.root, "bin", "bun"))).toBe(false);
+});
+
+test("an unreachable host is reported as offline", async () => {
+  const fake = fakeInstall({ version: undefined, bun: false });
+  const sync = createCliSync({
+    app,
+    env: fake.env,
+    home: fake.root,
+    boundVersion: BOUND,
+    bunPin: fakeRelease().pin,
+    arch: "arm64",
+    fetch: async () => {
+      throw new TypeError("fetch failed");
+    },
+  });
+  const state = await sync.start();
+  expect(state.code).toBe("offline");
+});
+
+test("a downloaded bun that does not run is removed, so a retry downloads again", async () => {
+  const fake = fakeInstall({ version: undefined, bun: false });
+  const release = fakeRelease({ script: "#!/bin/sh\nexit 4\n" });
+  const sync = createCliSync({ app, env: fake.env, home: fake.root, boundVersion: BOUND, bunPin: release.pin, fetch: release.fetch, arch: "arm64" });
+  const state = await sync.start();
+  expect(state.code).toBe("bun_install_failed");
+  expect(existsSync(path.join(fake.root, "bin", "bun"))).toBe(false);
+});
+
+// --- restarting the daemon -----------------------------------------------------------------------------------------
+
+test("an upgrade does not start while the user has not allowed the running service to restart", async () => {
+  const fake = fakeInstall({ version: "19.2.1-cgs.5.3" });
+  const daemon = path.join(fake.root, ".cgs", "run", "daemon");
+  mkdirSync(daemon, { recursive: true });
+  writeFileSync(path.join(daemon, "daemon.lock"), "");
+  writeFileSync(path.join(daemon, "daemon.db"), "");
+  const server = net.createServer();
+  await new Promise((resolve) => server.listen(path.join(daemon, "daemon.sock"), resolve));
+  try {
+    let asked = 0;
+    const sync = createCliSync({ app, env: fake.env, home: fake.root, boundVersion: BOUND, confirmRestart: async () => (asked += 1, false) });
+    const state = await sync.start();
+    expect(asked).toBe(1);
+    expect(state.code).toBe("restart_cancelled");
+    expect(existsSync(path.join(fake.root, "bun.log"))).toBe(false);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });

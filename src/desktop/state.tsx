@@ -32,6 +32,7 @@ const ERROR_KEYS: Record<string, MessageKey> = {
   protocol_mismatch: "host.err.protocol_mismatch",
   cgs_too_new: "host.err.cgs_too_new",
   bun_missing: "host.err.bun_missing",
+  bun_install_failed: "host.err.bun_install_failed",
   install_failed: "host.err.install_failed",
   offline: "host.err.offline",
   cgs_not_managed: "host.err.cgs_not_managed",
