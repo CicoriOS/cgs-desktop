@@ -79,15 +79,23 @@ export function resolveBun(options = {}) {
   return bunCandidates(options).find((candidate) => isExecutable(candidate, platform));
 }
 
-/** `<root>/packages/connect/src/desktop/sidecar.ts` for the resolved `cgs` (the published package keeps this layout). */
-export function sidecarModuleFor(cgsPath) {
+/**
+ * `<root>/packages/connect/src/desktop/sidecar.ts` for the resolved `cgs` (the published package keeps this layout).
+ * POSIX: `~/.bun/bin/cgs` is a link into the package. Windows: bun installs a `cgs.exe` shim that is not a link, so the
+ * package is found at its global install path next to `bin` (checked on a Windows guest, 2026-11-28).
+ */
+export function sidecarModuleFor(cgsPath, { platform = process.platform, exists = fs.existsSync } = {}) {
   let resolved = cgsPath;
   try {
     resolved = fs.realpathSync(cgsPath);
   } catch {
     /* not a link, or already gone: resolve from the path as given */
   }
-  return path.resolve(path.dirname(resolved), "..", SIDECAR_MODULE);
+  const bin = path.dirname(resolved);
+  const linked = path.resolve(bin, "..", SIDECAR_MODULE);
+  if (platform !== "win32") return linked;
+  const installed = path.resolve(bin, "..", "install", "global", "node_modules", "@cicori", "cgs", SIDECAR_MODULE);
+  return exists(linked) || !exists(installed) ? linked : installed;
 }
 
 /** `CGS_SIDECAR` overrides the whole command in development: a JSON array, first element the executable. */
@@ -116,7 +124,7 @@ export function resolveSidecarCommand({ env = process.env, platform = process.pl
     const checked = cgsCandidates({ env, platform, home });
     return { error: "cgs_not_found", log: `cgs not found; checked:\n${checked.join("\n")}` };
   }
-  const module = sidecarModuleFor(cli);
+  const module = sidecarModuleFor(cli, { platform, exists });
   if (!exists(module)) return { error: "sidecar_missing", log: `cgs: ${cli}\nmissing sidecar module: ${module}` };
   return { command: cli, args: ["__cgs_worker_module", module], source: "cgs", cgs: cli, module };
 }

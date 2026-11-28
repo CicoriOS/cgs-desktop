@@ -76,3 +76,34 @@ test("the sidebar marks conversations another client controls, not this window's
     await act(async () => root.unmount());
   }
 });
+
+test("a client that only reads the device's list shows pinned workspaces first with a mark, and offers no menu to change them", async () => {
+  const { window, document } = parseHTML("<html><body><div id='root'></div></body></html>");
+  vi.stubGlobal("window", window);
+  vi.stubGlobal("document", document);
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  setLocale("zh");
+  const state: ClientState = {
+    ...initialState(),
+    connection: "ready",
+    workspacesLoaded: true,
+    workspaces: [
+      { cwd: "/w/recent", sessions: [{ path: "/s/r.jsonl", id: "r", title: "r", updatedAt: 9 }] },
+      { cwd: "/w/older-pin", sessions: [], pinnedAt: 100 },
+      { cwd: "/w/newer-pin", sessions: [], pinnedAt: 200 },
+    ],
+  };
+  const root = createRoot(document.getElementById("root") as unknown as HTMLElement);
+  try {
+    await act(async () => {
+      root.render(createElement(ClientProvider, { client: fakeClient(state), children: createElement(Sidebar, { onAddWorkspace: () => {}, onNavigate: () => {}, onOpenSettings: () => {} }) }));
+    });
+    const heads = [...document.querySelectorAll(".ws-head")];
+    expect(heads.map((h) => h.getAttribute("title"))).toEqual(["/w/newer-pin", "/w/older-pin", "/w/recent"]);
+    expect(heads.map((h) => h.querySelector(".pin") !== null)).toEqual([true, true, false]);
+    heads[0]!.dispatchEvent(new window.Event("contextmenu", { bubbles: true, cancelable: true }));
+    expect(document.getElementById("ws-menu")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

@@ -44,3 +44,19 @@ html[data-drop-target="workspace"] #sidebar .drop-hint {
 .close-prompt-actions button { padding: 6px 14px; border: 1px solid var(--line2); border-radius: 8px; background: transparent; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
 .close-prompt-actions button:hover { background: var(--hover); }
 .close-prompt-actions .close-prompt-background { border-color: var(--accent); color: var(--accent); }
+
+/* A native app's chrome is not text: labels, menus and cards cannot be selected or copied. Only conversation content,
+   file and diff bodies, the RPC log, form fields and the sign-in link are text on purpose. */
+html[data-shell="desktop"] body { -webkit-user-select: none; user-select: none; }
+html[data-shell="desktop"] :is(
+  input, textarea, [contenteditable]:not([contenteditable="false"]),
+  #transcript, .sub-body, .file-body, .chg-diff, #rpc-log
+) { -webkit-user-select: text; user-select: text; }
+/* Controls inside a text region stay chrome: dragging across a button must not select its label. */
+html[data-shell="desktop"] :is(#transcript, .sub-body, .file-body, .chg-diff, #rpc-log) :is(button, summary, .actions) { -webkit-user-select: none; user-select: none; }
+
+/* Right-click menu of a workspace row. */
+#ws-menu { position: fixed; z-index: 80; min-width: 216px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 30px rgba(0, 0, 0, .16); }
+#ws-menu button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; padding: 7px 10px; border-radius: 8px; text-align: left; font-size: 13.5px; }
+#ws-menu button:hover, #ws-menu button:focus-visible { background: var(--hover); outline: 0; }
+#ws-menu small { color: var(--muted); font-size: 11.5px; }

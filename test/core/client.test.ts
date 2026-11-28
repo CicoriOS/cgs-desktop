@@ -533,3 +533,32 @@ test("quick compaction that fails falls back to the local summary once; a failin
   expect(commands().slice(4)).toEqual(["/compact remote"]);
   expect(c.getState().compacting).toBe(false);
 });
+
+test("removing the workspace on screen moves to another one, or back to the first-run state when none is left", async () => {
+  const lists = [[{ cwd: "/work", sessions: [] }, { cwd: "/other", sessions: [] }], [{ cwd: "/other", sessions: [] }], []];
+  let read = 0;
+  const removed: string[] = [];
+  const opened: string[] = [];
+  const host = {
+    ...fakeHost,
+    sessions: async () => lists[Math.min(read++, lists.length - 1)]!,
+    removeWorkspace: async (cwd: string) => void removed.push(cwd),
+    openChild: async (cwd: string, sessionPath?: string) => (opened.push(cwd), { ...childA, id: `c-${cwd}`, cwd, sessionPath }),
+  };
+  const t = fakeTransport();
+  const c = createClient(() => t.transport, host);
+  clients.add(c);
+  await tick();
+  await tick();
+  expect(c.getState().activeCwd).toBe("/work");
+
+  await c.actions.removeWorkspace("/work");
+  await tick();
+  expect(removed).toEqual(["/work"]);
+  expect(opened.at(-1)).toBe("/other");
+  expect(c.getState().activeCwd).toBe("/other");
+
+  await c.actions.removeWorkspace("/other");
+  await tick();
+  expect(c.getState()).toMatchObject({ activeCwd: "", workspaces: [], workspacesLoaded: true, connection: "closed" });
+});

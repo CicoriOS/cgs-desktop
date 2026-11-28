@@ -276,6 +276,7 @@ export const zh = {
   "acct.resetsIn": "{when}后重置",
   "acct.expiresOn": "{date} 到期",
   "acct.stale": "数据可能已过期",
+  "acct.loading": "正在载入账号",
   "ask.title": "向你提问",
   "ask.waiting": "等待你回答…",
   "ask.noAnswer": "（未作答）",

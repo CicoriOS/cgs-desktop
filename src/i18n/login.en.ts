@@ -80,5 +80,4 @@ export const loginEn: Record<keyof typeof loginZh, string> = {
   "login.err.password_mismatch": "The passwords do not match.",
   "login.err.code_format": "Enter the 6-digit code from the email.",
 
-  "acct.signOutFailed": "Sign-out failed: {code}",
 };

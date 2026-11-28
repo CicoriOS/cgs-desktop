@@ -209,3 +209,27 @@ test("malformed inbound messages are ignored", () => {
   mux.receive({ type: "close", cid: 7 });
   expect(frames).toEqual([]);
 });
+
+test("only a desktop mux can remove a workspace; the remote client's host has no such method", async () => {
+  const remote = harness();
+  expect(remote.mux.host.removeWorkspace).toBeUndefined();
+
+  const { mux, sent } = harness();
+  mux.enableWorkspaceEditing();
+  const removed = mux.host.removeWorkspace!("/w/old");
+  const req = lastRequest(sent);
+  expect(req).toEqual({ type: "req", id: req.id, path: "/api/workspace/remove", body: { cwd: "/w/old" } });
+  mux.receive({ type: "res", id: req.id, status: 409, body: { error: "workspace_busy" } });
+  await expect(removed).rejects.toThrow("workspace_busy");
+});
+
+test("pinning goes to the device as a desktop-only call, and a remote mux has no pin method", async () => {
+  expect(harness().mux.host.pinWorkspace).toBeUndefined();
+  const { mux, sent } = harness();
+  mux.enableWorkspaceEditing();
+  const pinned = mux.host.pinWorkspace!("/w/a", true);
+  const req = lastRequest(sent);
+  expect(req).toEqual({ type: "req", id: req.id, path: "/api/workspace/pin", body: { cwd: "/w/a", pinned: true } });
+  mux.receive({ type: "res", id: req.id, status: 200, body: { cwd: "/w/a", pinned: true } });
+  await expect(pinned).resolves.toBeUndefined();
+});

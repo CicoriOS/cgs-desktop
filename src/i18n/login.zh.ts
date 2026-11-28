@@ -80,5 +80,4 @@ export const loginZh = {
   "login.err.password_mismatch": "两次输入的密码不一致。",
   "login.err.code_format": "请输入邮件中的 6 位数字验证码。",
 
-  "acct.signOutFailed": "退出登录失败：{code}",
 } as const;

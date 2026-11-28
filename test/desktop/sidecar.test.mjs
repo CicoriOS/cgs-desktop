@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, test } from "vitest";
-import { resolveSidecarCommand } from "../../desktop/platform.mjs";
+import { resolveSidecarCommand, sidecarModuleFor } from "../../desktop/platform.mjs";
 import { createSidecar } from "../../desktop/sidecar.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -121,6 +121,14 @@ test("platform: CGS_SIDECAR overrides the command; broken JSON is reported", () 
   expect(resolveSidecarCommand({ env: { CGS_SIDECAR: '["/bin/echo","a","b"]' } })).toMatchObject({ command: "/bin/echo", args: ["a", "b"], source: "env" });
   expect(resolveSidecarCommand({ env: { CGS_SIDECAR: "not json" } }).error).toBe("cgs_sidecar_invalid");
   expect(resolveSidecarCommand({ env: { CGS_SIDECAR: "[]" } }).error).toBe("cgs_sidecar_invalid");
+});
+
+test("platform: Windows finds the module in bun's global install, since cgs.exe is a shim and not a link", () => {
+  const bin = path.join(os.tmpdir(), "no-such-bun", "bin");
+  const installed = path.join(path.dirname(bin), "install", "global", "node_modules", "@cicori", "cgs", "packages", "connect", "src", "desktop", "sidecar.ts");
+  const onlyInstalled = (p) => p === installed;
+  expect(sidecarModuleFor(path.join(bin, "cgs.exe"), { platform: "win32", exists: onlyInstalled })).toBe(installed);
+  expect(sidecarModuleFor(path.join(bin, "cgs.exe"), { platform: "linux", exists: onlyInstalled })).not.toBe(installed);
 });
 
 test("platform: a resolved cgs gets the P19 entry point; stale or missing installs are error codes", () => {

@@ -276,6 +276,7 @@ export const en: Record<MessageKey, string> = {
   "acct.resetsIn": "Resets in {when}",
   "acct.expiresOn": "Expires {date}",
   "acct.stale": "Data may be out of date",
+  "acct.loading": "Loading account",
   "ask.title": "Asked you",
   "ask.waiting": "Waiting for your answer…",
   "ask.noAnswer": "(not answered)",
