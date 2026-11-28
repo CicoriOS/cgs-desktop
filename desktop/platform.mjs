@@ -79,6 +79,17 @@ export function resolveBun(options = {}) {
   return bunCandidates(options).find((candidate) => isExecutable(candidate, platform));
 }
 
+/** Bun's CLI shims need the selected runtime on PATH even on the first launch, before any shell profile is updated. */
+export function withBunPath(env, bun, platform = process.platform) {
+  if (!bun) return env;
+  const key = platform === "win32" ? Object.keys(env).find((name) => name.toUpperCase() === "PATH") ?? "PATH" : "PATH";
+  const current = env[key];
+  const dir = path.dirname(bun);
+  const delimiter = delimiterOf(platform);
+  if (current === dir || current?.startsWith(`${dir}${delimiter}`)) return env;
+  return { ...env, [key]: current ? `${dir}${delimiter}${current}` : dir };
+}
+
 /**
  * `<root>/packages/connect/src/desktop/sidecar.ts` for the resolved `cgs` (the published package keeps this layout).
  * POSIX: `~/.bun/bin/cgs` is a link into the package. Windows: bun installs a `cgs.exe` shim that is not a link, so the
@@ -129,9 +140,9 @@ export function resolveSidecarCommand({ env = process.env, platform = process.pl
   return { command: cli, args: ["__cgs_worker_module", module], source: "cgs", cgs: cli, module };
 }
 
-/** The environment the sidecar starts with: the app's own, plus the protocol marker (cgsconnect/local-channel.md §1). */
+/** The environment the sidecar starts with: the app's own, plus Bun's path and the protocol marker. */
 export function sidecarEnv(env = process.env) {
-  return { ...env, CGS_SIDECAR_PROTOCOL: String(SIDECAR_PROTOCOL) };
+  return { ...withBunPath(env, resolveBun({ env })), CGS_SIDECAR_PROTOCOL: String(SIDECAR_PROTOCOL) };
 }
 
 /** `app.getPath('logs')/sidecar.log`: stderr and startup diagnostics, also kept in memory for the error page. */

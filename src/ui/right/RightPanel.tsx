@@ -4,7 +4,7 @@ import { useT } from "../../i18n";
 import { useClientState } from "../client-context";
 import { cx } from "../format";
 import { TaskPane } from "./Changes";
-import { taskChanges } from "./changes";
+import { taskChanges } from "./task-changes";
 import { FilePreview } from "./FilePreview";
 import { FileTree } from "./FileTree";
 import { GitPane } from "./git/GitPane";

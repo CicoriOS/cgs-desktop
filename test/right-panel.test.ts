@@ -3,7 +3,7 @@ import { turnsFromMessages } from "../src/core/history";
 import { assistantMessage, call, diffLines, text, toolResultMessage } from "../src/demo/log";
 import { unifiedPatch } from "../src/demo/patch";
 import { demoWorkspace, editDemoFile } from "../src/demo/workspace";
-import { taskChanges } from "../src/ui/right/changes";
+import { taskChanges } from "../src/ui/right/task-changes";
 import { parseUnified } from "../src/ui/right/patch";
 
 test("a git patch is numbered by the new file for added and context lines, by the old file for removed ones", () => {

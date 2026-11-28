@@ -12,7 +12,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { BunInstallError, installBun } from "./bun-install.mjs";
-import { bunCandidates, cgsCandidates, spawnOptions } from "./platform.mjs";
+import { bunCandidates, cgsCandidates, spawnOptions, withBunPath } from "./platform.mjs";
 
 /** A full `cgs --version` answer, or a bare version: both are accepted. */
 const VERSION_TEXT = /(?:^|\s|\/)cgs\/(\S+)|^(\d+\.\d+\.\d+-cgs\.[0-9]+(?:\.[0-9]+)?)$/m;
@@ -449,14 +449,15 @@ export function createCliSync({
     if (explicit && !found) {
       return fail("cgs_not_found", `CGS_BIN=${env.CGS_BIN} is not an executable file.`);
     }
+    let bun = inspectBun({ env, platform, home, fs: io });
+    let childEnv = withBunPath(env, bun, platform);
     let installed;
     let versionLog;
     if (found) {
-      const read = await readCgsVersion({ cgs: found.path, spawn, env, platform });
+      const read = await readCgsVersion({ cgs: found.path, spawn, env: childEnv, platform });
       installed = read.version;
       versionLog = read.log;
     }
-    let bun = inspectBun({ env, platform, home, fs: io });
     let plan = planCliSync({ found, installed, bound, bun, explicit });
     const common = {
       progress: [],
@@ -476,7 +477,8 @@ export function createCliSync({
         else throw error;
       }
       if (bun) {
-        const check = await runProcess({ spawn, command: bun, args: ["--version"], env, platform, timeoutMs: VERSION_TIMEOUT_MS });
+        childEnv = withBunPath(env, bun, platform);
+        const check = await runProcess({ spawn, command: bun, args: ["--version"], env: childEnv, platform, timeoutMs: VERSION_TIMEOUT_MS });
         if (check.code !== 0) {
           // A bun that does not run (a wrong CPU build) must not stay: the next start would find it and fail inside `bun add`.
           try {
@@ -524,7 +526,7 @@ export function createCliSync({
       spawn,
       command: bun,
       args: ["add", "-g", `@cicori/cgs@${bound}`],
-      env,
+      env: childEnv,
       platform,
       timeoutMs: INSTALL_TIMEOUT_MS,
       onLine: progress,
@@ -535,11 +537,11 @@ export function createCliSync({
     }
     if (daemon.running) {
       progress("stopping the local service");
-      const stop = await stopDaemon({ cgs: inspectInstall({ env, platform, home, fs: io }).winner?.path ?? found.path, home, env, spawn, fs: io, platform });
+      const stop = await stopDaemon({ cgs: inspectInstall({ env, platform, home, fs: io }).winner?.path ?? found.path, home, env: childEnv, spawn, fs: io, platform });
       progress(stop.stopped ? "local service stopped" : `local service not stopped (${stop.reason}); the new sidecar will restart it`);
     }
     const after = inspectInstall({ env, platform, home, fs: io });
-    const read = after.winner ? await readCgsVersion({ cgs: after.winner.path, spawn, env, platform }) : { version: undefined, log: "cgs not found after install" };
+    const read = after.winner ? await readCgsVersion({ cgs: after.winner.path, spawn, env: childEnv, platform }) : { version: undefined, log: "cgs not found after install" };
     if (!read.version || compareCgsVersions(read.version, bound) !== 0) {
       return set({
         ...common,

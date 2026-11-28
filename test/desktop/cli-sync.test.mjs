@@ -224,7 +224,7 @@ const FAKE_BUN_SCRIPT = `#!/bin/sh
 if [ "$1" = "--version" ]; then echo 1.4.4; exit 0; fi
 echo "$@" >> "$BUN_INSTALL/bun.log"
 if [ "$1" = "add" ] && [ "$2" = "-g" ]; then
-  printf '#!/bin/sh\\necho cgs/19.2.1-cgs.5.4\\n' > "$BUN_INSTALL/bin/cgs"
+  printf '#!/bin/sh\\n[ "$(command -v bun)" = "$BUN_INSTALL/bin/bun" ] || exit 1\\necho cgs/19.2.1-cgs.5.4\\n' > "$BUN_INSTALL/bin/cgs"
   chmod +x "$BUN_INSTALL/bin/cgs"
   echo "installed $3"
   exit 0
@@ -265,8 +265,9 @@ test("a zip entry is read stored or deflated, and a missing one is an error", ()
   expect(() => readZipEntry(zipOf("a/bun", data), "b/bun")).toThrow("not in the archive");
 });
 
-test("no bun: the pinned bun is downloaded, checked and used to install the CLI", async () => {
+test("no bun on PATH: the pinned bun is downloaded and runs the installed CLI shim on first launch", async () => {
   const fake = fakeInstall({ version: undefined, bun: false });
+  fake.env.PATH = "/usr/bin:/bin";
   const release = fakeRelease();
   const sync = createCliSync({ app, env: fake.env, home: fake.root, boundVersion: BOUND, bunPin: release.pin, fetch: release.fetch, arch: "arm64" });
   const state = await sync.start();

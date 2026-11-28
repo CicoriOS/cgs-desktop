@@ -6,7 +6,7 @@ import { baseName, cx } from "../format";
 import type { DiffLine } from "../transcript/tools/diff";
 import { DiffView } from "../transcript/tools/DiffView";
 import { langOf } from "../transcript/tools/highlight";
-import { taskChanges } from "./changes";
+import { taskChanges } from "./task-changes";
 import { dirName, relativeTo } from "./paths";
 import { parseUnified } from "./patch";
 

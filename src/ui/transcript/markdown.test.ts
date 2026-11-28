@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { markdownBlocks } from "./markdown";
+import { markdownBlocks } from "./markdown-blocks";
 
 const html = (src: string) => markdownBlocks(src).map((b) => (b.kind === "html" ? b.html : `[mermaid:${b.src}]`)).join("");
 

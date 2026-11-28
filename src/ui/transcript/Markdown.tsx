@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState } from "react";
-import { markdownBlocks } from "./markdown";
+import { markdownBlocks } from "./markdown-blocks";
 
 type Mermaid = typeof import("mermaid").default;
 
