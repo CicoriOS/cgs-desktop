@@ -1,0 +1,24 @@
+{
+  "$comment": "ADR 0049 \u00a72. Where the first-run toolchain lives and which of its directories go on PATH. Read by desktop/toolchain (runtime) and generated into the NSIS script (installer), so both agree. Paths are relative to root. userPath is only what works from a bare terminal: git\\cmd, python, llvm\\bin. cargo\\bin is agent-only (rustup's proxies need RUSTUP_HOME/CARGO_HOME, which only the app sets for its children); lsp\\node_modules\\.bin is agent-only (its shims need bun on PATH, and the app puts the bundled bun there for its children). git\\usr\\bin is on neither list: its link.exe is GNU coreutils' and would shadow MSVC's link.exe; Git's bash puts /usr/bin on its own PATH.",
+  "root": "%LOCALAPPDATA%\\cgs-desktop\\toolchain",
+  "userPath": [
+    "git\\cmd",
+    "python",
+    "python\\Scripts",
+    "llvm\\bin"
+  ],
+  "agentPath": [
+    "git\\cmd",
+    "git\\bin",
+    "python",
+    "python\\Scripts",
+    "llvm\\bin",
+    "cargo\\bin",
+    "lsp\\node_modules\\.bin"
+  ],
+  "env": {
+    "RUSTUP_HOME": "rustup",
+    "CARGO_HOME": "cargo",
+    "GIT_INSTALL_ROOT": "git"
+  }
+}

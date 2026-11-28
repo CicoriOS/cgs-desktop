@@ -14,6 +14,10 @@ export type CliSyncErrorCode =
   | "bun_missing"
   | "install_failed"
   | "offline"
+  | "bundle_missing"
+  | "download_failed"
+  | "extract_failed"
+  | "toolchain_failed"
   | "cgs_not_managed"
   | "version_unreadable"
   | "install_unverified"
@@ -23,8 +27,20 @@ export type CliSyncErrorCode =
 /** `shell.syncState()` and `shell:sync`: startup progress of the CLI the sidecar will run. */
 export type CliSyncPhase = "checking" | "installing" | "ready" | "refused" | "error";
 
+/** One Windows first-run component (ADR 0049 §1); absent on the other platforms. */
+export interface ToolchainComponent {
+  id: "chromium" | "git" | "python" | "llvm" | "rust" | "lsp";
+  label: string;
+  state: "pending" | "downloading" | "installing" | "done" | "failed";
+  /** Bytes received and expected while `downloading`; 0 when unknown. */
+  received: number;
+  total: number;
+}
+
 export interface CliSyncState {
   phase: CliSyncPhase;
+  /** The toolchain downloads that run beside the CLI install (Windows only). */
+  components?: ToolchainComponent[];
   code?: CliSyncErrorCode | "cgs_not_found";
   /** Technical detail: versions, resolved paths, what to install by hand. */
   detail?: string;

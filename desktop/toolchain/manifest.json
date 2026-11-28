@@ -1,0 +1,104 @@
+{
+  "$comment": "ADR 0049 \u00a71/\u00a74/\u00a75. Every fixed download is pinned by SHA-256; a mirror that serves other bytes is a failed source. Versions marked 'official latest' were resolved on 2026-11-28 and are recorded here, not followed at run time.",
+  "chromium": {
+    "buildId": "150.0.7871.24",
+    "$comment": "Must equal PUPPETEER_REVISIONS.chrome of the bound CLI (cgsVersion), so omp's browser tool finds it instead of downloading.",
+    "asset": "chrome-win64.zip",
+    "size": 194668286,
+    "sha256": "399d58f25debbfadd61e1db08eb291eb20a81478b8247340993ebf0ca8d6d068",
+    "sources": [
+      "https://registry.npmmirror.com/-/binary/chrome-for-testing/150.0.7871.24/win64/chrome-win64.zip",
+      "https://storage.googleapis.com/chrome-for-testing-public/150.0.7871.24/win64/chrome-win64.zip"
+    ]
+  },
+  "git": {
+    "version": "2.56.1",
+    "asset": "PortableGit-2.56.1-64-bit.7z.exe",
+    "size": 60125512,
+    "sha256": "9dd04a608ceb5f6ab32a73709e0ecb159d211da71b697c45ff81f6dd0c6b49c7",
+    "sources": [
+      "https://registry.npmmirror.com/-/binary/git-for-windows/v2.56.1.windows.1/PortableGit-2.56.1-64-bit.7z.exe",
+      "https://repo.huaweicloud.com/git-for-windows/v2.56.1.windows.1/PortableGit-2.56.1-64-bit.7z.exe",
+      "https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/PortableGit-2.56.1-64-bit.7z.exe"
+    ]
+  },
+  "python": {
+    "version": "3.14.10",
+    "asset": "python-3.14.10-amd64.zip",
+    "size": 32987388,
+    "sha256": "cc28026a650970cc1570bb127312f1f9634eb67abfe157ae6ca1acbbc627d091",
+    "sources": [
+      "https://registry.npmmirror.com/-/binary/python/3.14.10/python-3.14.10-amd64.zip",
+      "https://repo.huaweicloud.com/python/3.14.10/python-3.14.10-amd64.zip",
+      "https://www.python.org/ftp/python/3.14.10/python-3.14.10-amd64.zip"
+    ],
+    "pipRequirements": "requirements.txt"
+  },
+  "llvm": {
+    "version": "20261117",
+    "$comment": "llvm-mingw (ucrt, x86_64): clang, lld and clangd in one archive, the gcc-named wrappers rust's gnu target links with. Only GitHub hosts it; the two proxies are tried only because the SHA-256 makes an untrusted proxy harmless.",
+    "asset": "llvm-mingw-20261117-ucrt-x86_64.zip",
+    "size": 191082415,
+    "sha256": "4d002e330a0f703625aa5ccbc37e96f8f824413e163bfc7336774aabd2c3a412",
+    "topDir": "llvm-mingw-20261117-ucrt-x86_64",
+    "sources": [
+      "https://github.com/mstorsjo/llvm-mingw/releases/download/20261117/llvm-mingw-20261117-ucrt-x86_64.zip",
+      "https://gh-proxy.com/https://github.com/mstorsjo/llvm-mingw/releases/download/20261117/llvm-mingw-20261117-ucrt-x86_64.zip",
+      "https://ghproxy.net/https://github.com/mstorsjo/llvm-mingw/releases/download/20261117/llvm-mingw-20261117-ucrt-x86_64.zip"
+    ]
+  },
+  "rust": {
+    "rustup": {
+      "version": "1.29.3",
+      "asset": "rustup-init.exe",
+      "size": 14862151,
+      "sha256": "f6289656ce42e1099f3cbc6f10ef6321dfde54773faf599dd36fd3b1f07d9103",
+      "sources": [
+        "https://rsproxy.cn/rustup/archive/1.29.3/x86_64-pc-windows-gnu/rustup-init.exe",
+        "https://static.rust-lang.org/rustup/archive/1.29.3/x86_64-pc-windows-gnu/rustup-init.exe"
+      ]
+    },
+    "toolchain": "1.100.1",
+    "host": "x86_64-pc-windows-gnullvm",
+    "profile": "minimal",
+    "components": [
+      "rust-analyzer"
+    ],
+    "distServers": [
+      "https://rsproxy.cn",
+      "https://mirrors.ustc.edu.cn/rust-static",
+      "https://static.rust-lang.org"
+    ],
+    "probe": "/dist/channel-rust-1.100.1.toml",
+    "channelSha256": "5b7037aed7436905b9c8ebc5af92554df9e045408a294a8f08f216ff7687d273",
+    "$comment": "rustup verifies each component against the channel manifest it downloads from the same server, so the manifest itself is pinned here: a server whose channel file hashes differently is skipped.",
+    "bootstrapHost": "x86_64-pc-windows-gnu",
+    "$comment2": "rustup-init.exe exists only for the gnu host, so it bootstraps with --default-toolchain none and then installs the gnullvm toolchain: the gnu host links against libgcc/libgcc_eh, which llvm-mingw does not ship (checked on a Windows guest, 2026-11-28); gnullvm links with llvm-mingw's compiler-rt and libunwind."
+  },
+  "languageServers": {
+    "$comment": "pyright and typescript-language-server, with the typescript they need, installed by the bundled bun from desktop/toolchain/lsp-package.json and lsp-bun.lock (integrity hashes; the lock has no registry URL, so any npm mirror serves it).",
+    "registries": [
+      "https://registry.npmmirror.com",
+      "https://mirrors.cloud.tencent.com/npm",
+      "https://registry.npmjs.org"
+    ],
+    "probe": "/pyright/1.1.414"
+  },
+  "pip": {
+    "$comment": "Installed after everything else, never blocks start (ADR 0049 \u00a73). requirements.txt carries hashes, so the index need not be trusted.",
+    "indexes": [
+      "https://pypi.tuna.tsinghua.edu.cn/simple",
+      "https://mirrors.aliyun.com/pypi/simple",
+      "https://pypi.org/simple"
+    ],
+    "probe": "/pip/"
+  },
+  "cgs": {
+    "$comment": "bun add -g @cicori/cgs@<cgsVersion> through the npm mirror that actually has that version.",
+    "registries": [
+      "https://registry.npmmirror.com",
+      "https://mirrors.cloud.tencent.com/npm",
+      "https://registry.npmjs.org"
+    ]
+  }
+}

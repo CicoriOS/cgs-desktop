@@ -12,7 +12,11 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { BunInstallError, installBun } from "./bun-install.mjs";
-import { bunCandidates, cgsCandidates, spawnOptions, withBunPath } from "./platform.mjs";
+import { bunCandidates, cgsCandidates, withBunPath } from "./platform.mjs";
+import { runProcess } from "./run-process.mjs";
+import { createToolchain, ToolchainError } from "./toolchain/install.mjs";
+import { loadManifest } from "./toolchain/manifest.mjs";
+import { createRacer, proxyEnv, proxyUrlFromPac } from "./toolchain/network.mjs";
 
 /** A full `cgs --version` answer, or a bare version: both are accepted. */
 const VERSION_TEXT = /(?:^|\s|\/)cgs\/(\S+)|^(\d+\.\d+\.\d+-cgs\.[0-9]+(?:\.[0-9]+)?)$/m;
@@ -175,62 +179,6 @@ export function classifyInstallFailure(text) {
   return /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ERR_SOCKET|fetch failed|failed to fetch|network|no such host|unable to connect/i.test(text)
     ? "offline"
     : "install_failed";
-}
-
-/** Runs one command, collecting stdout/stderr and reporting stdout/stderr lines as they arrive. Never throws. */
-export function runProcess({ spawn = defaultSpawn, command, args = [], env = process.env, platform = process.platform, timeoutMs = VERSION_TIMEOUT_MS, onLine }) {
-  return new Promise((resolve) => {
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    let child;
-    const finish = (info) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ stdout, stderr, ...info });
-    };
-    let timer;
-    try {
-      child = spawn(command, args, { ...spawnOptions(command, platform), env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-    } catch (error) {
-      finish({ code: null, error: error instanceof Error ? error.message : String(error) });
-      return;
-    }
-    timer = setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        /* already gone */
-      }
-      finish({ code: null, timedOut: true });
-    }, timeoutMs);
-    const collect = (stream, append) => {
-      stream?.setEncoding("utf8");
-      let rest = "";
-      stream?.on("data", (chunk) => {
-        append(chunk);
-        rest += chunk;
-        let index;
-        while ((index = rest.indexOf("\n")) >= 0) {
-          onLine?.(rest.slice(0, index).replace(/\r$/, ""));
-          rest = rest.slice(index + 1);
-        }
-      });
-      stream?.on("end", () => {
-        if (rest) onLine?.(rest.replace(/\r$/, ""));
-      });
-      stream?.on("error", () => {});
-    };
-    collect(child.stdout, (chunk) => {
-      stdout += chunk;
-    });
-    collect(child.stderr, (chunk) => {
-      stderr += chunk;
-    });
-    child.on("error", (error) => finish({ code: null, error: error.message }));
-    child.on("close", (code, signal) => finish({ code, signal }));
-  });
 }
 
 /** Reads `cgs --version`; `{version?, log}` — the log is the answer plus the failure text for the error page. */
@@ -407,6 +355,9 @@ export function createCliSync({
   bunPin,
   fetch: fetchImpl,
   arch = process.arch,
+  resolveProxy,
+  toolchain: toolchainOverride,
+  resourcesPath = process.resourcesPath,
 } = {}) {
   const io = { ...REAL_FS, ...fsOverride };
   const bound = boundVersion ?? packageField("cgsVersion");
@@ -414,12 +365,31 @@ export function createCliSync({
   let state = { phase: "checking", progress: [] };
   let inflight;
   const listeners = new Set();
+  // Windows (ADR 0049): the toolchain downloads next to the CLI install; its components ride along on every state.
+  const proxyFor = resolveProxy ? async (url) => proxyUrlFromPac(await resolveProxy(url)) : undefined;
+  const toolchain =
+    toolchainOverride ??
+    (platform === "win32" && !env.CGS_SIDECAR
+      ? createToolchain({ env, home, resourcesPath, fetch: fetchImpl ?? ((...args) => globalThis.fetch(...args)), proxyFor, spawn, fs: io })
+      : undefined);
+  const racer = createRacer({ fetch: fetchImpl ?? ((...args) => globalThis.fetch(...args)) });
 
+  // While the toolchain is still being prepared, `ready` is held back: the sidecar must not start before the tools it needs exist.
+  let gate;
+  let held;
   const set = (next) => {
-    state = next;
+    if (gate && next.phase === "ready") {
+      held = next;
+      return next;
+    }
+    state = toolchain && next.phase !== "ready" ? { ...next, components: toolchain.components() } : next;
     for (const listener of listeners) listener(state);
     return state;
   };
+  toolchain?.subscribe(() => {
+    if (!gate) return;
+    set({ ...state, phase: "installing", progress: state.progress ?? [] });
+  });
   const progress = (line) => {
     const lines = tail([...(state.progress ?? []), clip(line)]);
     set({ ...state, phase: "installing", progress: lines });
@@ -438,6 +408,39 @@ export function createCliSync({
   async function run() {
     state = { phase: "checking", progress: [] };
     for (const listener of listeners) listener(state);
+    if (!toolchain || env.CGS_SIDECAR) return runCli();
+    held = undefined;
+    let toolchainError;
+    gate = toolchain.ensure().then(
+      (result) => result,
+      (error) => {
+        toolchainError = error;
+      },
+    );
+    const outcome = await runCli();
+    const ready = held;
+    held = undefined;
+    const pending = gate;
+    if (outcome.phase !== "ready" && !ready) {
+      gate = undefined;
+      return outcome;
+    }
+    const done = await pending;
+    gate = undefined;
+    if (toolchainError) {
+      const error = toolchainError;
+      return fail(error instanceof ToolchainError ? error.code : "toolchain_failed", `${error.message}`, error.log);
+    }
+    set(ready ?? outcome);
+    done?.pip?.then((pip) => {
+      if (!pip.ok) console.warn(`pip packages were not installed: ${pip.log ?? ""}`);
+    });
+    return state;
+  }
+
+  async function runCli() {
+    state = { phase: "checking", progress: [] };
+    for (const listener of listeners) listener(state);
     if (env.CGS_SIDECAR) return set({ phase: "ready", progress: [], bypassed: true });
     if (!bound || !parseCgsVersion(bound)) {
       return fail("sync_failed", `package.json cgsVersion is missing or not a CGS release version: ${bound ?? "(absent)"}`);
@@ -450,6 +453,8 @@ export function createCliSync({
       return fail("cgs_not_found", `CGS_BIN=${env.CGS_BIN} is not an executable file.`);
     }
     let bun = inspectBun({ env, platform, home, fs: io });
+    // Windows: the installer ships a bun (ADR 0049 §1); the user's own bun, found above, still wins (ADR 0046 §3).
+    if (!bun && toolchain?.bun && io.existsSync(toolchain.bun)) bun = toolchain.bun;
     let childEnv = withBunPath(env, bun, platform);
     let installed;
     let versionLog;
@@ -522,11 +527,20 @@ export function createCliSync({
       const accepted = confirmRestart ? await confirmRestart({ dir: daemon.dir }) : true;
       if (!accepted) return fail("restart_cancelled", "The CLI was not updated because the running local service was not allowed to restart.");
     }
+    // Windows: the npm registry is raced, and the system proxy is handed to bun (ADR 0049 §2, §4). A registry the user configured for
+    // the @cicori scope in bunfig.toml still wins over this default.
+    let installEnv = childEnv;
+    if (toolchain) {
+      const registries = loadManifest({ env }).cgs.registries;
+      const order = await racer.order(`cgs-registry:${bound}`, registries, (registry) => `${registry}/@cicori%2Fcgs/${bound}`);
+      const proxy = await proxyFor?.(order[0]);
+      installEnv = { ...childEnv, BUN_CONFIG_REGISTRY: order[0], ...proxyEnv(proxy) };
+    }
     const result = await runProcess({
       spawn,
       command: bun,
       args: ["add", "-g", `@cicori/cgs@${bound}`],
-      env: childEnv,
+      env: installEnv,
       platform,
       timeoutMs: INSTALL_TIMEOUT_MS,
       onLine: progress,

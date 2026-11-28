@@ -17,7 +17,7 @@
     "test": "vitest run",
     "build:desktop": "vite build --base=./",
     "dist:linux": "bun run build:desktop && electron-builder --linux AppImage --x64 --publish never && node installer/linux/build.mjs",
-    "dist:win": "bun run build:desktop && electron-builder --win --x64 --publish never",
+    "dist:win": "node scripts/fetch-win-bundle.mjs && bun run build:desktop && electron-builder --win --x64 --publish never",
     "smoke:desktop": "xvfb-run -a electron test/desktop/smoke/main.mjs --no-sandbox",
     "e2e:desktop": "bun run build:desktop && xvfb-run -a electron test/e2e/main.mjs --no-sandbox"
   },
@@ -54,7 +54,27 @@
       "bun-linux-aarch64": "baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e",
       "bun-darwin-x64": "50a3491f73abc2fe81673171a85762d3bc2cc1680ccecadd983de99adf77977e",
       "bun-darwin-x64-baseline": "d4a155adfbfd09155eb3ba05c9e3a544f39297d7a68616d3c7759f67ab5c47dc",
-      "bun-darwin-aarch64": "c240d7f0ccb90c263a849fcdb09b7ee62630d921348ed6aafda86b9d577bc510"
+      "bun-darwin-aarch64": "c240d7f0ccb90c263a849fcdb09b7ee62630d921348ed6aafda86b9d577bc510",
+      "bun-windows-x64": "cd2c0fccc78f3ede1f50ca827a15f063eda13d4d150a3d0674f4f6e323d864a5",
+      "bun-windows-x64-baseline": "0f20ce6674d4f2dbcc8c5d59fdf99f7ba45f8c3b367e0f5781cbfa30a1c78d99"
+    }
+  },
+  "windowsBundle": {
+    "bun": {
+      "asset": "bun-windows-x64-baseline",
+      "entry": "bun-windows-x64-baseline/bun.exe",
+      "exeSha256": "cb1d8e6564e655e49d30cead359750a1cbbd12f42651caa4b62244d7bd93c244"
+    },
+    "aria2": {
+      "version": "1.37.0",
+      "zipSha256": "67d015301eef0b612191212d564c5bb0a14b5b9c4796b76454276a4d28d9b288",
+      "entry": "aria2-1.37.0-win-64bit-build1/aria2c.exe",
+      "exeSha256": "be2099c214f63a3cb4954b09a0becd6e2e34660b886d4c898d260febfe9d70c2",
+      "urls": [
+        "https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip",
+        "https://gh-proxy.com/https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip",
+        "https://ghproxy.net/https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip"
+      ]
     }
   },
   "build": {
@@ -100,12 +120,42 @@
           ]
         }
       ],
-      "artifactName": "CGS-Desktop-Setup-${version}.${ext}"
+      "artifactName": "CGS-Desktop-Setup-${version}.${ext}",
+      "icon": "assets/icon.ico",
+      "extraResources": [
+        {
+          "from": "build/win-bundle/bun.exe",
+          "to": "tools/bun.exe"
+        },
+        {
+          "from": "build/win-bundle/aria2c.exe",
+          "to": "tools/aria2c.exe"
+        },
+        {
+          "from": "build/win-bundle/COPYING",
+          "to": "tools/COPYING"
+        },
+        {
+          "from": "build/win-bundle/ARIA2-NOTICE.txt",
+          "to": "tools/ARIA2-NOTICE.txt"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerLanguages": [
+        "en_US",
+        "zh_CN"
+      ],
+      "multiLanguageInstaller": true,
+      "displayLanguageSelector": false,
+      "allowElevation": false,
+      "packElevateHelper": false
     }
   },
   "description": "CGS Desktop: the CGS web client around the local cgs CLI",

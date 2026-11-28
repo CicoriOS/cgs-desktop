@@ -6,7 +6,7 @@ import { type MessageKey, useT } from "../i18n";
 import { desktop } from "../ui/desktop";
 import { WindowControls } from "../ui/WindowControls";
 import { SignedOutGate } from "./gate";
-import { type CliSyncState, type DesktopHost, type HostLinkDetail, type HostLinkStatus, type HostState, isHostState } from "./protocol";
+import { type CliSyncState, type DesktopHost, type ToolchainComponent, type HostLinkDetail, type HostLinkStatus, type HostState, isHostState } from "./protocol";
 import "./desktop-state.css";
 
 interface Link {
@@ -39,6 +39,10 @@ const ERROR_KEYS: Record<string, MessageKey> = {
   version_unreadable: "host.err.version_unreadable",
   install_unverified: "host.err.install_unverified",
   restart_cancelled: "host.err.restart_cancelled",
+  bundle_missing: "host.err.bundle_missing",
+  download_failed: "host.err.download_failed",
+  extract_failed: "host.err.extract_failed",
+  toolchain_failed: "host.err.toolchain_failed",
   sync_failed: "host.err.sync_failed",
 };
 
@@ -167,7 +171,16 @@ function SyncPage({ state }: { state: CliSyncState }) {
     return <Screen phase="sync" busy title={t("host.sync.checking.title")} body={t("host.sync.checking.body")} />;
   }
   if (state.phase === "installing") {
-    return <Screen phase="sync" busy title={t("host.sync.installing.title")} body={t("host.sync.installing.body")} progress={state.progress} />;
+    return (
+      <Screen
+        phase="sync"
+        busy
+        title={t(state.components ? "host.sync.tools.title" : "host.sync.installing.title")}
+        body={t(state.components ? "host.sync.tools.body" : "host.sync.installing.body")}
+        components={state.components}
+        progress={state.progress}
+      />
+    );
   }
   if (state.phase === "refused") {
     return (
@@ -199,7 +212,7 @@ function SyncPage({ state }: { state: CliSyncState }) {
   );
 }
 
-function Screen({ phase, title, body, detail, log, progress, onRetry, busy: busyOverride }: { phase: "starting" | "missing" | "upgrade" | "down" | "error" | "sync"; title: string; body?: string; detail?: string; log?: string; progress?: string[]; onRetry?: () => void; busy?: boolean }) {
+function Screen({ phase, title, body, detail, log, progress, components, onRetry, busy: busyOverride }: { phase: "starting" | "missing" | "upgrade" | "down" | "error" | "sync"; title: string; body?: string; detail?: string; log?: string; progress?: string[]; components?: ToolchainComponent[]; onRetry?: () => void; busy?: boolean }) {
   const t = useT();
   const busy = busyOverride ?? (phase === "starting" || phase === "down");
   return (
@@ -212,7 +225,8 @@ function Screen({ phase, title, body, detail, log, progress, onRetry, busy: busy
         <h1 className="host-title">{title}</h1>
         {body ? <p className="host-body">{body}</p> : null}
         {detail ? <p className="host-detail">{detail}</p> : null}
-        {busy ? <div className="host-spinner" aria-hidden="true" /> : null}
+        {busy && !components?.length ? <div className="host-spinner" aria-hidden="true" /> : null}
+        {components?.length ? <ComponentList components={components} /> : null}
         {progress?.length ? (
           <pre className="host-progress">{progress.join("\n")}</pre>
         ) : null}
@@ -229,5 +243,30 @@ function Screen({ phase, title, body, detail, log, progress, onRetry, busy: busy
         ) : null}
       </section>
     </div>
+  );
+}
+
+const mib = (bytes: number) => (bytes / 1048576).toFixed(bytes >= 10 * 1048576 ? 0 : 1);
+
+/** The Windows first-run components (ADR 0049 §2): each with its own bar while it downloads. */
+function ComponentList({ components }: { components: ToolchainComponent[] }) {
+  const t = useT();
+  return (
+    <ul className="host-components">
+      {components.map((item) => {
+        const percent = item.total > 0 ? Math.min(100, Math.round((item.received / item.total) * 100)) : undefined;
+        return (
+          <li key={item.id} className="host-component" data-state={item.state}>
+            <span className="host-component-name">{item.label}</span>
+            <span className="host-component-state">
+              {item.state === "downloading" && item.total > 0 ? `${mib(item.received)} / ${mib(item.total)} MB` : t(`host.sync.tools.${item.state}` as MessageKey)}
+            </span>
+            <span className="host-component-bar" aria-hidden="true">
+              <span style={{ width: item.state === "done" ? "100%" : percent === undefined ? (item.state === "installing" ? "100%" : "0%") : `${percent}%` }} data-indeterminate={item.state === "installing" || undefined} />
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

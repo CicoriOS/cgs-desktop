@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, net, Notification, protocol, shell, Tray } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, net, Notification, protocol, session, shell, Tray } from "electron";
 import { APP_URL, handleAppRequests, registerAppScheme } from "./app-protocol.mjs";
 import { SHELL_SYNC, createCliSync, registerCliSyncIpc, restartConfirmer } from "./cli-sync.mjs";
 import { requestHost, shutdownLocalHost, startLocalHost } from "./host-ipc.mjs";
@@ -33,8 +33,17 @@ const broadcast = (channel, ...args) => {
 
 // CLI sync runs first (ADR 0046 §3): the sidecar starts only with the CLI copy it validated. The page subscribes to the
 // sync state through `window.cgsDesktop.shell`, so a failure has its own page instead of a dead link.
-// `net.fetch` follows the system proxy, which the bun download needs where GitHub is only reachable through one.
-const sync = demo ? undefined : createCliSync({ app, env: process.env, confirmRestart: restartConfirmer({ app, dialog }), fetch: (...args) => net.fetch(...args) });
+// `net.fetch` follows the system proxy, which the bun download needs where GitHub is only reachable through one. `resolveProxy` hands
+// the same (WinINet) proxy to the child processes that cannot read it themselves: aria2c, bun, pip and rustup (ADR 0049 §2).
+const sync = demo
+  ? undefined
+  : createCliSync({
+      app,
+      env: process.env,
+      confirmRestart: restartConfirmer({ app, dialog }),
+      fetch: (...args) => net.fetch(...args),
+      resolveProxy: (target) => session.defaultSession.resolveProxy(target),
+    });
 let hostStarted = false;
 /** The sidecar starts exactly once, when the CLI sync reports a usable CLI (also after a retry from its error page). */
 function startHostFromSync(state) {

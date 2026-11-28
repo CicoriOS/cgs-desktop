@@ -6,6 +6,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { bundledToolsDir } from "./toolchain/paths.mjs";
+import { toolchainEnv } from "./toolchain/manifest.mjs";
 
 /** P19 entry, relative to the CLI root: `cgs __cgs_worker_module <absolute path>` (cgsconnect/local-channel.md §1). */
 const SIDECAR_MODULE = path.join("packages", "connect", "src", "desktop", "sidecar.ts");
@@ -141,8 +143,12 @@ export function resolveSidecarCommand({ env = process.env, platform = process.pl
 }
 
 /** The environment the sidecar starts with: the app's own, plus Bun's path and the protocol marker. */
-export function sidecarEnv(env = process.env) {
-  return { ...withBunPath(env, resolveBun({ env })), CGS_SIDECAR_PROTOCOL: String(SIDECAR_PROTOCOL) };
+export function sidecarEnv(env = process.env, { platform = process.platform, resourcesPath = process.resourcesPath, exists = fs.existsSync } = {}) {
+  // Windows: no bun of the user's means the bundled one, which the CLI's shim needs on PATH (ADR 0049 §1); the toolchain
+  // directories join PATH for the agent whether or not the user added them to their own (§2).
+  const bundled = path.join(bundledToolsDir({ env, resourcesPath }), "bun.exe");
+  const bun = resolveBun({ env, platform }) ?? (platform === "win32" && exists(bundled) ? bundled : undefined);
+  return { ...toolchainEnv({ env: withBunPath(env, bun, platform), platform }), CGS_SIDECAR_PROTOCOL: String(SIDECAR_PROTOCOL) };
 }
 
 /** `app.getPath('logs')/sidecar.log`: stderr and startup diagnostics, also kept in memory for the error page. */
