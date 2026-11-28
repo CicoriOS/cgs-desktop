@@ -28,16 +28,25 @@ interface DevicePayload {
   version: string;
   remote: boolean;
   hasPassword: boolean;
+  fingerprint?: { emoji: string[]; zh: string[]; en: string[] };
+}
+
+/** `1.3.0` is shown as `1.3`: the experience package is `N.M` and electron-updater wants semver (ADR 0048). */
+export function packageVersionLabel(version: string | undefined): string | undefined {
+  if (!version) return undefined;
+  const match = /^(\d+)\.(\d+)\.0$/.exec(version);
+  return match ? `${match[1]}.${match[2]}` : version;
 }
 
 interface SettingsShell {
+  appVersion?: string;
   host?: Pick<DesktopHost, "call">;
   updater?: Updater;
 }
 
 /** Just enough of `window` to reach the preload bridge; the page's global type has no updater entry yet. */
 interface ShellWindow {
-  cgsDesktop?: { host?: Pick<DesktopHost, "call">; updater?: Updater };
+  cgsDesktop?: { host?: Pick<DesktopHost, "call">; updater?: Updater; appVersion?: string };
 }
 
 function shellWindow(): SettingsShell {
@@ -59,8 +68,17 @@ export function createSettingsApi(host: SettingsShell["host"] = shellWindow().ho
       // A broken updater must not hide the device state: auto-check off is the honest fallback.
       updater ? updater.getAutoCheck().catch(() => false) : Promise.resolve(false),
     ]);
-    return { version: payload.version, remote: payload.remote, autoUpdate };
+    return deviceOf(payload, autoUpdate);
   };
+  const packageVersion = packageVersionLabel(shellWindow().appVersion);
+  const deviceOf = (payload: DevicePayload, autoUpdate: boolean): DeviceSettings => ({
+    version: payload.version,
+    ...(packageVersion ? { packageVersion } : {}),
+    remote: payload.remote,
+    hasPassword: payload.hasPassword,
+    ...(payload.fingerprint ? { fingerprint: payload.fingerprint } : {}),
+    autoUpdate,
+  });
 
   return {
     usage: () => host.call<UsageReport>("settings.usage"),
@@ -71,10 +89,13 @@ export function createSettingsApi(host: SettingsShell["host"] = shellWindow().ho
     },
     device: {
       read: device,
-      async setRemote(enabled) {
-        const payload = await host.call<DevicePayload>("settings.device.setRemote", { enabled });
-        const autoUpdate = updater ? await updater.getAutoCheck().catch(() => false) : false;
-        return { version: payload.version, remote: payload.remote, autoUpdate };
+      async setRemote(enabled, password) {
+        const payload = await host.call<DevicePayload>("settings.device.setRemote", { enabled, ...(password === undefined ? {} : { password }) });
+        return deviceOf(payload, updater ? await updater.getAutoCheck().catch(() => false) : false);
+      },
+      async setPassword(password) {
+        const payload = await host.call<DevicePayload>("settings.device.setPassword", { password });
+        return deviceOf(payload, updater ? await updater.getAutoCheck().catch(() => false) : false);
       },
       async setAutoUpdate(enabled) {
         if (!updater) return device(); // nothing can store the switch; report what the device says

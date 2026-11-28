@@ -661,7 +661,7 @@ async function item5() {
     await shot("11-prompt-two-done");
 
     // Settings reads the three APIs on their real screens; each panel renders only on a successful read.
-    await click(".gear:not(.signout)");
+    await click("#side-user .gear");
     await waitPage(`document.querySelector('#settings') !== null`, 10000, "settings screen");
     await clickByText("#settings-nav .set-nav-item", "Devices|设备");
     await waitFor(async () => (await page(`document.querySelector('#settings-main')?.innerText`))?.includes("0.0.0"), 15000, "device panel version");
@@ -724,10 +724,14 @@ async function item6() {
 
 async function signOut() {
   await runItem("5b", "sign-out returns to the gate; the unit is unconfigured and its children are stopped", async () => {
-    assert((await page(`document.querySelector('.gear.signout') !== null`)), "no sign-out button");
-    await click(".gear.signout");
+    // Sign-out lives in Settings > Devices, not in the sidebar footer.
+    assert(!(await page(`document.querySelector('#side-user .signout') !== null`)), "the sidebar footer still has a sign-out button");
+    if (!(await page(`document.querySelector('#settings') !== null`))) await click("#side-user .gear");
+    await waitPage(`document.querySelector('#settings') !== null`, 10000, "settings screen");
+    await clickByText("#settings-nav .set-nav-item", "Devices|设备");
+    await clickByText("#settings-main .set-btn.danger", "Sign out|退出登录");
     await sleep(300);
-    await click(".gear.signout");
+    await clickByText("#settings-main .set-btn.danger", "Confirm|确认");
     await waitPage(`document.querySelector('[data-host-state="signed-out"]') !== null`, 30000, "gate after sign-out");
     await shot("17-signed-out");
     const state = await hostCall("state");

@@ -102,6 +102,8 @@ export interface SessionRow {
 export interface Workspace {
   cwd: string;
   sessions: SessionRow[];
+  /** Epoch ms the device pinned it; absent when not pinned. Pinned workspaces list first, the most recently pinned on top. */
+  pinnedAt?: number;
 }
 
 export interface BtwRecord {
@@ -217,6 +219,8 @@ export interface ClientState {
   /** Subagents of this session, in the order they were started. */
   subagents: SubagentInfo[];
   workspaces: Workspace[];
+  /** The host has answered with its workspace list at least once; before that "no workspaces" is only "not known yet". */
+  workspacesLoaded: boolean;
   children: ChildStatus[];
   btw: BtwRecord[];
   /** Questions waiting for an answer, oldest first; the UI shows the first. */
@@ -273,6 +277,10 @@ export interface Actions {
   openSession(path: string, cwd: string): Promise<void>;
   /** Registers a (possibly new) directory as a workspace and opens a new session in it. */
   addWorkspace(cwd: string): Promise<void>;
+  /** Takes the workspace off the sidebar; its conversations stay on disk and return when the directory is added again. Does nothing on a host that cannot (everything but CGS Desktop). */
+  removeWorkspace(cwd: string): Promise<void>;
+  /** Pins or unpins a workspace on the device. Does nothing on a host that cannot (everything but CGS Desktop). */
+  pinWorkspace(cwd: string, pinned: boolean): Promise<void>;
   renameSession(name: string): Promise<void>;
   /** `fork` at the end of a turn (its last assistant message): the new session holds the path up to there and becomes current. */
   fork(turnIndex: number): Promise<void>;
@@ -357,6 +365,13 @@ export interface HostApi {
   sessions(): Promise<Workspace[]>;
   complete(typed: string): Promise<{ exists: boolean; entries: string[] }>;
   addWorkspace(cwd: string): Promise<void>;
+  /**
+   * Takes a workspace off the list without deleting its conversations; adding the directory again brings them back. Only the
+   * desktop host offers it (the workspace list belongs to the device; a remote browser shows what the device says).
+   */
+  removeWorkspace?(cwd: string): Promise<void>;
+  /** Same: only CGS Desktop edits the preference; a remote client only reads `Workspace.pinnedAt`. */
+  pinWorkspace?(cwd: string, pinned: boolean): Promise<void>;
   children(): Promise<ChildStatus[]>;
   /** `yield` confirms taking the session from a terminal that is busy (the host answers `terminal_busy` otherwise, ADR 0047). */
   openChild(cwd: string, sessionPath?: string, options?: { yield?: boolean }): Promise<ChildStatus>;
@@ -395,6 +410,8 @@ export interface AccountSnapshot {
   username: string;
   /** A picture for the account; the page draws a placeholder from the name when it is absent. */
   avatarUrl?: string;
+  /** The service's website, where the account's profile page lives; a host without one (the demo) leaves it out. */
+  siteUrl?: string;
   tier: AccountTier;
   /** The balance as the server displays it, e.g. `¥199.99`. */
   balance: string;

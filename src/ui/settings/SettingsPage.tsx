@@ -18,10 +18,12 @@ import type { Hit, Page, PageId, Row, Section, Value } from "./schema";
 import { defaultValues, GROUPS, PAGES, searchSettings } from "./schema";
 
 /** Full-screen settings with cross-page search. Custom panels use host capabilities; schema-based controls are previews. */
-export function SettingsPage({ onClose, profileUrl, api, previewSignIns, onPreviewSignIn }: { onClose: () => void; profileUrl?: string; api?: SettingsApi; previewSignIns: PreviewSignIns; onPreviewSignIn: (id: NativeProvider["id"]) => void }) {
+export function SettingsPage({ onClose, profileUrl: configuredProfileUrl, api, previewSignIns, onPreviewSignIn }: { onClose: () => void; profileUrl?: string; api?: SettingsApi; previewSignIns: PreviewSignIns; onPreviewSignIn: (id: NativeProvider["id"]) => void }) {
   const t = useT();
   const actions = useActions();
   const account = useClientState((s) => s.account);
+  // The desktop learns the site from the signed-in account; the web build is configured with it at build time.
+  const profileUrl = account?.siteUrl && URL.canParse(account.siteUrl) ? new URL("/profile", account.siteUrl).href : configuredProfileUrl;
   const [pageId, setPageId] = useState<PageId>("general");
   const [query, setQuery] = useState("");
   const [values, setValues] = useState(defaultValues);

@@ -13,6 +13,12 @@ export const ChevronIcon = ({ className = "chev" }: { className?: string }) => (
     <path d="m9 6 6 6-6 6" />
   </Icon>
 );
+export const PinIcon = () => (
+  <Icon>
+    <path d="M12 17v5M9 3h6l-1 7 3 3v2H7v-2l3-3Z" />
+  </Icon>
+);
+
 export const FolderIcon = () => (
   <Icon>
     <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />

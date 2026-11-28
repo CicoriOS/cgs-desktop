@@ -32,6 +32,7 @@ export function createDesktopBackend(link: DesktopHost = requiredHost()): Deskto
   });
   // The single composition point for the desktop host: the local-only capabilities attach here before the UI sees the
   // host (ADR 0046 §7). `workspace` needs the shell's file/Git bridge; `settings` needs the same sidecar link.
+  mux.enableWorkspaceEditing();
   const host: HostApi = mux.host;
   const workspace = createWorkspaceApi();
   if (workspace) host.workspace = workspace;

@@ -68,6 +68,12 @@ export class RelayMux {
     this.#send = send;
   }
 
+  /** The workspace list and its pins belong to the device: only the desktop's mux may edit them (the host refuses anyone else too); a remote client just reads them from `sessions`. */
+  enableWorkspaceEditing(): void {
+    this.host.removeWorkspace = async (cwd) => void (await this.#request("/api/workspace/remove", { cwd }, true));
+    this.host.pinWorkspace = async (cwd, pinned) => void (await this.#request("/api/workspace/pin", { cwd, pinned }, true));
+  }
+
   /** HostApi over `req`/`res`, with the same routes and bodies as `bridgeHost` (core/transport.ts). */
   readonly host: HostApi = {
     info: () => this.#request("/api/info"),

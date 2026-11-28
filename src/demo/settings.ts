@@ -40,7 +40,7 @@ export function demoSettings(signOut: () => void): SettingsApi {
     }
   }
   let layout = structuredClone(DEFAULTS);
-  let device: DeviceSettings = { version, remote: false, autoUpdate: true };
+  let device: DeviceSettings = { version, remote: false, hasPassword: false, autoUpdate: true, fingerprint: { emoji: ["🦊", "🌵", "🚀", "🎲", "🍉", "🐳", "🎈", "🔔", "🪁", "🍀", "🧩", "🌙"], zh: [], en: [] } };
   return {
     preview: true,
     usage: async () => ({ currency: "CNY", entries }),
@@ -50,7 +50,11 @@ export function demoSettings(signOut: () => void): SettingsApi {
     },
     device: {
       read: async () => device,
-      setRemote: async (remote) => (device = { ...device, remote }),
+      setRemote: async (remote, password) => {
+        if (remote && !device.hasPassword && password === undefined) throw new Error("password_required");
+        return (device = { ...device, remote, hasPassword: device.hasPassword || password !== undefined });
+      },
+      setPassword: async () => device,
       setAutoUpdate: async (autoUpdate) => (device = { ...device, autoUpdate }),
       checkUpdate: async () => ({ version: device.version }),
       signOut: async () => signOut(),

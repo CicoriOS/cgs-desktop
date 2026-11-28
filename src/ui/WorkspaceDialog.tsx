@@ -4,8 +4,20 @@ import { cx } from "./format";
 import { FolderIcon } from "./icons";
 import { useT } from "../i18n";
 
-/** Spotlight-style box that suggests directories while an absolute path is typed. */
+/** The "add workspace" box in its own overlay: opened from the sidebar. */
 export function WorkspaceDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <div id="ws-dialog" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <WorkspacePicker onClose={onClose} />
+    </div>
+  );
+}
+
+/**
+ * Spotlight-style box that suggests directories while an absolute path is typed. `onClose` is both what Escape does and what runs
+ * after a workspace is added; without it (the first-run page, where this box replaces the message box) neither does anything.
+ */
+export function WorkspacePicker({ onClose }: { onClose?: () => void }) {
   const t = useT();
   const actions = useActions();
   const [value, setValue] = useState("/");
@@ -33,14 +45,14 @@ export function WorkspaceDialog({ onClose }: { onClose: () => void }) {
   const open = (p: string) => {
     const cwd = p.trim().replace(/\/+$/, "") || "/";
     if (!cwd.startsWith("/")) return;
-    onClose();
+    onClose?.();
     void actions.addWorkspace(cwd);
   };
 
   const onKey = (e: React.KeyboardEvent) => {
     if (e.nativeEvent.isComposing) return;
     const n = entries.length;
-    if (e.key === "Escape") onClose();
+    if (e.key === "Escape") onClose?.();
     else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       if (!n) return;
@@ -62,7 +74,7 @@ export function WorkspaceDialog({ onClose }: { onClose: () => void }) {
 
   const hint = !value.startsWith("/") ? t("ws.hint.abs") : sel >= 0 ? t("ws.hint.pick") : exists ? t("ws.hint.here") : t("ws.hint.create");
   return (
-    <div id="ws-dialog" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <>
       <div className="ws-card" role="dialog" aria-label={t("ws.aria")}>
         <input
           autoFocus
@@ -86,6 +98,6 @@ export function WorkspaceDialog({ onClose }: { onClose: () => void }) {
         </div>
         <div id="ws-hint">{hint}</div>
       </div>
-    </div>
+    </>
   );
 }

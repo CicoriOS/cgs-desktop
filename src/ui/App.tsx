@@ -24,13 +24,16 @@ import { useShellOpenChild } from "../desktop/shell";
 import { Topbar } from "./Topbar";
 import { Transcript } from "./transcript/Transcript";
 import { isMobile } from "./viewport";
-import { WorkspaceDialog } from "./WorkspaceDialog";
+import { WorkspaceDialog, WorkspacePicker } from "./WorkspaceDialog";
 
 const SUBAGENT_Z = 50;
 
 export function App({ profileUrl, settingsApi }: { profileUrl?: string; settingsApi?: SettingsApi }) {
   const t = useT();
   const empty = useClientState((s) => s.turns.length === 0 && !s.loading); // while a history loads the page is not "new"
+  // Before the first workspace there is nothing to work in: the message box gives way to the path box, and the chrome that needs a workspace goes.
+  const noWorkspace = useClientState((s) => s.workspacesLoaded && s.workspaces.length === 0 && !s.activeCwd);
+  const workspacesPending = useClientState((s) => !s.workspacesLoaded && s.connection !== "closed");
   const [side, setSide] = useState(() => !isMobile()); // a drawer on narrow screens: closed until asked for
   const [right, setRight] = useState(false);
   const [btw, setBtw] = useState(false);
@@ -89,17 +92,17 @@ export function App({ profileUrl, settingsApi }: { profileUrl?: string; settings
   useEffect(() => setSubagents([]), [session]); // another session has other subagents
 
   return (
-    <div id="app" className={cx(empty && "empty", !side && "side-hidden")}>
+    <div id="app" className={cx(empty && "empty", !side && !noWorkspace && "side-hidden")}>
       <div className="app-workspace" inert={settings}>
         <Sidebar onAddWorkspace={() => setWorkspaceDialog(true)} onNavigate={() => isMobile() && setSide(false)} onOpenSettings={openSettings} previewSignIns={settingsApi?.preview ? previewSignIns : undefined} />
         <div className="side-scrim" onClick={() => setSide(false)} />
         <div id="stage">
           {/* One title bar over the conversation and the right side bar, so the window buttons stay at the window's corner. */}
-          <Topbar onToggleSide={() => setSide((v) => !v)} onToggleRight={() => setRight((v) => !v)} onToggleBtw={() => setBtw((v) => !v)} onToggleStats={() => setStats((v) => !v)} inSession={!empty} />
+          <Topbar onToggleSide={() => setSide((v) => !v)} onToggleRight={() => setRight((v) => !v)} onToggleBtw={() => setBtw((v) => !v)} onToggleStats={() => setStats((v) => !v)} inSession={!empty} firstRun={noWorkspace} />
           <div id="body">
             <main id="main">
               <section id="scroller">
-                {empty && <div id="empty-hello">{t("empty.hello")}</div>}
+                {empty && <div id="empty-hello">{t(noWorkspace ? "empty.noWorkspace" : "empty.hello")}</div>}
                 <Transcript />
                 <HistoryLoading />
               </section>
@@ -107,14 +110,14 @@ export function App({ profileUrl, settingsApi }: { profileUrl?: string; settings
               <Dock onOpenSubagent={openSubagent} />
               <RunStatus />
               <RunWidgets />
-              {!readOnly && <Composer />}
+              {noWorkspace ? <div className="ws-first"><WorkspacePicker /></div> : !readOnly && !workspacesPending && <Composer />}
               {btw && !empty && <BtwPanel onClose={() => setBtw(false)} />}
               {stats && !empty && <StatsPanel onClose={() => setStats(false)} />}
             </main>
             {FEATURES.rightPanel && right && <RightPanel />}
           </div>
         </div>
-        {workspaceDialog && <WorkspaceDialog onClose={() => setWorkspaceDialog(false)} />}
+        {workspaceDialog && !noWorkspace && <WorkspaceDialog onClose={() => setWorkspaceDialog(false)} />}
         {!readOnly && !desktop && <button type="button" id="rpc-pill" title={t("rpc.pill")} onClick={() => setRpc((v) => !v)}>RPC</button>}
         {rpc && !readOnly && !desktop && <RpcDrawer onClose={() => setRpc(false)} />}
         {subagents.map((id, slot) => (

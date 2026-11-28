@@ -1,0 +1,49 @@
+name: Package Desktop
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-latest
+            script: dist:linux
+            files: |
+              dist-desktop/*.AppImage
+              dist-desktop/latest-linux.yml
+          - target: windows-x64
+            runner: windows-latest
+            script: dist:win
+            files: |
+              dist-desktop/*.exe
+              dist-desktop/*.exe.blockmap
+              dist-desktop/latest.yml
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run ${{ matrix.script }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cgs-desktop-${{ matrix.target }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+          compression-level: 0

@@ -2,7 +2,7 @@
 
 ## 本仓库
 
-本仓库是 CGS Desktop 客户端。`next` 是从独立历史开始的新主线：目前实现为 Vite + React + TypeScript 的 Web SPA，源码位于 `src/`，不再内置旧版 ompweb。`master` 保留旧版基于 ompweb 的 Electron 实现。
+本仓库是 CGS Desktop 客户端。`main` 承接 `next` 的独立历史：目前实现为 Vite + React + TypeScript 的 Web SPA，源码位于 `src/`，不再内置旧版 ompweb。`legacy` 保留旧版基于 ompweb 的 Electron 实现。
 
 ## 设计文档在别处
 
@@ -31,4 +31,5 @@
 - `CGS_BASE_URL` 可覆盖 CGS 服务器地址，`STATE` 可指定用于保留 `~/.cgs` 的 Docker 卷；未指定时，容器的 home 是临时的。
 - 桌面壳：`bun run desktop` 启动 Vite（HMR）加一个 Electron 窗口，窗口加载 `?demo`，用 `src/demo/` 的内存后端（三个预设会话）代替桥。`desktop/` 只有窗口与预加载，不放界面；所有界面都是 `src/` 的 React 代码，网页版的改动自动出现在桌面版。只属于某一端的功能必须用分支检测（`FEATURES`，桌面端可读 `window.cgsDesktop`），不要分叉文件。`src/demo/` 经动态导入，不进入网页产物。
 - 本地检查：`bun --bun run test`、`bun --bun run typecheck`、`bun --bun run build`。
+- 试打包：在对应系统上运行 `bun install --frozen-lockfile` 后执行 `bun run dist:linux`（AppImage）或 `bun run dist:win`（NSIS）。GitHub Actions 的 `Package Desktop` 运行同样的命令，仅上传工作流产物，不发布 Release。
 - 桌面开发期间，`bun.lock` 更新会重启 Vite 并重载渲染页，清除安装前缓存的依赖解析失败；普通界面改动仍由 HMR 更新。

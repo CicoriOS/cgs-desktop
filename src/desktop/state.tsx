@@ -60,6 +60,7 @@ export function DesktopShell({ host, app }: { host: DesktopHost; app: ReactNode 
   const [state, setState] = useState<HostState | undefined>();
   const [callError, setCallError] = useState<string | undefined>();
   const sync = useCliSync();
+  const [revealed, setRevealed] = useState(false);
 
   useEffect(() => {
     const stopStatus = host.onStatus((status, detail) => setLink({ status, detail: detail ?? {} }));
@@ -100,46 +101,60 @@ export function DesktopShell({ host, app }: { host: DesktopHost; app: ReactNode 
     return key ? t(key) : code;
   };
 
-  // The sidecar only starts after the CLI sync; until then (and on its failures) the sync page is the whole story.
-  if (sync && sync.phase !== "ready") return <SyncPage state={sync} />;
+  // Starting up is silent: the window stays hidden (the shell shows it when asked) through every wait that needs nothing from the
+  // user: CLI check and install, connecting, the first state. Once the window has been shown, later waits (a sidecar restart) do
+  // show their page, because someone is looking.
+  const { node, quiet } = pick();
+  useEffect(() => {
+    if (quiet || revealed) return;
+    setRevealed(true);
+    desktop?.window.reveal();
+  }, [quiet, revealed]);
+  return quiet && !revealed ? null : node;
 
-  if (link.status === "upgrade") {
-    const got = link.detail.protocol;
-    return (
-      <Screen
-        phase="upgrade"
-        title={t("host.upgrade.title")}
-        body={t("host.upgrade.body", { expected: 1, got: got ?? "?" })}
-        detail={link.detail.cli}
-      />
-    );
-  }
+  function pick(): { node: ReactNode; quiet: boolean } {
+    const waiting = (title: string, body: string): { node: ReactNode; quiet: boolean } => ({
+      node: <Screen phase="starting" title={title} body={body} />,
+      quiet: true,
+    });
+    const shown = (node: ReactNode): { node: ReactNode; quiet: boolean } => ({ node, quiet: false });
 
-  if (link.status === "down") {
-    const error = link.detail.error;
-    const needsInstall = error !== undefined && Object.hasOwn(INSTALL_FAILURES, error);
-    return (
-      <Screen
-        phase={needsInstall ? "missing" : "down"}
-        title={t(needsInstall ? "host.missing.title" : "host.down.title")}
-        body={t(needsInstall ? "host.missing.body" : "host.down.body")}
-        detail={error ? errorText(error) : undefined}
-        log={link.detail.log}
-      />
-    );
-  }
+    // The sidecar only starts after the CLI sync; until then (and on its failures) the sync page is the whole story.
+    if (sync && sync.phase !== "ready") return { node: <SyncPage state={sync} />, quiet: sync.phase === "checking" || sync.phase === "installing" };
 
-  if (link.status === "connecting") return <Screen phase="starting" title={t("host.starting.title")} body={t("host.starting.body")} />;
+    if (link.status === "upgrade") {
+      const got = link.detail.protocol;
+      return shown(<Screen phase="upgrade" title={t("host.upgrade.title")} body={t("host.upgrade.body", { expected: 1, got: got ?? "?" })} detail={link.detail.cli} />);
+    }
 
-  if (callError) {
-    return <Screen phase="error" title={t("host.error.title")} body={t("host.error.body")} detail={errorText(callError)} log={link.detail.log} />;
+    if (link.status === "down") {
+      const error = link.detail.error;
+      const needsInstall = error !== undefined && Object.hasOwn(INSTALL_FAILURES, error);
+      const screen = (
+        <Screen
+          phase={needsInstall ? "missing" : "down"}
+          title={t(needsInstall ? "host.missing.title" : "host.down.title")}
+          body={t(needsInstall ? "host.missing.body" : "host.down.body")}
+          detail={error ? errorText(error) : undefined}
+          log={link.detail.log}
+        />
+      );
+      // A link that is only reconnecting heals itself; one that needs an install will not.
+      return { node: screen, quiet: !needsInstall };
+    }
+
+    if (link.status === "connecting") return waiting(t("host.starting.title"), t("host.starting.body"));
+
+    if (callError) {
+      return shown(<Screen phase="error" title={t("host.error.title")} body={t("host.error.body")} detail={errorText(callError)} log={link.detail.log} />);
+    }
+    if (!state || state.phase === "starting") return waiting(t("host.starting.title"), t("host.starting.body"));
+    if (state.phase === "error") {
+      return shown(<Screen phase="error" title={t("host.error.title")} body={t("host.error.body")} detail={errorText(state.error)} log={link.detail.log} />);
+    }
+    if (state.phase === "signed-out") return shown(<SignedOutGate state={state} />);
+    return shown(<>{app}</>);
   }
-  if (!state || state.phase === "starting") return <Screen phase="starting" title={t("host.starting.title")} body={t("host.starting.body")} />;
-  if (state.phase === "error") {
-    return <Screen phase="error" title={t("host.error.title")} body={t("host.error.body")} detail={errorText(state.error)} log={link.detail.log} />;
-  }
-  if (state.phase === "signed-out") return <SignedOutGate state={state} />;
-  return <>{app}</>;
 }
 
 /** The CLI sync phases before the sidecar exists (ADR 0046 §3): checking, installing with streamed progress, refused, failed. */

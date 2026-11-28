@@ -60,6 +60,8 @@ input, textarea, select { font: inherit; color: inherit; }
 .ws-head:hover { background: var(--hover); }
 .ws-head .chev { transition: transform .15s; width: 14px; height: 14px; }
 .ws.open > .ws-head .chev { transform: rotate(90deg); }
+.ws-head .pin { flex: none; margin-left: auto; display: inline-flex; color: var(--faint); }
+.ws-head .pin .i { width: 13px; height: 13px; }
 .ws-head .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws.current > .ws-head { color: var(--text); font-weight: 600; }
 .sess { display: flex; align-items: center; gap: 8px; width: 100%; height: 34px; padding: 0 10px 0 30px; border-radius: 9px; text-align: left; }
@@ -93,12 +95,15 @@ input, textarea, select { font: inherit; color: inherit; }
 #usage + #side-user { border-top: 0; padding-top: 0; }
 #side-user .avatar { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 13px; font-weight: 600; object-fit: cover; }
 #side-user .user-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Placeholder for the avatar and name until the first account snapshot arrives: a light block with a sweep moving across it. */
+.skeleton { background: linear-gradient(90deg, var(--hover) 25%, color-mix(in srgb, var(--hover) 40%, var(--bg)) 50%, var(--hover) 75%); background-size: 200% 100%; animation: skeleton-sweep 1.4s linear infinite; }
+.skeleton-name { display: block; width: 84px; height: 12px; border-radius: 6px; }
+#side-user .avatar.skeleton { color: transparent; }
+@keyframes skeleton-sweep { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
 #side-user .gear { flex: none; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); }
 #side-user .gear:hover { background: var(--hover); color: var(--text); }
 #side-user .gear .i { width: 17px; height: 17px; }
-#side-user .signout.confirming { width: auto; padding: 0 8px; color: var(--danger); }
-#side-user .signout.confirming:hover { background: var(--del-bg); color: var(--danger); }
-#side-user .signout-text { font-size: 12.5px; font-weight: 600; white-space: nowrap; }
 #device { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 #device span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #device .dev-status { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; flex: none; font-size: 12px; }
@@ -220,6 +225,9 @@ input, textarea, select { font: inherit; color: inherit; }
 .ws-row:hover, .ws-row.sel { background: var(--hover); }
 .ws-row .i { width: 16px; height: 16px; color: var(--muted); }
 .ws-row .p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* First run: the path box stands where the message box would, at the same width. */
+.ws-first { flex: none; padding: 0 24px 18px; width: 100%; max-width: calc(var(--composer-w) + 48px); margin: 0 auto; }
+.ws-first .ws-card { width: 100%; border: 1px solid var(--line); box-shadow: 0 4px 22px rgba(0, 0, 0, .09); }
 #ws-hint { padding: 9px 20px; font-size: 12.5px; color: var(--faint); border-top: 1px solid var(--line); background: var(--surface2); }
 #btw-panel { position: absolute; top: 52px; right: 14px; width: 380px; max-height: 70vh; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 8px 30px rgba(0, 0, 0, .14); z-index: 25; }
 #stats-panel { position: absolute; top: 52px; right: 54px; width: 440px; max-height: 76vh; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 8px 30px rgba(0, 0, 0, .14); z-index: 26; }

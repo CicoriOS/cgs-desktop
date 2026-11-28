@@ -33,6 +33,7 @@ export function initialState(): ClientState {
     subagents: [],
     dialogs: [],
     workspaces: [],
+    workspacesLoaded: false,
     children: [],
     btw: [],
   };

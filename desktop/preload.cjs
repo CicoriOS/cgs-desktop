@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld("cgsDesktop", {
   systemLocale: process.argv.find((arg) => arg.startsWith("--cgs-system-locale="))?.slice("--cgs-system-locale=".length),
   /** The window itself is translucent (OS blur behind it); the page lets it show through the sidebar. */
   glass: process.argv.includes("--cgs-glass"),
+  /** The desktop app's own version (package.json), the experience package of ADR 0048. */
+  appVersion: process.argv.find((arg) => arg.startsWith("--cgs-app-version="))?.slice("--cgs-app-version=".length),
   /** The page draws the title bar, so it also drives the window. */
   window: {
     minimize: () => ipcRenderer.send("window:minimize"),
@@ -13,6 +15,8 @@ contextBridge.exposeInMainWorld("cgsDesktop", {
     close: () => ipcRenderer.send("window:close"),
     /** The sign-in pages ask for a small window while they show; false puts the window back. */
     setCompact: (compact) => ipcRenderer.send("window:compact", compact),
+    /** The window starts hidden; the page shows it once the app (or a page that needs the user) is ready. */
+    reveal: () => ipcRenderer.send("window:reveal"),
     isMaximized: () => ipcRenderer.invoke("window:isMaximized"),
     onMaximized: (listener) => {
       const forward = (_event, maximized) => listener(maximized);

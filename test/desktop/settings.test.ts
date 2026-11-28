@@ -68,21 +68,21 @@ test("device.read combines the sidecar's device state with the shell's auto-chec
   const { host } = fakeHost({ "settings.device.read": DEVICE });
   const updater = fakeUpdater();
   const api = createSettingsApi(host, updater)!;
-  await expect(api.device.read()).resolves.toEqual({ version: DEVICE.version, remote: false, autoUpdate: true });
+  await expect(api.device.read()).resolves.toEqual({ version: DEVICE.version, remote: false, hasPassword: false, autoUpdate: true });
   expect(updater.getAutoCheck).toHaveBeenCalled();
 });
 
 test("setRemote sends enabled and keeps the updater's auto-check value", async () => {
   const { host, calls } = fakeHost({ "settings.device.setRemote": { ...DEVICE, remote: true } });
   const api = createSettingsApi(host, fakeUpdater())!;
-  await expect(api.device.setRemote(true)).resolves.toEqual({ version: DEVICE.version, remote: true, autoUpdate: true });
+  await expect(api.device.setRemote(true)).resolves.toEqual({ version: DEVICE.version, remote: true, hasPassword: false, autoUpdate: true });
   expect(calls).toEqual([{ method: "settings.device.setRemote", params: { enabled: true } }]);
 });
 
 test("without an updater the device is still readable and update checks fall back to the CLI version", async () => {
   const { host, calls } = fakeHost({ "settings.device.read": DEVICE });
   const api = createSettingsApi(host, undefined)!;
-  await expect(api.device.read()).resolves.toEqual({ version: DEVICE.version, remote: false, autoUpdate: false });
+  await expect(api.device.read()).resolves.toEqual({ version: DEVICE.version, remote: false, hasPassword: false, autoUpdate: false });
   await expect(api.device.checkUpdate()).resolves.toEqual({ version: DEVICE.version });
   await expect(api.device.setAutoUpdate(true)).resolves.toMatchObject({ autoUpdate: false });
   expect(calls.filter((call) => call.method === "settings.device.read")).toHaveLength(3);
@@ -92,7 +92,7 @@ test("setAutoUpdate writes the shell's auto-check switch and returns the new sta
   const { host } = fakeHost({ "settings.device.read": DEVICE });
   const updater = fakeUpdater();
   const api = createSettingsApi(host, updater)!;
-  await expect(api.device.setAutoUpdate(false)).resolves.toEqual({ version: DEVICE.version, remote: false, autoUpdate: false });
+  await expect(api.device.setAutoUpdate(false)).resolves.toEqual({ version: DEVICE.version, remote: false, hasPassword: false, autoUpdate: false });
   expect(updater.setAutoCheck).toHaveBeenCalledWith(false);
   await expect(api.device.checkUpdate()).resolves.toEqual({ version: "0.3.0-next", available: "0.4.0" });
 });
@@ -106,4 +106,29 @@ test("signOut asks the sidecar for logout", async () => {
 
 test("no host link means no settings API", () => {
   expect(createSettingsApi(undefined, fakeUpdater())).toBeUndefined();
+});
+
+test("the device shows two versions: the experience package as N.M and the core from the sidecar", async () => {
+  vi.stubGlobal("window", { cgsDesktop: { appVersion: "1.3.0" } });
+  try {
+    const { host } = fakeHost({ "settings.device.read": { ...DEVICE, fingerprint: { emoji: ["😀"], zh: ["笑脸"], en: ["grin"] } } });
+    const api = createSettingsApi(host, fakeUpdater())!;
+    await expect(api.device.read()).resolves.toMatchObject({ packageVersion: "1.3", version: DEVICE.version, fingerprint: { emoji: ["😀"] } });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test("the first password travels with the switch, and a later change is its own call", async () => {
+  const { host, calls } = fakeHost({
+    "settings.device.setRemote": { ...DEVICE, remote: true, hasPassword: true },
+    "settings.device.setPassword": { ...DEVICE, remote: true, hasPassword: true },
+  });
+  const api = createSettingsApi(host, fakeUpdater())!;
+  await expect(api.device.setRemote(true, "first-password")).resolves.toMatchObject({ remote: true, hasPassword: true });
+  await api.device.setPassword("second-password");
+  expect(calls).toEqual([
+    { method: "settings.device.setRemote", params: { enabled: true, password: "first-password" } },
+    { method: "settings.device.setPassword", params: { password: "second-password" } },
+  ]);
 });

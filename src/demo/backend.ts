@@ -46,6 +46,8 @@ function demoAccount(): AccountSnapshot {
 export function createDemoBackend(): DemoBackend {
   const sessions: DemoSession[] = [];
   const extraWorkspaces = new Set<string>();
+  const removedWorkspaces = new Set<string>();
+  const pinnedAt = new Map<string, number>();
   const archive = (s: DemoSession) => void sessions.push(s);
   sessions.push(...demoSessions(archive));
   for (const s of sessions) s.live = true;
@@ -63,13 +65,17 @@ export function createDemoBackend(): DemoBackend {
       const byCwd = new Map<string, Workspace>();
       for (const cwd of extraWorkspaces) byCwd.set(cwd, { cwd, sessions: [] });
       for (const s of sessions) {
-        if (!s.log.entries.length) continue; // omp writes the file with the first message
+        if (!s.log.entries.length || removedWorkspaces.has(s.cwd)) continue; // omp writes the file with the first message
         const ws = byCwd.get(s.cwd) ?? { cwd: s.cwd, sessions: [] };
         ws.sessions.push({ path: s.path, id: s.id, title: s.shownTitle, updatedAt: s.updatedAt });
         byCwd.set(s.cwd, ws);
       }
       for (const ws of byCwd.values()) ws.sessions.sort((a, b) => b.updatedAt - a.updatedAt);
-      return [...byCwd.values()].sort((a, b) => (b.sessions[0]?.updatedAt ?? 0) - (a.sessions[0]?.updatedAt ?? 0));
+      for (const ws of byCwd.values()) {
+        const at = pinnedAt.get(ws.cwd);
+        if (at !== undefined) ws.pinnedAt = at;
+      }
+      return [...byCwd.values()].sort((a, b) => (b.pinnedAt !== undefined ? 1 : 0) - (a.pinnedAt !== undefined ? 1 : 0) || (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0) || (b.sessions[0]?.updatedAt ?? 0) - (a.sessions[0]?.updatedAt ?? 0));
     },
     children: async () => sessions.filter((s) => s.live).map((s) => s.child()),
     complete: async (typed) => {
@@ -79,7 +85,9 @@ export function createDemoBackend(): DemoBackend {
       const entries = DIRS.filter((d) => d.startsWith(prefix)).map((d) => `${base}${d}`);
       return { exists: DIRS.includes(prefix), entries };
     },
-    addWorkspace: async (cwd) => void extraWorkspaces.add(cwd),
+    addWorkspace: async (cwd) => void (removedWorkspaces.delete(cwd), extraWorkspaces.add(cwd)),
+    removeWorkspace: async (cwd) => void (removedWorkspaces.add(cwd), extraWorkspaces.delete(cwd), pinnedAt.delete(cwd)),
+    pinWorkspace: async (cwd, pinned) => void (pinned ? pinnedAt.set(cwd, pinnedAt.get(cwd) ?? Date.now()) : pinnedAt.delete(cwd)),
     openChild: async (cwd, sessionPath): Promise<ChildStatus> => {
       let s = sessionPath ? sessions.find((x) => x.path === sessionPath) : sessions.find((x) => x.cwd === cwd && !x.log.entries.length);
       if (!s) {

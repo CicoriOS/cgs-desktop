@@ -84,6 +84,15 @@ ipcMain.on("window:toggleMaximize", (event) => {
   if (win) win.isMaximized() ? win.unmaximize() : win.maximize();
 });
 ipcMain.on("window:close", (event) => windowOf(event)?.close());
+// The window stays hidden while the app starts (CLI sync, sidecar, sign-in check): the page asks for it once it has something to show,
+// so nobody watches "connecting" pages. A start that goes quiet for too long shows the window anyway, so it never looks dead.
+const REVEAL_FALLBACK_MS = 20_000;
+function reveal(win) {
+  if (!win || win.isDestroyed() || win.isVisible()) return;
+  win.show();
+  win.focus();
+}
+ipcMain.on("window:reveal", (event) => reveal(windowOf(event)));
 
 // The sign-in pages are a small window: nothing to lay out yet, and a 1360x880 window around one card looks empty. The page asks for
 // it while it shows them and drops the request once the app opens; the size the window had before comes back then.
@@ -128,6 +137,7 @@ function createWindow() {
     minWidth: 420,
     minHeight: 520,
     title: "CGS Desktop",
+    show: false,
     // The title bar and the window buttons are drawn by the page (src/ui/WindowControls.tsx), not by GTK or the OS.
     frame: false,
     ...glass,
@@ -135,6 +145,7 @@ function createWindow() {
       preload: path.join(path.dirname(fileURLToPath(import.meta.url)), "preload.cjs"),
       additionalArguments: [
         ...(glass ? ["--cgs-glass"] : []),
+        `--cgs-app-version=${app.getVersion()}`,
         `--cgs-system-locale=${app.getPreferredSystemLanguages()[0] ?? ""}`,
       ],
       contextIsolation: true,
@@ -154,6 +165,9 @@ function createWindow() {
       if (/^https?:/.test(target)) void shell.openExternal(target);
     }
   });
+  // The demo has no startup to wait for.
+  if (demo) win.once("ready-to-show", () => reveal(win));
+  else setTimeout(() => reveal(win), REVEAL_FALLBACK_MS).unref();
   void win.loadURL(url);
   return win;
 }

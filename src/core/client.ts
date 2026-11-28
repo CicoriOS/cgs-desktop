@@ -308,7 +308,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
       if (closed || request !== listRequest) return;
       set((s) => {
         const cur = workspaces.flatMap((w) => w.sessions).find((x) => x.path === s.sessionFile);
-        return { ...s, workspaces, title: cur?.title ?? s.title };
+        return { ...s, workspaces, workspacesLoaded: true, title: cur?.title ?? s.title };
       });
     } catch (e) {
       if (!closed && request === listRequest) toast(errorMessage(e));
@@ -827,6 +827,28 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
         void refreshSessions();
         await actions.newSession(cwd);
       }),
+    pinWorkspace: (cwd, pinned) =>
+      guard(async () => {
+        if (!host.pinWorkspace) return;
+        await host.pinWorkspace(cwd, pinned);
+        await refreshSessions();
+      }),
+    removeWorkspace: (cwd) =>
+      guard(async () => {
+        if (!host.removeWorkspace) return;
+        await host.removeWorkspace(cwd);
+        await refreshSessions();
+        if (state.activeCwd !== cwd) return;
+        // The conversation on screen belonged to it: move on to another workspace, or back to the first-run page.
+        const next = state.workspaces.find((w) => w.cwd !== cwd)?.cwd;
+        if (next) await actions.newSession(next);
+        else {
+          ++navigation;
+          detach();
+          resetSession();
+          set((s) => ({ ...s, childId: undefined, activeCwd: "", sessionFile: undefined, connection: "closed", loading: false }));
+        }
+      }),
     renameSession: (name) =>
       guard(async () => {
         await rpc({ type: "set_session_name", name });
@@ -936,7 +958,7 @@ export function createClient(connect: (childId: string) => RpcTransport, host: H
   const bootstrap = Promise.all([host.info(), host.children(), host.sessions()]).then(
     ([info, children, workspaces]) => {
       if (closed || navigation) return;
-      set((s) => ({ ...s, children, workspaces, device: info.device ?? "" }));
+      set((s) => ({ ...s, children, workspaces, workspacesLoaded: true, device: info.device ?? "" }));
       const existing = children.reduce<ChildStatus | undefined>((recent, c) => !recent || c.updatedAt >= recent.updatedAt ? c : recent, undefined);
       const cwd = info.cwd || workspaces[0]?.cwd;
       if (existing) attach(existing);

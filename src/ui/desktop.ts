@@ -6,6 +6,8 @@ interface CgsDesktop {
   platform: string;
   systemLocale?: string;
   glass: boolean;
+  /** The desktop app's own version as semver (`1.3.0`); the experience package is its `N.M` (ADR 0048). */
+  appVersion?: string;
   /** The local host link (Electron main <-> sidecar); see cgsconnect/local-channel.md §8. */
   host?: DesktopHost;
   /** Desktop updates (ADR 0046 §6); absent in a browser and in the demo. */
@@ -18,6 +20,8 @@ interface CgsDesktop {
     close(): void;
     /** A small window for the sign-in pages (true), or the app's normal size again (false). */
     setCompact(compact: boolean): void;
+    /** The window starts hidden; call this once there is something for the user to see. */
+    reveal(): void;
     isMaximized(): Promise<boolean>;
     /** Calls back when the window is maximized or restored; returns the way to stop listening. */
     onMaximized(listener: (maximized: boolean) => void): () => void;

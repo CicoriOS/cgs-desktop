@@ -44,14 +44,16 @@ function Title() {
   );
 }
 
-export function Topbar({ onToggleSide, onToggleRight, onToggleBtw, onToggleStats, inSession }: { onToggleSide: () => void; onToggleRight: () => void; onToggleBtw: () => void; onToggleStats: () => void; inSession: boolean }) {
+export function Topbar({ onToggleSide, onToggleRight, onToggleBtw, onToggleStats, inSession, firstRun }: { onToggleSide: () => void; onToggleRight: () => void; onToggleBtw: () => void; onToggleStats: () => void; inSession: boolean; /** No workspace yet: no button here has anything to act on. */ firstRun: boolean }) {
   const t = useT();
   const locale = useLocale();
   return (
     <header id="topbar">
-      <button type="button" className="icon" title={t("side.toggle")} onClick={onToggleSide}>
-        <SidebarLeftIcon />
-      </button>
+      {!firstRun && (
+        <button type="button" className="icon" title={t("side.toggle")} onClick={onToggleSide}>
+          <SidebarLeftIcon />
+        </button>
+      )}
       <Title />
       <span className="grow" />
       {inSession && (
@@ -67,7 +69,7 @@ export function Topbar({ onToggleSide, onToggleRight, onToggleBtw, onToggleStats
       {!desktop && <button type="button" className="lang" title={t("lang.switch")} onClick={() => setLocale(locale === "zh" ? "en" : "zh")}>
         {locale === "zh" ? "EN" : "中"}
       </button>}
-      {FEATURES.rightPanel && (
+      {FEATURES.rightPanel && !firstRun && (
         <button type="button" className="icon" title={t("side.toggleRight")} onClick={onToggleRight}>
           <SidebarRightIcon />
         </button>
