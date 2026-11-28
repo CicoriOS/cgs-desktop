@@ -186,8 +186,56 @@ test("every component is listed from the start, in the order the page shows them
 });
 
 test("outside Windows the sync has no toolchain and its states carry no components", async () => {
-  const sync = createCliSync({ env: { CGS_SIDECAR: JSON.stringify(["x"]) }, platform: "linux", home: tempDir(), boundVersion: "19.2.1-cgs.5.4" });
+  const sync = createCliSync({ env: { CGS_SIDECAR: JSON.stringify(["x"]) }, platform: "linux", home: tempDir() });
   const state = await sync.start();
   expect(state.phase).toBe("ready");
   expect(state.components).toBeUndefined();
+});
+
+test("Windows startup verifies a cached Git download and unpacks it before reporting the tool ready", async () => {
+  const { home, env, manifest } = fakeToolchain();
+  const archive = Buffer.from("PortableGit fixture");
+  manifest.git.sha256 = sha(archive);
+  const manifestFile = path.join(home, "manifest.json");
+  writeFileSync(manifestFile, JSON.stringify(manifest));
+  env.CGS_TOOLCHAIN_MANIFEST = manifestFile;
+  env.CGS_BIN = path.join(home, "cgs.exe");
+  writeFileSync(env.CGS_BIN, "");
+  const root = toolchainRoot({ env, home });
+  const cacheDir = path.join(root, ".downloads");
+  mkdirSync(cacheDir, { recursive: true });
+  const cachedGit = path.join(cacheDir, manifest.git.asset);
+  writeFileSync(cachedGit, archive);
+  // The archive was left by an interrupted first run, along with a partial Git extraction.
+  const git = path.join(root, "git");
+  mkdirSync(git, { recursive: true });
+  const partial = path.join(git, "partial");
+  writeFileSync(partial, "");
+
+  const sync = createCliSync({
+    env,
+    platform: "win32",
+    home,
+    fetch: async () => new Response("", { status: 206 }),
+    spawn(command, args) {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = () => {};
+      queueMicrotask(() => {
+        if (command === cachedGit && args.includes(`-o${git}`)) {
+          mkdirSync(path.join(git, "cmd"), { recursive: true });
+          writeFileSync(path.join(git, "cmd", "git.exe"), "");
+          child.emit("close", 0);
+        } else {
+          child.emit("close", 1);
+        }
+      });
+      return child;
+    },
+  });
+  const state = await sync.start();
+  expect(state.components?.find(({ id }) => id === "git")?.state).toBe("done");
+  expect(readFileSync(path.join(root, ".done", "git"), "utf8").trim()).toBe(manifest.git.sha256);
+  expect(existsSync(partial)).toBe(false);
 });

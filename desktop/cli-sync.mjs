@@ -1,11 +1,5 @@
-// CLI sync at startup (ADR 0046 §3): the desktop must not run without a CLI of the version it was built against, and the
-// copy it runs must be the copy it can update. Runs before the sidecar; the sidecar starts only when this returns a cgs
-// path. Installation is `bun add -g @cicori/cgs@<bound>` — the same result a user gets by hand, with bun's global manifest
-// in step. Only a bun-global copy is ever overwritten; one somewhere else is used as-is when its version is acceptable and
-// otherwise reported, never replaced.
-//
-// The version rule is ADR 0044: `<omp base>-cgs.<N>` or `<omp base>-cgs.<N>.<M>`. A newer major `N` than the bound one
-// refuses to start (the app and the CLI speak different protocols); a newer `.M` in the same `N` is fine.
+// Bootstrap the CLI before starting the sidecar (ADR 0052). Reuse existing copies; on first install let Bun resolve the
+// registry's default release. Compatibility is decided by the RPC handshake, not the package version.
 import { spawn as defaultSpawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
@@ -20,9 +14,8 @@ import { createRacer, proxyEnv, proxyUrlFromPac } from "./toolchain/network.mjs"
 
 /** A full `cgs --version` answer, or a bare version: both are accepted. */
 const VERSION_TEXT = /(?:^|\s|\/)cgs\/(\S+)|^(\d+\.\d+\.\d+-cgs\.[0-9]+(?:\.[0-9]+)?)$/m;
-/** The CGS suffix is split off first: the omp base may itself carry a prerelease (`20.0.0-beta.1-cgs.6`). */
-const VERSION_PARTS = /^(.+)-cgs\.([1-9]\d*)(?:\.([1-9]\d*))?$/;
-const VERSION_BASE = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
+const CLI_PACKAGE = "@cicori/cgs";
+const INSTALL_COMMAND = `bun add -g ${CLI_PACKAGE}`;
 const VERSION_TIMEOUT_MS = 20_000;
 const INSTALL_TIMEOUT_MS = 10 * 60_000;
 const DAEMON_STOP_TIMEOUT_MS = 20_000;
@@ -51,37 +44,11 @@ export function daemonDir({ home = os.homedir(), env = process.env } = {}) {
   return env.CGS_DAEMON_DIR?.trim() || path.join(home, env.PI_CONFIG_DIR?.trim() || ".cgs", "run", "daemon");
 }
 
-/** `19.2.1-cgs.5.4` -> `{ base: [19,2,1], major: 5, fix: 4 }`; undefined for anything else. */
-export function parseCgsVersion(text) {
-  if (typeof text !== "string") return undefined;
-  const suffix = VERSION_PARTS.exec(text.trim());
-  if (!suffix) return undefined;
-  const base = VERSION_BASE.exec(suffix[1]);
-  if (!base) return undefined;
-  return { base: [Number(base[1]), Number(base[2]), Number(base[3])], major: Number(suffix[2]), fix: Number(suffix[3] ?? 0) };
-}
-
 /** The version in a `cgs --version` answer (`cgs/19.2.1-cgs.5.4`), or undefined. */
 export function parseVersionOutput(output) {
   if (typeof output !== "string") return undefined;
   const match = VERSION_TEXT.exec(output);
   return match ? (match[1] ?? match[2]) : undefined;
-}
-
-/**
- * Order two CGS release versions (ADR 0044): the omp base first, then the major `N`, then the fix `.M` (absent means 0).
- * Throws on a version that is not `<x.y.z>-cgs.<N>[.<M>]`; callers treat that as an unreadable install.
- */
-export function compareCgsVersions(left, right) {
-  const a = parseCgsVersion(left);
-  const b = parseCgsVersion(right);
-  if (!a || !b) throw new TypeError(`not a CGS version: ${!a ? left : right}`);
-  for (let i = 0; i < 3; i += 1) {
-    if (a.base[i] !== b.base[i]) return a.base[i] < b.base[i] ? -1 : 1;
-  }
-  if (a.major !== b.major) return a.major < b.major ? -1 : 1;
-  if (a.fix !== b.fix) return a.fix < b.fix ? -1 : 1;
-  return 0;
 }
 
 function isFile(candidate, io, platform) {
@@ -110,7 +77,7 @@ function isInside(real, root, platform) {
 /**
  * Every executable `cgs` on this machine, deduplicated by real file, in `platform.mjs` resolution order: `CGS_BIN`,
  * `$BUN_INSTALL/bin`, `~/.bun/bin`, then PATH (first PATH match wins for the sidecar). `bunGlobal` is true only for a copy
- * whose real path is inside the bun install directory — the one copy the desktop may overwrite.
+ * whose real path is inside the bun install directory.
  */
 export function inspectInstall({ env = process.env, platform = process.platform, home = os.homedir(), fs: fsOverride } = {}) {
   const io = { ...REAL_FS, ...fsOverride };
@@ -154,24 +121,14 @@ export function inspectBun({ env = process.env, platform = process.platform, hom
 }
 
 /**
- * What startup should do, from the found copy and the bound version. Pure: no IO, so the rules are testable alone.
+ * Reuse the found copy, or install the CLI if missing.
  * `found` is an `inspectInstall().winner`; `installed` the version read from it (undefined when unreadable).
  */
-export function planCliSync({ found, installed, bound, bun, explicit = false }) {
+export function planCliSync({ found, installed, bun, explicit = false }) {
   if (!found) return bun ? { action: "install" } : { action: "error", code: "bun_missing" };
   if (explicit) return { action: "use" };
   if (!installed) return { action: "error", code: "version_unreadable" };
-  const current = parseCgsVersion(installed);
-  const target = parseCgsVersion(bound);
-  if (!current || !target) return { action: "error", code: "version_unreadable" };
-  // A newer major is a different protocol generation: the app asks for the matching desktop release instead of replacing it.
-  if (current.major > target.major) return { action: "refuse", code: "cgs_too_new" };
-  const order = compareCgsVersions(installed, bound);
-  if (order >= 0) return { action: "use", managed: found.bunGlobal };
-  // Older than the bound version: only the bun-global copy can be upgraded in place.
-  if (!found.bunGlobal) return { action: "error", code: "cgs_not_managed" };
-  if (!bun) return { action: "error", code: "bun_missing" };
-  return { action: "upgrade" };
+  return { action: "use" };
 }
 
 /** Offline failures get their own page; everything else is an install failure with the log tail. */
@@ -283,7 +240,7 @@ export function writeMarker({ home, env, version, desktop, fs: fsOverride } = {}
   }
 }
 
-/** One top-level field of package.json (`cgsVersion`, `bunInstall`), or undefined. */
+/** One top-level field of package.json, or undefined. */
 function packageField(name) {
   try {
     const file = new URL("../package.json", import.meta.url);
@@ -351,7 +308,6 @@ export function createCliSync({
   spawn = defaultSpawn,
   fs: fsOverride,
   confirmRestart,
-  boundVersion,
   bunPin,
   fetch: fetchImpl,
   arch = process.arch,
@@ -360,7 +316,6 @@ export function createCliSync({
   resourcesPath = process.resourcesPath,
 } = {}) {
   const io = { ...REAL_FS, ...fsOverride };
-  const bound = boundVersion ?? packageField("cgsVersion");
   const pin = bunPin ?? packageField("bunInstall");
   let state = { phase: "checking", progress: [] };
   let inflight;
@@ -370,7 +325,15 @@ export function createCliSync({
   const toolchain =
     toolchainOverride ??
     (platform === "win32" && !env.CGS_SIDECAR
-      ? createToolchain({ env, home, resourcesPath, fetch: fetchImpl ?? ((...args) => globalThis.fetch(...args)), proxyFor, spawn, fs: io })
+      ? createToolchain({
+          env,
+          home,
+          resourcesPath,
+          fetch: fetchImpl,
+          proxyFor,
+          spawn,
+          fs: fsOverride ? { ...fs, ...fsOverride } : fs,
+        })
       : undefined);
   const racer = createRacer({ fetch: fetchImpl ?? ((...args) => globalThis.fetch(...args)) });
 
@@ -397,7 +360,7 @@ export function createCliSync({
 
   const fail = (code, detail, log) =>
     set({
-      phase: code === "cgs_too_new" ? "refused" : "error",
+      phase: "error",
       code,
       detail,
       progress: state.progress,
@@ -442,10 +405,6 @@ export function createCliSync({
     state = { phase: "checking", progress: [] };
     for (const listener of listeners) listener(state);
     if (env.CGS_SIDECAR) return set({ phase: "ready", progress: [], bypassed: true });
-    if (!bound || !parseCgsVersion(bound)) {
-      return fail("sync_failed", `package.json cgsVersion is missing or not a CGS release version: ${bound ?? "(absent)"}`);
-    }
-
     const inspection = inspectInstall({ env, platform, home, fs: io });
     const found = inspection.winner;
     const explicit = Boolean(env.CGS_BIN?.trim());
@@ -463,13 +422,12 @@ export function createCliSync({
       installed = read.version;
       versionLog = read.log;
     }
-    let plan = planCliSync({ found, installed, bound, bun, explicit });
+    let plan = planCliSync({ found, installed, bun, explicit });
     const common = {
       progress: [],
       cgs: found?.path,
       version: installed,
       shadowed: inspection.shadowed,
-      bound,
     };
     if (plan.action === "error" && plan.code === "bun_missing") {
       // No bun anywhere: fetch the pinned one. Where it cannot be fetched (unsupported platform) the page keeps the manual instructions.
@@ -493,26 +451,14 @@ export function createCliSync({
           }
           return fail("bun_install_failed", "The downloaded bun does not run on this machine.", [check.stdout, check.stderr, check.error].filter(Boolean).join("\n"));
         }
-        plan = planCliSync({ found, installed, bound, bun, explicit });
+        plan = planCliSync({ found, installed, bun, explicit });
       }
-    }
-    if (plan.action === "refuse") {
-      return set({
-        ...common,
-        phase: "refused",
-        code: plan.code,
-        detail: `installed ${installed ?? "?"}; this desktop is bound to ${bound}. Install a newer CGS Desktop instead.`,
-      });
     }
     if (plan.action === "error") {
       const detail =
         plan.code === "bun_missing"
-          ? `bun was not found; checked ${[...new Set(bunCandidates({ env, platform, home }).map((item) => path.dirname(item)))].join(", ")}. Install bun (https://bun.sh) and try again, or install @cicori/cgs@${bound} yourself.`
-          : plan.code === "cgs_not_managed"
-            ? `${found?.path} is not installed by bun and cannot be replaced by the desktop. Install the bun build (bun add -g @cicori/cgs@${bound}) or update this copy yourself.`
-            : plan.code === "version_unreadable"
-              ? `Could not read the version of ${found?.path ?? "cgs"}.\n${versionLog ?? ""}`
-              : undefined;
+          ? `bun was not found; checked ${[...new Set(bunCandidates({ env, platform, home }).map((item) => path.dirname(item)))].join(", ")}. Install bun (https://bun.sh) and try again, or run ${INSTALL_COMMAND}.`
+          : `Could not read the version of ${found?.path ?? "cgs"}.\n${versionLog ?? ""}`;
       return set({ ...common, phase: "error", code: plan.code, detail });
     }
     if (plan.action === "use") {
@@ -520,8 +466,8 @@ export function createCliSync({
       return set({ ...common, phase: "ready", managed: Boolean(found?.bunGlobal) && !explicit });
     }
 
-    // Install or upgrade: the daemon of an older CLI keeps running unless we ask it to stop.
-    set({ ...common, phase: "installing", progress: [`bun add -g @cicori/cgs@${bound}`] });
+    // An orphaned daemon can outlive the CLI executable.
+    set({ ...common, phase: "installing", progress: [INSTALL_COMMAND] });
     const daemon = await detectDaemon({ home, env, fs: io, platform });
     if (daemon.running) {
       const accepted = confirmRestart ? await confirmRestart({ dir: daemon.dir }) : true;
@@ -532,14 +478,14 @@ export function createCliSync({
     let installEnv = childEnv;
     if (toolchain) {
       const registries = loadManifest({ env }).cgs.registries;
-      const order = await racer.order(`cgs-registry:${bound}`, registries, (registry) => `${registry}/@cicori%2Fcgs/${bound}`);
+      const order = await racer.order("cgs-registry", registries, (registry) => `${registry}/@cicori%2Fcgs/latest`);
       const proxy = await proxyFor?.(order[0]);
       installEnv = { ...childEnv, BUN_CONFIG_REGISTRY: order[0], ...proxyEnv(proxy) };
     }
     const result = await runProcess({
       spawn,
       command: bun,
-      args: ["add", "-g", `@cicori/cgs@${bound}`],
+      args: ["add", "-g", CLI_PACKAGE],
       env: installEnv,
       platform,
       timeoutMs: INSTALL_TIMEOUT_MS,
@@ -547,16 +493,16 @@ export function createCliSync({
     });
     if (result.code !== 0) {
       const log = [result.stdout, result.stderr, result.error].filter(Boolean).join("\n");
-      return fail(result.timedOut ? "install_failed" : classifyInstallFailure(log), `bun add -g @cicori/cgs@${bound} failed${result.timedOut ? " (timeout)" : ""}.`, log);
+      return fail(result.timedOut ? "install_failed" : classifyInstallFailure(log), `${INSTALL_COMMAND} failed${result.timedOut ? " (timeout)" : ""}.`, log);
     }
     if (daemon.running) {
       progress("stopping the local service");
-      const stop = await stopDaemon({ cgs: inspectInstall({ env, platform, home, fs: io }).winner?.path ?? found.path, home, env: childEnv, spawn, fs: io, platform });
+      const stop = await stopDaemon({ cgs: inspectInstall({ env, platform, home, fs: io }).winner?.path, home, env: childEnv, spawn, fs: io, platform });
       progress(stop.stopped ? "local service stopped" : `local service not stopped (${stop.reason}); the new sidecar will restart it`);
     }
     const after = inspectInstall({ env, platform, home, fs: io });
     const read = after.winner ? await readCgsVersion({ cgs: after.winner.path, spawn, env: childEnv, platform }) : { version: undefined, log: "cgs not found after install" };
-    if (!read.version || compareCgsVersions(read.version, bound) !== 0) {
+    if (!read.version) {
       return set({
         ...common,
         phase: "error",
@@ -564,7 +510,7 @@ export function createCliSync({
         cgs: after.winner?.path,
         version: read.version,
         progress: state.progress,
-        detail: `Expected ${bound}, got ${read.version ?? "nothing"} at ${after.winner?.path ?? "no path"}.`,
+        detail: `Could not verify the CLI at ${after.winner?.path ?? "no path"}.`,
         log: read.log,
       });
     }
@@ -574,7 +520,6 @@ export function createCliSync({
       progress: state.progress,
       cgs: after.winner.path,
       version: read.version,
-      bound,
       managed: true,
       shadowed: after.shadowed,
     });

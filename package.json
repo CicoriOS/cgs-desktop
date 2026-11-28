@@ -45,7 +45,6 @@
     "lucide-react": "^1.82.0",
     "mermaid": "^12.3.0"
   },
-  "cgsVersion": "19.2.1-cgs.5.4",
   "bunInstall": {
     "version": "1.4.4",
     "sha256": {

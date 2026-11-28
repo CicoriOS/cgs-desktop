@@ -1,4 +1,4 @@
-// CLI sync (ADR 0046 §3): version order, shadow detection, the install plan, and the real install path against fake
+// CLI bootstrap (ADR 0052): shadow detection, the install plan, and the real install path against fake
 // bun/cgs shell scripts in a temporary PATH. Nothing here touches the machine's real bun install or ~/.cgs.
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -10,7 +10,6 @@ import { afterEach, expect, test } from "vitest";
 import { bunAssetName, readZipEntry } from "../../desktop/bun-install.mjs";
 import {
   classifyInstallFailure,
-  compareCgsVersions,
   createCliSync,
   detectDaemon,
   inspectInstall,
@@ -27,18 +26,6 @@ function tempDir(prefix = "cgs-cli-sync-") {
 }
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-});
-
-const BOUND = "19.2.1-cgs.5.4";
-
-test("version order follows the omp base, then N, then M", () => {
-  expect(compareCgsVersions("19.2.1-cgs.5.4", "19.2.1-cgs.5.3")).toBe(1);
-  expect(compareCgsVersions("19.2.1-cgs.5.3", "19.2.1-cgs.5.4")).toBe(-1);
-  expect(compareCgsVersions("19.2.1-cgs.5.4", "19.2.1-cgs.5.4")).toBe(0);
-  expect(compareCgsVersions("19.2.1-cgs.6", "19.2.1-cgs.5.9")).toBe(1);
-  expect(compareCgsVersions("20.0.0-cgs.1", "19.2.1-cgs.9")).toBe(1);
-  expect(compareCgsVersions("19.2.1-cgs.5.4", "19.2.1-cgs.5")).toBe(1);
-  expect(() => compareCgsVersions("19.2.1", BOUND)).toThrow();
 });
 
 test("the version is read from cgs/<version> or a bare version", () => {
@@ -67,7 +54,7 @@ function fakeFs({ files = [], links = {} } = {}) {
   };
 }
 
-test("every executable cgs is found; the bun-global one is the overwritable copy", () => {
+test("every executable cgs is found; the primary bun-global copy wins", () => {
   const found = inspectInstall({
     env: { BUN_INSTALL: "/opt/bun", PATH: "/usr/local/bin:/opt/bun/bin" },
     home: "/home/u",
@@ -87,17 +74,9 @@ test("every executable cgs is found; the bun-global one is the overwritable copy
   expect(second?.bunGlobal).toBe(false);
 });
 
-test("the plan refuses only a newer major, upgrades an older bun copy and leaves a foreign copy alone", () => {
-  const bunGlobal = { path: "/opt/bun/bin/cgs", bunGlobal: true };
-  const foreign = { path: "/usr/local/bin/cgs", bunGlobal: false };
-  expect(planCliSync({ found: undefined, installed: undefined, bound: BOUND, bun: "/opt/bun/bin/bun" })).toEqual({ action: "install" });
-  expect(planCliSync({ found: undefined, installed: undefined, bound: BOUND, bun: undefined })).toEqual({ action: "error", code: "bun_missing" });
-  expect(planCliSync({ found: bunGlobal, installed: "19.2.1-cgs.5.3", bound: BOUND, bun: "/opt/bun/bin/bun" })).toEqual({ action: "upgrade" });
-  expect(planCliSync({ found: foreign, installed: "19.2.1-cgs.5.3", bound: BOUND, bun: "/opt/bun/bin/bun" })).toEqual({ action: "error", code: "cgs_not_managed" });
-  expect(planCliSync({ found: bunGlobal, installed: "19.2.1-cgs.6.1", bound: BOUND, bun: "/opt/bun/bin/bun" })).toEqual({ action: "refuse", code: "cgs_too_new" });
-  expect(planCliSync({ found: bunGlobal, installed: "19.2.1-cgs.5.4", bound: BOUND, bun: "/opt/bun/bin/bun" })).toEqual({ action: "use", managed: true });
-  expect(planCliSync({ found: bunGlobal, installed: "19.2.1-cgs.5.9", bound: BOUND, bun: undefined })).toEqual({ action: "use", managed: true });
-  expect(planCliSync({ found: foreign, installed: "19.2.1-cgs.5.4", bound: BOUND, bun: undefined })).toEqual({ action: "use", managed: false });
+test("the plan does not replace an existing CLI whose version cannot be read", () => {
+  const found = { path: "/opt/bun/bin/cgs", bunGlobal: true };
+  expect(planCliSync({ found, bun: "/opt/bun/bin/bun" })).toEqual({ action: "error", code: "version_unreadable" });
 });
 
 test("offline installs are told apart from other failures", () => {
@@ -154,37 +133,27 @@ const app = { getVersion: () => "0.3.0", getPath: (key) => (key === "exe" ? "/op
 
 test("a missing CLI is installed with bun and the marker is written", async () => {
   const fake = fakeInstall({ version: undefined });
-  const sync = createCliSync({ app, env: fake.env, home: fake.root, boundVersion: BOUND });
+  const sync = createCliSync({ app, env: fake.env, home: fake.root });
   const state = await sync.start();
   expect(state.phase).toBe("ready");
-  expect(state.version).toBe(BOUND);
+  expect(state.version).toBe("19.2.1-cgs.5.4");
   expect(state.cgs).toBe(fake.cgs);
-  expect(readFileSync(path.join(fake.root, "bun.log"), "utf8")).toContain("add -g @cicori/cgs@19.2.1-cgs.5.4");
+  expect(readFileSync(path.join(fake.root, "bun.log"), "utf8").trim()).toBe("add -g @cicori/cgs");
   const marker = JSON.parse(readFileSync(markerPath({ home: fake.root, env: fake.env }), "utf8"));
   expect(marker).toMatchObject({ desktop: "/opt/cgs-desktop", version: "0.3.0" });
 });
 
-test("an older bun-global CLI is upgraded", async () => {
-  const fake = fakeInstall({ version: "19.2.1-cgs.5.3" });
-  const sync = createCliSync({ app, env: fake.env, home: fake.root, boundVersion: BOUND });
+test.each(["19.2.1-cgs.5.3", "20.0.0-cgs.6.1"])("existing CLI %s is used without invoking Bun", async (version) => {
+  const fake = fakeInstall({ version });
+  const sync = createCliSync({ app, env: fake.env, home: fake.root });
   const state = await sync.start();
-  expect(state.phase).toBe("ready");
-  expect(state.version).toBe(BOUND);
-  expect(state.progress?.join("\n")).toContain("installed @cicori/cgs@19.2.1-cgs.5.4");
-});
-
-test("a newer major refuses to start and installs nothing", async () => {
-  const fake = fakeInstall({ version: "19.2.1-cgs.6.1" });
-  const sync = createCliSync({ app, env: fake.env, home: fake.root, boundVersion: BOUND });
-  const state = await sync.start();
-  expect(state.phase).toBe("refused");
-  expect(state.code).toBe("cgs_too_new");
-  expect(() => readFileSync(path.join(fake.root, "bun.log"))).toThrow();
+  expect(state).toMatchObject({ phase: "ready", version, cgs: fake.cgs });
+  expect(existsSync(path.join(fake.root, "bun.log"))).toBe(false);
 });
 
 test("where bun cannot be installed, no bun and no CLI is bun_missing with the instructions detail", async () => {
   const fake = fakeInstall({ version: undefined, bun: false });
-  const sync = createCliSync({ app, env: fake.env, home: fake.root, boundVersion: BOUND, platform: "win32" });
+  const sync = createCliSync({ app, env: fake.env, home: fake.root, platform: "win32" });
   const state = await sync.start();
   expect(state.phase).toBe("error");
   expect(state.code).toBe("bun_missing");
@@ -269,13 +238,13 @@ test("no bun on PATH: the pinned bun is downloaded and runs the installed CLI sh
   const fake = fakeInstall({ version: undefined, bun: false });
   fake.env.PATH = "/usr/bin:/bin";
   const release = fakeRelease();
-  const sync = createCliSync({ app, env: fake.env, home: fake.root, boundVersion: BOUND, bunPin: release.pin, fetch: release.fetch, arch: "arm64" });
+  const sync = createCliSync({ app, env: fake.env, home: fake.root, bunPin: release.pin, fetch: release.fetch, arch: "arm64" });
   const state = await sync.start();
   expect(state.phase).toBe("ready");
   expect(release.urls).toHaveLength(1);
   expect(release.urls[0]).toContain("/bun-v1.4.4/");
   expect(existsSync(path.join(fake.root, "bin", "bun"))).toBe(true);
-  expect(readFileSync(path.join(fake.root, "bun.log"), "utf8")).toContain("add -g @cicori/cgs@19.2.1-cgs.5.4");
+  expect(readFileSync(path.join(fake.root, "bun.log"), "utf8").trim()).toBe("add -g @cicori/cgs");
 });
 
 test("a bun the user already has is used as it is: nothing is downloaded", async () => {
@@ -284,7 +253,6 @@ test("a bun the user already has is used as it is: nothing is downloaded", async
     app,
     env: fake.env,
     home: fake.root,
-    boundVersion: BOUND,
     bunPin: fakeRelease().pin,
     fetch: async () => {
       throw new Error("must not download");
@@ -296,7 +264,7 @@ test("a bun the user already has is used as it is: nothing is downloaded", async
 test("a download that does not match the pinned checksum installs nothing", async () => {
   const fake = fakeInstall({ version: undefined, bun: false });
   const release = fakeRelease({ tamper: true });
-  const sync = createCliSync({ app, env: fake.env, home: fake.root, boundVersion: BOUND, bunPin: release.pin, fetch: release.fetch, arch: "arm64" });
+  const sync = createCliSync({ app, env: fake.env, home: fake.root, bunPin: release.pin, fetch: release.fetch, arch: "arm64" });
   const state = await sync.start();
   expect(state.phase).toBe("error");
   expect(state.code).toBe("bun_install_failed");
@@ -310,7 +278,6 @@ test("an unreachable host is reported as offline", async () => {
     app,
     env: fake.env,
     home: fake.root,
-    boundVersion: BOUND,
     bunPin: fakeRelease().pin,
     arch: "arm64",
     fetch: async () => {
@@ -324,7 +291,7 @@ test("an unreachable host is reported as offline", async () => {
 test("a downloaded bun that does not run is removed, so a retry downloads again", async () => {
   const fake = fakeInstall({ version: undefined, bun: false });
   const release = fakeRelease({ script: "#!/bin/sh\nexit 4\n" });
-  const sync = createCliSync({ app, env: fake.env, home: fake.root, boundVersion: BOUND, bunPin: release.pin, fetch: release.fetch, arch: "arm64" });
+  const sync = createCliSync({ app, env: fake.env, home: fake.root, bunPin: release.pin, fetch: release.fetch, arch: "arm64" });
   const state = await sync.start();
   expect(state.code).toBe("bun_install_failed");
   expect(existsSync(path.join(fake.root, "bin", "bun"))).toBe(false);
@@ -332,8 +299,8 @@ test("a downloaded bun that does not run is removed, so a retry downloads again"
 
 // --- restarting the daemon -----------------------------------------------------------------------------------------
 
-test("an upgrade does not start while the user has not allowed the running service to restart", async () => {
-  const fake = fakeInstall({ version: "19.2.1-cgs.5.3" });
+test("a missing CLI is not installed if the user declines restarting an orphaned daemon", async () => {
+  const fake = fakeInstall();
   const daemon = path.join(fake.root, ".cgs", "run", "daemon");
   mkdirSync(daemon, { recursive: true });
   writeFileSync(path.join(daemon, "daemon.lock"), "");
@@ -342,7 +309,7 @@ test("an upgrade does not start while the user has not allowed the running servi
   await new Promise((resolve) => server.listen(path.join(daemon, "daemon.sock"), resolve));
   try {
     let asked = 0;
-    const sync = createCliSync({ app, env: fake.env, home: fake.root, boundVersion: BOUND, confirmRestart: async () => (asked += 1, false) });
+    const sync = createCliSync({ app, env: fake.env, home: fake.root, confirmRestart: async () => (asked += 1, false) });
     const state = await sync.start();
     expect(asked).toBe(1);
     expect(state.code).toBe("restart_cancelled");

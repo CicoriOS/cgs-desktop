@@ -30,12 +30,10 @@ const ERROR_KEYS: Record<string, MessageKey> = {
   call_failed: "host.err.call_failed",
   configure_failed: "host.err.configure_failed",
   protocol_mismatch: "host.err.protocol_mismatch",
-  cgs_too_new: "host.err.cgs_too_new",
   bun_missing: "host.err.bun_missing",
   bun_install_failed: "host.err.bun_install_failed",
   install_failed: "host.err.install_failed",
   offline: "host.err.offline",
-  cgs_not_managed: "host.err.cgs_not_managed",
   version_unreadable: "host.err.version_unreadable",
   install_unverified: "host.err.install_unverified",
   restart_cancelled: "host.err.restart_cancelled",
@@ -106,9 +104,13 @@ export function DesktopShell({ host, app }: { host: DesktopHost; app: ReactNode 
   };
 
   // Starting up is silent: the window stays hidden (the shell shows it when asked) through every wait that needs nothing from the
-  // user: CLI check and install, connecting, the first state. Once the window has been shown, later waits (a sidecar restart) do
+  // user: CLI check, connecting, the first state. Installation shows progress immediately. Later waits (a sidecar restart) do
   // show their page, because someone is looking.
-  const { node, quiet } = pick();
+  const { node, quiet, workspace } = pick();
+  const compact = !workspace;
+  useEffect(() => {
+    desktop?.window.setCompact(compact);
+  }, [compact]);
   useEffect(() => {
     if (quiet || revealed) return;
     setRevealed(true);
@@ -116,7 +118,7 @@ export function DesktopShell({ host, app }: { host: DesktopHost; app: ReactNode 
   }, [quiet, revealed]);
   return quiet && !revealed ? null : node;
 
-  function pick(): { node: ReactNode; quiet: boolean } {
+  function pick(): { node: ReactNode; quiet: boolean; workspace?: true } {
     const waiting = (title: string, body: string): { node: ReactNode; quiet: boolean } => ({
       node: <Screen phase="starting" title={title} body={body} />,
       quiet: true,
@@ -124,7 +126,7 @@ export function DesktopShell({ host, app }: { host: DesktopHost; app: ReactNode 
     const shown = (node: ReactNode): { node: ReactNode; quiet: boolean } => ({ node, quiet: false });
 
     // The sidecar only starts after the CLI sync; until then (and on its failures) the sync page is the whole story.
-    if (sync && sync.phase !== "ready") return { node: <SyncPage state={sync} />, quiet: sync.phase === "checking" || sync.phase === "installing" };
+    if (sync && sync.phase !== "ready") return { node: <SyncPage state={sync} />, quiet: sync.phase === "checking" };
 
     if (link.status === "upgrade") {
       const got = link.detail.protocol;
@@ -157,11 +159,11 @@ export function DesktopShell({ host, app }: { host: DesktopHost; app: ReactNode 
       return shown(<Screen phase="error" title={t("host.error.title")} body={t("host.error.body")} detail={errorText(state.error)} log={link.detail.log} />);
     }
     if (state.phase === "signed-out") return shown(<SignedOutGate state={state} />);
-    return shown(<>{app}</>);
+    return { node: app, quiet: false, workspace: true };
   }
 }
 
-/** The CLI sync phases before the sidecar exists (ADR 0046 §3): checking, installing with streamed progress, refused, failed. */
+/** CLI bootstrap progress and retry before the sidecar exists. */
 function SyncPage({ state }: { state: CliSyncState }) {
   const t = useT();
   const shell = desktop?.shell;
@@ -182,21 +184,10 @@ function SyncPage({ state }: { state: CliSyncState }) {
       />
     );
   }
-  if (state.phase === "refused") {
-    return (
-      <Screen
-        phase="sync"
-        title={t("host.sync.refused.title")}
-        body={t("host.sync.refused.body", { installed: state.version ?? "?" })}
-        detail={state.code ? t(ERROR_KEYS[state.code] ?? "host.err.sync_failed") : undefined}
-        log={technical || undefined}
-      />
-    );
-  }
   const code = state.code ? ERROR_KEYS[state.code] : undefined;
   const body =
     state.code === "bun_missing"
-      ? t("host.sync.bun.body", { version: state.bound ?? "?" })
+      ? t("host.sync.bun.body")
       : state.code === "offline"
         ? t("host.sync.offline.body")
         : t("host.sync.error.body");

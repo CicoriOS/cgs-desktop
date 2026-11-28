@@ -5,12 +5,8 @@ import type { MuxMessage } from "../connect/mux";
 /** Link state of the main process <-> sidecar pair. */
 export type HostLinkStatus = "connecting" | "ready" | "down" | "upgrade";
 
-/**
- * CLI sync failure codes (ADR 0046 §3), shown by the sync pages before the sidecar starts. `cgs_too_new` means the
- * machine's CLI is a newer release generation than this desktop; the others need a manual fix or a retry.
- */
+/** CLI bootstrap failures shown before the sidecar starts (ADR 0052). */
 export type CliSyncErrorCode =
-  | "cgs_too_new"
   | "bun_missing"
   | "install_failed"
   | "offline"
@@ -18,14 +14,13 @@ export type CliSyncErrorCode =
   | "download_failed"
   | "extract_failed"
   | "toolchain_failed"
-  | "cgs_not_managed"
   | "version_unreadable"
   | "install_unverified"
   | "restart_cancelled"
   | "sync_failed";
 
 /** `shell.syncState()` and `shell:sync`: startup progress of the CLI the sidecar will run. */
-export type CliSyncPhase = "checking" | "installing" | "ready" | "refused" | "error";
+export type CliSyncPhase = "checking" | "installing" | "ready" | "error";
 
 /** One Windows first-run component (ADR 0049 §1); absent on the other platforms. */
 export interface ToolchainComponent {
@@ -55,8 +50,6 @@ export interface CliSyncState {
   shadowed?: string[];
   /** Set when `CGS_SIDECAR` bypassed the CLI (development and the smoke test). */
   bypassed?: boolean;
-  /** The version this desktop is bound to (`package.json` `cgsVersion`). */
-  bound?: string;
 }
 
 /** The phases the settings gear and the settings screen know (ADR 0046 §6). */

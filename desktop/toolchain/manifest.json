@@ -2,7 +2,7 @@
   "$comment": "ADR 0049 \u00a71/\u00a74/\u00a75. Every fixed download is pinned by SHA-256; a mirror that serves other bytes is a failed source. Versions marked 'official latest' were resolved on 2026-11-28 and are recorded here, not followed at run time.",
   "chromium": {
     "buildId": "150.0.7871.24",
-    "$comment": "Must equal PUPPETEER_REVISIONS.chrome of the bound CLI (cgsVersion), so omp's browser tool finds it instead of downloading.",
+    "$comment": "Chromium revision provisioned by this desktop build for the browser tool.",
     "asset": "chrome-win64.zip",
     "size": 194668286,
     "sha256": "399d58f25debbfadd61e1db08eb291eb20a81478b8247340993ebf0ca8d6d068",
@@ -94,7 +94,7 @@
     "probe": "/pip/"
   },
   "cgs": {
-    "$comment": "bun add -g @cicori/cgs@<cgsVersion> through the npm mirror that actually has that version.",
+    "$comment": "bun add -g @cicori/cgs through an npm registry serving the default release.",
     "registries": [
       "https://registry.npmmirror.com",
       "https://mirrors.cloud.tencent.com/npm",

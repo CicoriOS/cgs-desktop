@@ -165,21 +165,20 @@ async function syncErrorSmoke() {
   const bin = path.join(home, "bin");
   mkdirSync(bin, { recursive: true });
   const cgs = path.join(bin, "cgs");
-  writeFileSync(cgs, "#!/bin/sh\necho cgs/19.2.1-cgs.6.1\n");
+  writeFileSync(cgs, "#!/bin/sh\nexit 1\n");
   chmodSync(cgs, 0o755);
-  // BUN_INSTALL makes this a bun-global copy, so the plan answers cgs_too_new instead of the CGS_BIN dev override.
   const env = { ...process.env, HOME: home, BUN_INSTALL: home, PATH: `${bin}:/usr/bin:/bin`, PI_CONFIG_DIR: ".cgs", CGS_TRAY: "0" };
-  const sync = createCliSync({ app, env, home, boundVersion: "19.2.1-cgs.5.4" });
+  const sync = createCliSync({ app, env, home });
   registerCliSyncIpc(ipcMain, sync);
   sync.subscribe((state) => {
     for (const win of BrowserWindow.getAllWindows()) if (!win.webContents.isDestroyed()) win.webContents.send(SHELL_SYNC, state);
   });
   const state = await sync.start();
-  if (state.phase !== "refused" || state.code !== "cgs_too_new") throw new Error(`expected a refusal, got ${JSON.stringify(state)}`);
+  if (state.phase !== "error" || state.code !== "version_unreadable") throw new Error(`expected an unreadable CLI error, got ${JSON.stringify(state)}`);
   const win = createWindow();
   await waitFor(win, "document.querySelector('[data-host-state=\"sync\"]') !== null");
   await screenshot(win, "/tmp/cgs-cli-sync-error.png");
-  console.log("SMOKE sync: newer-major refusal page: OK");
+  console.log("SMOKE sync: unreadable CLI error page: OK");
 }
 
 // No top-level await: Electron emits `ready` only after the entry module settles, so awaiting it there deadlocks.

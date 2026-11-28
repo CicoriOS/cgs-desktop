@@ -97,14 +97,13 @@ ipcMain.on("window:close", (event) => windowOf(event)?.close());
 // so nobody watches "connecting" pages. A start that goes quiet for too long shows the window anyway, so it never looks dead.
 const REVEAL_FALLBACK_MS = 20_000;
 function reveal(win) {
-  if (!win || win.isDestroyed() || win.isVisible()) return;
+  if (!win || win.isDestroyed() || win.isVisible() || win.isMinimized()) return;
   win.show();
   win.focus();
 }
 ipcMain.on("window:reveal", (event) => reveal(windowOf(event)));
 
-// The sign-in pages are a small window: nothing to lay out yet, and a 1360x880 window around one card looks empty. The page asks for
-// it while it shows them and drops the request once the app opens; the size the window had before comes back then.
+// The desktop starts compact and only expands for the workspace. Returning from a gate restores the previous workspace size.
 const COMPACT = { width: 460, height: 660, minWidth: 380, minHeight: 520 };
 const FULL = { width: 1360, height: 880, minWidth: 420, minHeight: 520 };
 const beforeCompact = new WeakMap();
@@ -140,11 +139,10 @@ registerWorkspaceIpc(ipcMain);
 
 function createWindow() {
   const glass = glassOptions();
+  const size = demo ? FULL : COMPACT;
   const win = new BrowserWindow({
-    width: 1360,
-    height: 880,
-    minWidth: 420,
-    minHeight: 520,
+    ...size,
+    maximizable: demo,
     title: "CGS Desktop",
     show: false,
     // The title bar and the window buttons are drawn by the page (src/ui/WindowControls.tsx), not by GTK or the OS.
@@ -161,6 +159,7 @@ function createWindow() {
       sandbox: true,
     },
   });
+  if (!demo) beforeCompact.set(win, FULL);
   for (const event of ["maximize", "unmaximize"]) win.on(event, () => win.webContents.send("window:maximized", win.isMaximized()));
   // Links leave the app: the window only ever shows the client.
   const origin = new URL(url).origin;
