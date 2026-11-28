@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import type { FormEvent } from "react";
 import { type MessageKey, useT } from "../i18n";
 import { WindowControls } from "../ui/WindowControls";
+import { desktop } from "../ui/desktop";
 import { desktopHost } from "./backend";
 import { createLoginFlow, type LoginStep, type LoginView } from "./login-flow";
 import type { DesktopHost, HostState } from "./protocol";
