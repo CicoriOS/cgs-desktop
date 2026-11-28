@@ -5,8 +5,12 @@
 #   3. writes the launcher entry, icons and uninstaller
 #   4. makes sure bun exists (an existing one is never touched)
 #   5. starts the installed app; later launches use the launcher entry and never run this installer again
-# Running it again copies only when the bundled app is newer than the installed one or the installed one is damaged. The
-# installed version is read from the installed file itself, not from a record: the app replaces that file when it updates
+# With an app already installed the run asks what to do: uninstall, reinstall, and upgrade when the bundled version is newer
+# (an older bundled app offers reinstall labelled as replacing the newer one). A terminal gets a numbered prompt, otherwise
+# zenity/kdialog, and without either the run keeps the old behaviour (upgrade when newer, else keep) and says how to
+# uninstall. CGS_INSTALLER_ACTION=uninstall|reinstall|upgrade|cancel answers without prompting; cancel exits 0 and starts
+# nothing. A first install and a damaged installed app are never prompted for.
+# The installed version is read from the installed file itself, not from a record: the app replaces that file when it updates
 # itself, and a record kept beside it would go stale and let an old installer overwrite a newer app.
 #
 # CGS_INSTALLER_PYTHON picks the interpreter instead of `python3` on PATH.
@@ -60,13 +64,133 @@ if [ "$PY_MAJOR" -lt "$MIN_MAJOR" ] || { [ "$PY_MAJOR" -eq "$MIN_MAJOR" ] && [ "
 fi
 HELPER=$PAYLOAD/bootstrap.py
 
-# 2. The app
+# 2. What to do with the app. decide only says how the versions relate; the choice below turns that into an action.
 BUNDLED=$(cat "$PAYLOAD/VERSION")
-ACTION=$("$PY" "$HELPER" decide "$BUNDLED" "$INNER") || fail "安装器内部错误：无法判断已安装的版本。"
-case $ACTION in
-  install | upgrade | repair | keep) ;;
-  *) fail "安装器内部错误：无法识别的安装动作（$ACTION）。" ;;
+DECISION=$("$PY" "$HELPER" decide "$BUNDLED" "$INNER") || fail "安装器内部错误：无法判断已安装的版本。"
+case $DECISION in
+  install | upgrade | repair | same | older) ;;
+  *) fail "安装器内部错误：无法识别的安装动作（$DECISION）。" ;;
 esac
+ACTION=$DECISION
+
+UNINSTALL_LABEL="卸载（删除程序、登录凭据、所有会话和聊天记录）"
+
+# $1 is the decision (same, older or upgrade) and $2 the installed version. Sets CHOICE; an empty CHOICE means no terminal
+# and no dialog tool, so the caller keeps the old behaviour.
+choose_action() {
+  CHOICE=
+  REINSTALL_LABEL="重新安装（覆盖已安装的版本，保留数据）"
+  if [ "$1" = older ]; then
+    REINSTALL_LABEL="重新安装（用较旧的 $BUNDLED 替换已安装的 $2，保留数据）"
+  fi
+  UPGRADE_LABEL="升级（从 $2 到 $BUNDLED）"
+  if [ -t 2 ]; then
+    {
+      printf '已安装 CGS Desktop %s。请选择要执行的操作：\n' "$2"
+      printf '  1) %s\n' "$UNINSTALL_LABEL"
+      printf '  2) %s\n' "$REINSTALL_LABEL"
+      if [ "$1" = upgrade ]; then
+        printf '  3) %s\n' "$UPGRADE_LABEL"
+      fi
+      printf '请输入编号（直接回车取消）：'
+    } >&2
+    if [ -r /dev/tty ]; then
+      IFS= read -r ANSWER < /dev/tty || ANSWER=
+    else
+      IFS= read -r ANSWER || ANSWER=
+    fi
+    case $ANSWER in
+      1) CHOICE=uninstall ;;
+      2) CHOICE=reinstall ;;
+      3)
+        if [ "$1" = upgrade ]; then
+          CHOICE=upgrade
+        fi
+        ;;
+    esac
+    if [ -z "$CHOICE" ]; then
+      CHOICE=cancel
+    fi
+    return 0
+  fi
+  DIALOG_TEXT="已安装 CGS Desktop $2。请选择要执行的操作：
+
+卸载会删除：程序本身、启动项和图标、cgs 命令行工具（以及由本程序安装的 bun）、配置与数据（登录凭据、所有会话和聊天记录）、应用设置和缓存。"
+  if command -v zenity >/dev/null 2>&1; then
+    OUT=
+    if [ "$1" = upgrade ]; then
+      OUT=$(LD_LIBRARY_PATH="" zenity --list --radiolist --title="CGS Desktop" --no-markup --text="$DIALOG_TEXT" --column="" --column="操作" --print-column=2 FALSE "$UNINSTALL_LABEL" FALSE "$REINSTALL_LABEL" FALSE "$UPGRADE_LABEL" 2>/dev/null) || OUT=
+    else
+      OUT=$(LD_LIBRARY_PATH="" zenity --list --radiolist --title="CGS Desktop" --no-markup --text="$DIALOG_TEXT" --column="" --column="操作" --print-column=2 FALSE "$UNINSTALL_LABEL" FALSE "$REINSTALL_LABEL" 2>/dev/null) || OUT=
+    fi
+    case $OUT in
+      卸载*) CHOICE=uninstall ;;
+      重新安装*) CHOICE=reinstall ;;
+      升级*) CHOICE=upgrade ;;
+      *) CHOICE=cancel ;;
+    esac
+    return 0
+  fi
+  if command -v kdialog >/dev/null 2>&1; then
+    OUT=
+    if [ "$1" = upgrade ]; then
+      OUT=$(LD_LIBRARY_PATH="" kdialog --title "CGS Desktop" --radiolist "$DIALOG_TEXT" uninstall "$UNINSTALL_LABEL" off reinstall "$REINSTALL_LABEL" off upgrade "$UPGRADE_LABEL" off 2>/dev/null) || OUT=
+    else
+      OUT=$(LD_LIBRARY_PATH="" kdialog --title "CGS Desktop" --radiolist "$DIALOG_TEXT" uninstall "$UNINSTALL_LABEL" off reinstall "$REINSTALL_LABEL" off 2>/dev/null) || OUT=
+    fi
+    case $OUT in
+      uninstall | reinstall | upgrade) CHOICE=$OUT ;;
+      *) CHOICE=cancel ;;
+    esac
+    return 0
+  fi
+  return 0
+}
+
+if [ "$DECISION" = same ] || [ "$DECISION" = older ] || [ "$DECISION" = upgrade ]; then
+  INSTALLED=$("$PY" "$HELPER" installed "$INNER" 2>/dev/null) || INSTALLED=
+  if [ -z "$INSTALLED" ]; then
+    INSTALLED=$BUNDLED
+  fi
+  if [ -n "${CGS_INSTALLER_ACTION:-}" ]; then
+    case $CGS_INSTALLER_ACTION in
+      uninstall | cancel) ACTION=$CGS_INSTALLER_ACTION ;;
+      reinstall) ACTION=reinstall ;;
+      upgrade)
+        if [ "$DECISION" != upgrade ]; then
+          fail "CGS_INSTALLER_ACTION=upgrade 只在安装包版本较新时可用（已安装的是 $INSTALLED）。"
+        fi
+        ACTION=upgrade
+        ;;
+      *) fail "CGS_INSTALLER_ACTION 的值无效（$CGS_INSTALLER_ACTION），可用值：uninstall、reinstall、upgrade、cancel。" ;;
+    esac
+  else
+    choose_action "$DECISION" "$INSTALLED"
+    if [ -z "$CHOICE" ]; then
+      notice "未检测到可用的对话框，无法询问要执行的操作。要卸载，请运行 $DEST/uninstall.sh（非交互时加 --yes），或设置 CGS_INSTALLER_ACTION=uninstall 后重新运行本安装器。"
+      if [ "$DECISION" = upgrade ]; then
+        ACTION=upgrade
+      else
+        ACTION=keep
+      fi
+    else
+      ACTION=$CHOICE
+    fi
+  fi
+fi
+
+if [ "$ACTION" = cancel ]; then
+  exit 0
+fi
+if [ "$ACTION" = uninstall ]; then
+  # This installer already asked, so run its own uninstaller without asking again, not an older installed copy.
+  mkdir -p "$DEST" || fail "无法创建安装目录 $DEST。"
+  cp "$PAYLOAD/uninstall.sh" "$DEST/uninstall.sh" || fail "无法准备卸载脚本。"
+  chmod 755 "$DEST/uninstall.sh"
+  sh "$DEST/uninstall.sh" --yes || fail "卸载 CGS Desktop 失败。"
+  exit 0
+fi
+
 if [ "$ACTION" != keep ]; then
   say "installing CGS Desktop $BUNDLED to $DEST ($ACTION)"
   mkdir -p "$DEST" || fail "无法创建安装目录 $DEST。"

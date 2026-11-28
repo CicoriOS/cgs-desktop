@@ -4,11 +4,16 @@
 #
 #   bootstrap.py compare <a> <b>        prints -1, 0 or 1 (semver order, a pre-release is lower than its release)
 #   bootstrap.py decide <bundled> <installed-appimage>
-#                                       prints install | upgrade | repair | keep
+#                                       prints install | upgrade | repair | same | older; the installer asks the user what
+#                                       to do for the last three (same and older have no newer app to offer)
+#   bootstrap.py installed <installed-appimage>
+#                                       prints the installed version, exit 1 when it cannot be read
 #   bootstrap.py ensure-bun <pin.json>  finds bun, or downloads the pinned one into $BUN_INSTALL/bin (default ~/.bun/bin)
 #
 # `ensure-bun` mirrors desktop/bun-install.mjs (the app runs the same step at first launch): same candidates, same assets,
 # same checksum rule, same `CGS_BUN_BASE_URL` mirror override. The pin is package.json's `bunInstall`, copied in at build time.
+# When it installed bun it leaves `<bun root>/.cgs-desktop-installed` behind, so the uninstaller can remove a bun this desktop
+# put there without ever touching one the user had before.
 import hashlib
 import io
 import json
@@ -71,16 +76,23 @@ def installed_version(appimage):
 
 
 def decide(bundled, appimage):
-    """What the installer does: install (nothing there), upgrade (older there), repair (unreadable) or keep (as new or newer)."""
+    """How the bundled version relates to the installed one.
+
+    install: nothing there; repair: it cannot be read; upgrade: the installed one is older; same: equal; older: the
+    installed one is newer. The installer prompts for upgrade, same and older and never for install or repair.
+    """
     if not os.path.lexists(appimage):
         return "install"
     installed = installed_version(appimage)
     if installed is None:
         return "repair"
     try:
-        return "upgrade" if compare_versions(bundled, installed) > 0 else "keep"
+        order = compare_versions(bundled, installed)
     except ValueError:
         return "repair"
+    if order > 0:
+        return "upgrade"
+    return "same" if order == 0 else "older"
 
 
 def find_bun(env, home):
@@ -169,7 +181,8 @@ def ensure_bun(pin_file, env=None, home=None, machine=None, avx2=None):
     except (zipfile.BadZipFile, KeyError) as error:
         log("bad bun archive: %s" % error)
         return 1
-    bin_dir = os.path.join(env.get("BUN_INSTALL") or os.path.join(home, ".bun"), "bin")
+    root = env.get("BUN_INSTALL") or os.path.join(home, ".bun")
+    bin_dir = os.path.join(root, "bin")
     target = os.path.join(bin_dir, "bun")
     temp = "%s.%d.tmp" % (target, os.getpid())
     try:
@@ -185,8 +198,27 @@ def ensure_bun(pin_file, env=None, home=None, machine=None, avx2=None):
         except OSError:
             pass
         return 1
+    write_marker(root, pin["version"])
     log("bun %s installed at %s" % (pin["version"], target))
     return 0
+
+
+def write_marker(root, version):
+    """Records that this desktop installed bun, so an uninstall may remove it. A failed marker write never fails the install."""
+    target = os.path.join(root, ".cgs-desktop-installed")
+    temp = "%s.%d.tmp" % (target, os.getpid())
+    try:
+        os.makedirs(root, exist_ok=True)
+        with open(temp, "w", encoding="utf-8") as handle:
+            json.dump({"version": version}, handle)
+            handle.write("\n")
+        os.replace(temp, target)
+    except OSError as error:
+        log("could not record the bun installation in %s: %s" % (target, error))
+        try:
+            os.remove(temp)
+        except OSError:
+            pass
 
 
 def main(argv):
@@ -200,9 +232,16 @@ def main(argv):
     if len(argv) == 4 and argv[1] == "decide":
         print(decide(argv[2], argv[3]))
         return 0
+    if len(argv) == 3 and argv[1] == "installed":
+        version = installed_version(argv[2])
+        if not version:
+            log("could not read the installed version from %s" % argv[2])
+            return 1
+        print(version)
+        return 0
     if len(argv) == 3 and argv[1] == "ensure-bun":
         return ensure_bun(argv[2])
-    log("usage: bootstrap.py compare <a> <b> | decide <bundled> <appimage> | ensure-bun <pin.json>")
+    log("usage: bootstrap.py compare <a> <b> | decide <bundled> <appimage> | installed <appimage> | ensure-bun <pin.json>")
     return 2
 
 

@@ -142,7 +142,8 @@ export async function installBun({ pin, env = process.env, platform = process.pl
   } catch (error) {
     throw new BunInstallError("bun_install_failed", error instanceof Error ? error.message : String(error));
   }
-  const bin = path.join(bunInstallRoot({ env, home }), "bin");
+  const root = bunInstallRoot({ env, home });
+  const bin = path.join(root, "bin");
   const target = path.join(bin, "bun");
   const temp = `${target}.${process.pid}.tmp`;
   try {
@@ -156,6 +157,13 @@ export async function installBun({ pin, env = process.env, platform = process.pl
       /* the temporary file is best effort */
     }
     throw new BunInstallError("bun_install_failed", `could not write ${target}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  // `<bun root>/.cgs-desktop-installed` tells the Linux uninstaller this bun came with the desktop. The install itself
+  // already succeeded, so a marker that cannot be written must not fail it; the uninstaller then leaves bun alone.
+  try {
+    io.writeFileSync(path.join(root, ".cgs-desktop-installed"), `${JSON.stringify({ version: pin.version })}\n`);
+  } catch {
+    /* without the marker the uninstaller leaves bun alone, which is the safe side */
   }
   onProgress?.(`bun ${pin.version} installed at ${target}`);
   return target;
