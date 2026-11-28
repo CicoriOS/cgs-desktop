@@ -16,7 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "build:desktop": "vite build --base=./",
-    "dist:linux": "bun run build:desktop && electron-builder --linux AppImage --x64 --publish never",
+    "dist:linux": "bun run build:desktop && electron-builder --linux AppImage --x64 --publish never && node installer/linux/build.mjs",
     "dist:win": "bun run build:desktop && electron-builder --win --x64 --publish never",
     "smoke:desktop": "xvfb-run -a electron test/desktop/smoke/main.mjs --no-sandbox",
     "e2e:desktop": "bun run build:desktop && xvfb-run -a electron test/e2e/main.mjs --no-sandbox"
@@ -88,7 +88,8 @@
         }
       ],
       "category": "Development",
-      "artifactName": "CGS-Desktop-${version}-${arch}.${ext}"
+      "artifactName": "CGS-Desktop-${version}-${arch}.${ext}",
+      "icon": "assets/icon.png"
     },
     "win": {
       "target": [

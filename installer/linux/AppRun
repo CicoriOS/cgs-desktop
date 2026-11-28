@@ -1,0 +1,126 @@
+#!/bin/sh
+# CGS Desktop installer (the outer AppImage, ADR 0050 §2). It installs for the current user, then starts the installed app:
+#   1. checks the system Python (3.8+; used for the version order and the bun step below)
+#   2. copies the inner AppImage to $XDG_DATA_HOME/cgs-desktop/CGS-Desktop.AppImage, the fixed path electron-updater replaces
+#   3. writes the launcher entry, icons and uninstaller
+#   4. makes sure bun exists (an existing one is never touched)
+#   5. starts the installed app; later launches use the launcher entry and never run this installer again
+# Running it again copies only when the bundled app is newer than the installed one or the installed one is damaged. The
+# installed version is read from the installed file itself, not from a record: the app replaces that file when it updates
+# itself, and a record kept beside it would go stale and let an old installer overwrite a newer app.
+#
+# CGS_INSTALLER_PYTHON picks the interpreter instead of `python3` on PATH.
+set -eu
+
+HERE=${APPDIR:-$(dirname "$(readlink -f "$0")")}
+PAYLOAD=$HERE/payload
+DATA=${XDG_DATA_HOME:-$HOME/.local/share}
+DEST=$DATA/cgs-desktop
+INNER=$DEST/CGS-Desktop.AppImage
+ICON_SIZES="16 24 32 48 64 128 256 512"
+MIN_MAJOR=3
+MIN_MINOR=8
+
+say() { printf '%s\n' "$*" >&2; }
+
+# The user may have double-clicked the file and have no terminal, so a dialog is tried when stderr is not a tty.
+fail() {
+  say "$*"
+  if [ ! -t 2 ]; then
+    if command -v zenity >/dev/null 2>&1; then
+      LD_LIBRARY_PATH="" zenity --error --title="CGS Desktop" --no-markup --text="$*" 2>/dev/null || true
+    elif command -v kdialog >/dev/null 2>&1; then
+      LD_LIBRARY_PATH="" kdialog --title "CGS Desktop" --error "$*" 2>/dev/null || true
+    fi
+  fi
+  exit 1
+}
+
+notice() {
+  say "$*"
+  if [ ! -t 2 ] && command -v notify-send >/dev/null 2>&1; then
+    notify-send -a "CGS Desktop" -i cgs-desktop "CGS Desktop" "$*" 2>/dev/null || true
+  fi
+}
+
+have_fuse() { [ -e /dev/fuse ] && { command -v fusermount >/dev/null 2>&1 || command -v fusermount3 >/dev/null 2>&1; }; }
+
+# 1. Python
+PY=${CGS_INSTALLER_PYTHON:-python3}
+command -v "$PY" >/dev/null 2>&1 || fail "未找到系统自带的 Python（$PY）。请先安装 Python ${MIN_MAJOR}.${MIN_MINOR} 或更高版本后再继续。"
+PY_VERSION=$("$PY" -c 'import sys; v = sys.version_info; print("%d.%d.%d" % (v[0], v[1], v[2]))' 2>/dev/null) || fail "无法运行系统自带的 Python（$PY），请检查它能否正常启动。"
+case $PY_VERSION in
+  *[!0-9.]* | '') fail "无法读取系统自带的 Python 版本（得到：$PY_VERSION）。" ;;
+esac
+PY_MAJOR=${PY_VERSION%%.*}
+PY_REST=${PY_VERSION#*.}
+PY_MINOR=${PY_REST%%.*}
+if [ "$PY_MAJOR" -lt "$MIN_MAJOR" ] || { [ "$PY_MAJOR" -eq "$MIN_MAJOR" ] && [ "$PY_MINOR" -lt "$MIN_MINOR" ]; }; then
+  fail "系统自带的 Python 版本太旧，请先更新 Python 后再继续。检测到的版本：$PY_VERSION（最低 ${MIN_MAJOR}.${MIN_MINOR}）。"
+fi
+HELPER=$PAYLOAD/bootstrap.py
+
+# 2. The app
+BUNDLED=$(cat "$PAYLOAD/VERSION")
+ACTION=$("$PY" "$HELPER" decide "$BUNDLED" "$INNER") || fail "安装器内部错误：无法判断已安装的版本。"
+case $ACTION in
+  install | upgrade | repair | keep) ;;
+  *) fail "安装器内部错误：无法识别的安装动作（$ACTION）。" ;;
+esac
+if [ "$ACTION" != keep ]; then
+  say "installing CGS Desktop $BUNDLED to $DEST ($ACTION)"
+  mkdir -p "$DEST" || fail "无法创建安装目录 $DEST。"
+  TMP=$INNER.$$.tmp
+  cp "$PAYLOAD/CGS-Desktop.AppImage" "$TMP" || { rm -f "$TMP"; fail "复制失败，磁盘空间可能不足：$DEST"; }
+  chmod 755 "$TMP"
+  mv -f "$TMP" "$INNER"
+fi
+
+# 3. Launcher entry, icons and uninstaller: written with the app, and again when the entry went missing.
+if [ "$ACTION" != keep ] || [ ! -f "$DATA/applications/cgs-desktop.desktop" ]; then
+  mkdir -p "$DEST"
+  cp "$PAYLOAD/uninstall.sh" "$DEST/uninstall.sh"
+  chmod 755 "$DEST/uninstall.sh"
+  for size in $ICON_SIZES; do
+    mkdir -p "$DATA/icons/hicolor/${size}x${size}/apps"
+    cp "$PAYLOAD/icons/$size.png" "$DATA/icons/hicolor/${size}x${size}/apps/cgs-desktop.png"
+  done
+  # Desktop-entry quoting: inside double quotes a backslash, double quote, backtick and dollar take a backslash, and the
+  # string level doubles every backslash again; a percent sign is doubled.
+  quote() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\\\\\/g' -e 's/["`$]/\\\\&/g' -e 's/%/%%/g')"; }
+  # Where the launcher cannot mount an AppImage it asks for extraction, so the entry works without FUSE too.
+  LAUNCH=
+  have_fuse || LAUNCH="env APPIMAGE_EXTRACT_AND_RUN=1 "
+  mkdir -p "$DATA/applications"
+  cat > "$DATA/applications/cgs-desktop.desktop" << EOF
+[Desktop Entry]
+Type=Application
+Name=CGS Desktop
+Comment=CGS Desktop: the CGS web client around the local cgs CLI
+Exec=${LAUNCH}$(quote "$INNER") %U
+Icon=cgs-desktop
+Terminal=false
+Categories=Development;
+StartupWMClass=CGS Desktop
+Actions=uninstall;
+
+[Desktop Action uninstall]
+Name=Uninstall CGS Desktop
+Exec=sh $(quote "$DEST/uninstall.sh")
+EOF
+  command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$DATA/applications" >/dev/null 2>&1 || true
+  command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q -f -t "$DATA/icons/hicolor" >/dev/null 2>&1 || true
+fi
+
+# 4. bun. A failure is not fatal here: the app runs the same step on its first launch and shows a page with a retry.
+"$PY" "$HELPER" ensure-bun "$PAYLOAD/bun-pin.json" || notice "bun 没有装上。CGS Desktop 启动后会再试一次，并在界面里说明原因。"
+
+# 5. Start the installed app. Without FUSE the AppImage runs from a temporary extraction instead.
+if ! have_fuse; then
+  say "FUSE is not available; starting CGS Desktop from an extracted copy"
+  APPIMAGE_EXTRACT_AND_RUN=1
+  export APPIMAGE_EXTRACT_AND_RUN
+fi
+# The outer runtime's variables must not leak into the app's own runtime, which sets its own.
+unset APPDIR APPIMAGE ARGV0 OWD
+exec "$INNER" "$@"

@@ -39,6 +39,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
+      - if: runner.os == 'Linux'
+        run: sudo apt-get install -y --no-install-recommends squashfs-tools
       - run: bun install --frozen-lockfile
       - run: bun run ${{ matrix.script }}
       - uses: actions/upload-artifact@v4
