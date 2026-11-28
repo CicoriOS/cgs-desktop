@@ -67,6 +67,7 @@ export function isReply(m: AssistantMessage): boolean {
 
 /** The tags the harness wraps its own text in; the model is told such blocks are not the user's. */
 const HARNESS_BLOCK = /^<(system-[a-z][a-z-]*|irc|tangent-notice)\b[^>]*>\s*([\s\S]*?)\s*<\/\1>$/i;
+const TODO_REMINDER = /incomplete todo item/i;
 const TONES: Record<string, NoticeItem["tone"]> = { "system-reminder": "reminder", "system-notice": "notice", "system-interrupt": "interrupt" };
 
 /**
@@ -75,11 +76,16 @@ const TONES: Record<string, NoticeItem["tone"]> = { "system-reminder": "reminder
  */
 export function noticeFrom(id: string, m: RawMessage): NoticeItem | undefined {
   const raw = textOf(m.content).trim();
+  if (m.role === "custom" && m.customType === "irc") return raw ? { kind: "notice", id, tone: "ipc", text: HARNESS_BLOCK.exec(raw)?.[2] ?? raw } : undefined;
   if (m.role === "custom" && m.customType === "ttsr-injection") {
     const rules = isRecord(m.details) && Array.isArray(m.details.rules) ? m.details.rules.filter((r): r is string => typeof r === "string") : [];
     return { kind: "notice", id, tone: "rule", ...(rules.length ? { names: rules.join(", ") } : {}), text: HARNESS_BLOCK.exec(raw)?.[2] ?? raw };
   }
   if (m.role !== "developer" || !raw) return undefined;
   const block = HARNESS_BLOCK.exec(raw);
-  return { kind: "notice", id, tone: (block && TONES[block[1]!.toLowerCase()]) || "other", text: block?.[2] ?? raw };
+  const text = block?.[2] ?? raw;
+  const tag = block?.[1]!.toLowerCase();
+  // omp's reminder that todo items are still open is a plain system reminder; its wording is the only marker.
+  const tone = tag === "irc" ? "ipc" : tag === "system-reminder" && TODO_REMINDER.test(text) ? "todo" : (tag && TONES[tag]) || "other";
+  return { kind: "notice", id, tone, text };
 }

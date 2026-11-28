@@ -1,7 +1,7 @@
 /* The checklist is shared by the dock and the todo tool result. */
-#dock, .todo-list { --todo-accent: #006e6b; --todo-mark-ink: #fff; }
+#dock, .todo-list, .run-widgets { --todo-accent: #006e6b; --todo-mark-ink: #fff; }
 @media (prefers-color-scheme: dark) {
-  #dock, .todo-list { --todo-accent: #75d4ce; --todo-mark-ink: #152c2b; }
+  #dock, .todo-list, .run-widgets { --todo-accent: #75d4ce; --todo-mark-ink: #152c2b; }
 }
 .todo-list { padding: 8px; border-radius: 9px; background: color-mix(in srgb, var(--todo-accent) 9%, var(--surface)); }
 .todo-phase + .todo-phase { margin-block-start: 12px; }
@@ -78,10 +78,16 @@
 
 /* Extension widgets: small text blocks outside the message box, above or below it. */
 .run-widgets { flex: none; padding: 0 24px 8px; }
-/* Room at the bottom for the fixed RPC pill, which would otherwise sit on the widget. */
-.run-widgets.below { padding-top: 8px; padding-bottom: 40px; }
-.run-widget { max-width: var(--composer-w); margin: 0 auto; padding: 6px 12px; border: 1px dashed var(--line2); border-radius: 10px; background: var(--surface2); color: var(--ink2); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow-y: auto; }
-.run-widget + .run-widget { margin-top: 6px; }
+/* The same card as the todo list: tinted surface, teal accent; the bar sits along the bottom edge. */
+.run-widget { max-width: var(--composer-w); margin: 0 auto; overflow: hidden; border: 1px solid color-mix(in srgb, var(--todo-accent) 24%, var(--line)); border-radius: 13px; background: color-mix(in srgb, var(--todo-accent) 9%, var(--surface)); font-family: var(--font-round); font-size: 13.5px; line-height: 1.5; }
+.run-widget + .run-widget { margin-top: 8px; }
+.rw-head { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 8px 14px; }
+.rw-icon { flex: none; color: var(--todo-accent); }
+.rw-title { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.rw-pct { flex: none; color: var(--todo-accent); font-variant-numeric: tabular-nums; }
+.rw-body { margin-block-start: -4px; padding: 0 14px 10px 40px; max-height: 120px; overflow-y: auto; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rw-bar { height: 8px; background: color-mix(in srgb, var(--todo-accent) 16%, var(--surface)); }
+.rw-bar > i { display: block; height: 100%; border-radius: 0 4px 4px 0; background: var(--todo-accent); transition: width .3s ease; }
 @media (max-width: 760px) { .run-strip, .run-widgets { padding-inline: 12px; } }
 
 .sub-win { position: fixed; width: 560px; height: 520px; min-width: 320px; min-height: 240px; max-width: 96vw; max-height: 92vh; display: flex; flex-direction: column; resize: both; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 40px rgba(0, 0, 0, .22); }

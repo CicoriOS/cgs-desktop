@@ -106,9 +106,8 @@ export function App({ profileUrl, settingsApi }: { profileUrl?: string; settings
               {!readOnly && <DialogHost />}
               <Dock onOpenSubagent={openSubagent} />
               <RunStatus />
-              <RunWidgets placement="aboveEditor" />
+              <RunWidgets />
               {!readOnly && <Composer />}
-              <RunWidgets placement="belowEditor" />
               {btw && !empty && <BtwPanel onClose={() => setBtw(false)} />}
               {stats && !empty && <StatsPanel onClose={() => setStats(false)} />}
             </main>

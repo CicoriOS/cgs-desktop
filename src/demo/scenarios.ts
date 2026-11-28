@@ -317,6 +317,7 @@ async function streamScript(r: Run): Promise<void> {
   r.session.emit({ type: "irc_message", message: { role: "custom", customType: "irc", content: [{ type: "text", text: "mika: 构建机 3 号空着，这条跑完可以直接上 CI。" }] } });
   await r.sleep(2400);
   r.session.emit({ type: "todo_reminder", todos: [{ content: "补测试并跑通", status: "in_progress" }], attempt: 1, maxAttempts: 3 });
+  r.session.emit({ type: "message_end", messageId: "d-todo-reminder", message: { role: "developer", content: [{ type: "text", text: "<system-reminder>\nYou stopped with 1 incomplete todo item(s): 补测试并跑通.\n(Reminder 1/3)\n</system-reminder>" }] } });
   await running;
   await r.assistant([text("三条通过、一条失败：失败的是测试自己的期望值写错了（给的是合法邮箱却期望报错），实现没问题。要我改测试吗？")]);
 }
@@ -346,8 +347,8 @@ async function statusScript(r: Run): Promise<void> {
   s.emit({ type: "goal_updated", goal: { id: "goal-1", objective: "把登录校验整理成一个模块并跑通测试", status: "active", tokensUsed: 18_400, timeUsedSeconds: 420 } });
   s.emit({ type: "extension_ui_request", id: "status-build", method: "setStatus", statusKey: "build", statusText: "构建缓存命中 (2.1s)" });
   s.emit({ type: "extension_ui_request", id: "status-lint", method: "setStatus", statusKey: "lint", statusText: "0 处警告" });
-  s.emit({ type: "extension_ui_request", id: "widget-above", method: "setWidget", widgetKey: "note", widgetLines: ["演示后端：不连接真实模型，状态与小部件来自扩展帧。"], widgetPlacement: "aboveEditor" });
-  s.emit({ type: "extension_ui_request", id: "widget-below", method: "setWidget", widgetKey: "ci", widgetLines: ["CI · build #2481 通过", "单元测试 128/128 · 覆盖率 91%"], widgetPlacement: "belowEditor" });
+  s.emit({ type: "extension_ui_request", id: "widget-above", method: "setWidget", widgetKey: "note", widgetLines: ["演示后端：不连接真实模型，状态与小部件来自扩展帧。"], widgetPlacement: "belowEditor" });
+  s.emit({ type: "extension_ui_request", id: "widget-below", method: "setWidget", widgetKey: "ci", widgetLines: ["CI · build #2481 运行中", "单元测试 96/128 · 覆盖率 91%"], widgetPlacement: "aboveEditor" });
   s.emit({ type: "config_warnings_changed" });
   await r.assistant([think("这些状态跑完也留着，用来展示扩展的常驻信息。"), text("扩展把构建状态和 CI 摘要放在输入框两侧；配置里有一条警告，可以点掉。")]);
 }

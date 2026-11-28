@@ -246,7 +246,11 @@ export function subagentsFromTools(tools: Record<string, ToolCall>): SubagentInf
 /** A notice goes in as a message of its own, in arrival order; the same frame twice (start, end) adds it once. */
 function addNotice(s: ClientState, notice: NoticeItem, now: number): ClientState {
   const turns = s.turns.length ? s.turns : [{ id: newTurnId(), user: { text: "" }, assistant: [], state: "running" as const, startedAt: now }];
-  if (turns.at(-1)!.assistant.some((a) => a.items.some((i) => i.kind === "notice" && i.id === notice.id))) return s;
+  const last = turns.at(-1)!;
+  if (last.assistant.some((a) => a.items.some((i) => i.kind === "notice" && i.id === notice.id))) return s;
+  // An IPC message can arrive as an `irc_message` frame and as a message of its own: the same text right after itself is one.
+  const prev = last.assistant.at(-1)?.items[0];
+  if (notice.tone === "ipc" && prev?.kind === "notice" && prev.tone === "ipc" && prev.text === notice.text) return s;
   return { ...s, turns: replaceLast(turns, (t) => ({ ...t, assistant: [...t.assistant, { id: `notice-${notice.id}`, items: [notice] }] })) };
 }
 
@@ -366,11 +370,11 @@ export function applyFrame(s: ClientState, f: EventFrame, now: number): ClientSt
       return setProgress(s, { goal });
     }
     case "todo_reminder":
-      return withToast(s, t("run.todoReminder", { attempt: f.attempt ?? 1, max: f.maxAttempts ?? 1 }));
+      // The reminder itself reaches the transcript as the developer message omp sends with it (a `todo` notice).
+      return s;
     case "irc_message": {
-      const message = f.message;
-      const text = typeof message === "object" && message ? textOf(message.content).trim() : "";
-      return withToast(s, text ? `${t("run.irc")}: ${text}` : t("run.irc"));
+      const notice = typeof f.message === "object" ? noticeFrom(`irc${now}`, f.message) : undefined;
+      return notice ? addNotice(s, notice, now) : s;
     }
     case "subagent_lifecycle":
     case "subagent_progress": {

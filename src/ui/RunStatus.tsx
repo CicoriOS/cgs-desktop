@@ -1,3 +1,4 @@
+import { Activity } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { RunProgress } from "../core/types";
 import type { MessageKey } from "../i18n";
@@ -115,16 +116,52 @@ export function RunStatus() {
   );
 }
 
-/** Extension widgets, above or below the message box as omp placed them. */
-export function RunWidgets({ placement }: { placement: "aboveEditor" | "belowEditor" }) {
+const FRACTION = /(\d+)\s*\/\s*(\d+)/;
+const PERCENT = /(\d{1,3}(?:\.\d+)?)\s*%/;
+
+/** A widget is plain text; a "96/128" or "80%" in it is read as how far along it is. */
+function progressOf(lines: string[]): number | undefined {
+  for (const re of [FRACTION, PERCENT]) {
+    for (const line of lines) {
+      const m = re.exec(line);
+      if (!m) continue;
+      const ratio = re === FRACTION ? (Number(m[2]) > 0 ? Number(m[1]) / Number(m[2]) : NaN) : Number(m[1]) / 100;
+      if (Number.isFinite(ratio)) return Math.min(1, Math.max(0, ratio));
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Extension widgets as cards, the first line as the title. The message box is always the bottom-most element, so
+ * a widget omp placed "below" it is stacked above it as well, after the ones placed above.
+ */
+export function RunWidgets() {
   const widgets = useClientState((s) => s.progress.widgets);
-  const mine = widgets.filter((w) => w.placement === placement);
-  if (!mine.length) return null;
+  if (!widgets.length) return null;
+  const ordered = [...widgets.filter((w) => w.placement === "aboveEditor"), ...widgets.filter((w) => w.placement !== "aboveEditor")];
   return (
-    <div className={`run-widgets ${placement === "aboveEditor" ? "above" : "below"}`}>
-      {mine.map((w) => (
-        <div className="run-widget" key={w.key} data-widget={w.key}>{w.lines.join("\n")}</div>
-      ))}
+    <div className="run-widgets">
+      {ordered.map((w) => {
+        const [title, ...rest] = w.lines;
+        const ratio = progressOf(w.lines);
+        const pct = ratio === undefined ? undefined : Math.round(ratio * 100);
+        return (
+          <div className="run-widget" key={w.key} data-widget={w.key}>
+            <div className="rw-head">
+              <Activity className="i rw-icon" aria-hidden="true" />
+              <span className="rw-title">{title}</span>
+              {pct !== undefined && <span className="rw-pct">{pct}%</span>}
+            </div>
+            {rest.length > 0 && <div className="rw-body">{rest.join("\n")}</div>}
+            {pct !== undefined && (
+              <div className="rw-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+                <i style={{ width: `${pct}%` }} />
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

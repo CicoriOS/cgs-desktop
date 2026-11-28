@@ -40,11 +40,14 @@ export interface ToolCall {
   stream?: ToolStream;
 }
 
-/** Text for the model, not the user (a harness reminder, a rule injected after a rewind): a quiet card, folded by default (ADR 0037). */
+/**
+ * Text for the model, not the user: a quiet card, folded by default (ADR 0037). Two kinds: a message between models
+ * (`ipc`), and a reminder for the model (`todo`, `rule`, and the system reminder, notice and interrupt).
+ */
 export interface NoticeItem {
   kind: "notice";
   id: string;
-  tone: "reminder" | "notice" | "interrupt" | "rule" | "other";
+  tone: "ipc" | "todo" | "reminder" | "notice" | "interrupt" | "rule" | "other";
   /** `rule`: the rule names. */
   names?: string;
   text: string;

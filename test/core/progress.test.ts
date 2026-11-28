@@ -86,16 +86,9 @@ test("extension statuses and widgets add, replace and remove by key, stripped of
   expect(s.progress.widgets[0]!.lines[0]).toBe("l18");
 });
 
-test("a todo reminder and an IRC message become toasts; a null goal clears the line", () => {
+test("a null goal clears the line", () => {
   let s = applyFrame(initialState(), { type: "goal_updated", goal: { objective: "ship" } }, 1);
   expect(s.progress.goal?.objective).toBe("ship");
   s = applyFrame(s, { type: "goal_updated", goal: null }, 2);
   expect(s.progress.goal).toBeUndefined();
-
-  s = applyFrame(s, { type: "todo_reminder", todos: [], attempt: 1, maxAttempts: 3 }, 3);
-  expect(s.toast?.text).toBeTruthy();
-  const seq = s.toast!.seq;
-  s = applyFrame(s, { type: "irc_message", message: { role: "custom", content: [{ type: "text", text: "mika: hi" }] } }, 4);
-  expect(s.toast?.seq).toBe(seq + 1);
-  expect(s.toast?.text).toContain("mika: hi");
 });

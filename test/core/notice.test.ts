@@ -14,7 +14,7 @@ test("a developer reminder becomes a notice without its harness tags, once howev
   s = applyFrame(s, developer("m1", "message_start"), 2);
   s = applyFrame(s, developer("m1"), 3);
   expect(s.turns).toHaveLength(1);
-  expect(noticesOf(s.turns[0])).toEqual([{ kind: "notice", id: "m1", tone: "reminder", text: "You stopped with 2 incomplete todo item(s).\n(Reminder 1/3)" }]);
+  expect(noticesOf(s.turns[0])).toEqual([{ kind: "notice", id: "m1", tone: "todo", text: "You stopped with 2 incomplete todo item(s).\n(Reminder 1/3)" }]);
   expect(s.turns[0]!.user.text).toBe("go");
 });
 
@@ -37,7 +37,7 @@ test("saved history shows the same notices: developer messages and custom_messag
     { id: "4", parentId: "3", type: "message", message: { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" } },
   ]);
   expect(turns).toHaveLength(1);
-  expect(noticesOf(turns[0]).map((n) => [n.tone, n.names])).toEqual([["reminder", undefined], ["rule", "r"]]);
+  expect(noticesOf(turns[0]).map((n) => [n.tone, n.names])).toEqual([["todo", undefined], ["rule", "r"]]);
   expect(turns[0]!.assistant.at(-1)!.items).toEqual([{ kind: "text", text: "done" }]);
 });
 
@@ -46,4 +46,13 @@ const sub = (id: string, status: SubagentInfo["status"]): SubagentInfo => ({ id,
 test("history that lists a subagent as running but omp's roster does not know it marks it aborted; finished and live ones are kept", () => {
   const list = [sub("a", "running"), sub("b", "completed"), sub("c", "pending")];
   expect(reconcileRoster(list, [sub("c", "running")]).map((s) => [s.id, s.status])).toEqual([["a", "aborted"], ["b", "completed"], ["c", "pending"]]);
+});
+
+test("an IPC message, as a frame and as a message of its own, is one notice; an ordinary system reminder stays a reminder", () => {
+  const irc = { role: "custom", customType: "irc", content: [{ type: "text", text: "mika: 构建机空着" }] };
+  let s = applyFrame(initialState(), { type: "irc_message", message: irc }, 1);
+  s = applyFrame(s, { type: "message_end", messageId: "i1", message: irc }, 2);
+  expect(noticesOf(s.turns[0]).map((n) => [n.tone, n.text])).toEqual([["ipc", "mika: 构建机空着"]]);
+  s = applyFrame(s, { type: "message_end", messageId: "d1", message: { role: "developer", content: "<system-reminder>\nUse bun.\n</system-reminder>" } }, 3);
+  expect(noticesOf(s.turns[0]).map((n) => n.tone)).toEqual(["ipc", "reminder"]);
 });
